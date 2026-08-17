@@ -46,6 +46,9 @@ func (s BlobStore) GC(olderThan time.Duration, maxBytes int64) (GCResult, error)
 		if err := os.Remove(item.path); err != nil {
 			return result, err
 		}
+		if s.Index != "" {
+			_ = os.Remove(s.IndexPath(filepath.Base(item.path)))
+		}
 		result.Removed++
 		result.Bytes += item.size
 		total -= item.size

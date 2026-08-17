@@ -22,7 +22,6 @@ import (
 
 type Server struct {
 	paths workspace.Paths
-	ln    net.Listener
 	store *storage.Store
 	exec  *executor.Executor
 	stop  chan struct{}
@@ -46,15 +45,29 @@ func (s *Server) Serve(ctx context.Context) error {
 		return fmt.Errorf("open invocation storage: %w", err)
 	}
 	s.store = store
-	s.exec = executor.New(store, storage.BlobStore{Root: s.paths.Blobs})
+	s.exec = executor.New(store, storage.BlobStore{Root: s.paths.Blobs, Index: s.paths.Index})
 	defer store.Close()
 	if _, err := store.Reconcile(ctx, processAlive); err != nil {
 		return fmt.Errorf("reconcile invocations: %w", err)
 	}
-	if err := s.listen(); err != nil {
+	ln, err := s.listen()
+	if err != nil {
 		return err
 	}
 	defer s.cleanup()
+
+	// Close the listener when shutdown is signaled so Accept unblocks. The
+	// listener is owned by this goroutine, so there is no shared mutable
+	// listener state to race with Shutdown.
+	serveDone := make(chan struct{})
+	defer close(serveDone)
+	go func() {
+		select {
+		case <-s.stop:
+			_ = ln.Close()
+		case <-serveDone:
+		}
+	}()
 
 	sigCtx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -67,7 +80,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	}()
 
 	for {
-		conn, err := s.ln.Accept()
+		conn, err := ln.Accept()
 		if err != nil {
 			select {
 			case <-s.stop:
@@ -85,28 +98,31 @@ func (s *Server) Serve(ctx context.Context) error {
 	}
 }
 
-func (s *Server) listen() error {
+func (s *Server) listen() (net.Listener, error) {
 	ln, err := net.Listen("unix", s.paths.Socket)
 	if err != nil && errors.Is(err, syscall.EADDRINUSE) {
 		conn, dialErr := net.Dial("unix", s.paths.Socket)
 		if dialErr == nil {
 			conn.Close()
-			return fmt.Errorf("daemon already running at %s", s.paths.Socket)
+			return nil, fmt.Errorf("daemon already running at %s", s.paths.Socket)
 		}
 		if removeErr := os.Remove(s.paths.Socket); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-			return removeErr
+			return nil, removeErr
 		}
 		ln, err = net.Listen("unix", s.paths.Socket)
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := os.Chmod(s.paths.Socket, 0o600); err != nil {
 		ln.Close()
-		return err
+		return nil, err
 	}
-	s.ln = ln
-	return os.WriteFile(s.paths.PID, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o600)
+	if err := os.WriteFile(s.paths.PID, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o600); err != nil {
+		ln.Close()
+		return nil, err
+	}
+	return ln, nil
 }
 
 func (s *Server) handle(conn net.Conn) {
@@ -231,7 +247,7 @@ func (s *Server) handle(conn net.Conn) {
 	case agentrpc.OpBashGC:
 		var params agentrpc.BashGCRequest
 		_ = json.Unmarshal(request.Params, &params)
-		gc, err := (storage.BlobStore{Root: s.paths.Blobs}).GC(time.Duration(params.OlderThanHours)*time.Hour, params.MaxBytes)
+		gc, err := (storage.BlobStore{Root: s.paths.Blobs, Index: s.paths.Index}).GC(time.Duration(params.OlderThanHours)*time.Hour, params.MaxBytes)
 		if err != nil {
 			response = agentrpc.Failure(request.ID, "gc", err.Error())
 		} else {
@@ -247,41 +263,49 @@ func (s *Server) readOutput(params agentrpc.BashOutputRequest) (output.Result, e
 	if params.Stream == "" {
 		params.Stream = "stdout"
 	}
+	options := output.Options{Lines: params.Lines, Grep: params.Grep, Context: params.Context}
 	reader, running, err := s.exec.OpenRunning(params.ID, params.Stream)
 	if err != nil {
 		return output.Result{}, err
 	}
-	if !running {
-		invocation, err := s.store.GetInvocation(context.Background(), params.ID)
-		if err != nil {
-			return output.Result{}, err
-		}
-		var digest string
-		switch params.Stream {
-		case "stdout":
-			digest = invocation.Stdout.SHA256
-		case "stderr":
-			digest = invocation.Stderr.SHA256
-		default:
-			return output.Result{}, errors.New("stream must be stdout or stderr")
-		}
-		reader, err = storage.BlobStore{Root: s.paths.Blobs}.Open(digest)
-		if err != nil {
-			return output.Result{}, err
-		}
+	if running {
+		defer reader.Close()
+		result, err := output.Read(reader, options)
+		result.Running = true
+		return result, err
 	}
-	defer reader.Close()
-	result, err := output.Read(reader, output.Options{Lines: params.Lines, Grep: params.Grep, Context: params.Context})
-	result.Running = running
-	return result, err
+	invocation, err := s.store.GetInvocation(context.Background(), params.ID)
+	if err != nil {
+		return output.Result{}, err
+	}
+	var digest string
+	switch params.Stream {
+	case "stdout":
+		digest = invocation.Stdout.SHA256
+	case "stderr":
+		digest = invocation.Stderr.SHA256
+	default:
+		return output.Result{}, errors.New("stream must be stdout or stderr")
+	}
+	blobs := storage.BlobStore{Root: s.paths.Blobs, Index: s.paths.Index}
+	file, err := blobs.Open(digest)
+	if err != nil {
+		return output.Result{}, err
+	}
+	defer file.Close()
+	idx, err := blobs.LoadIndex(digest)
+	if err != nil {
+		idx = nil
+	}
+	if idx == nil {
+		idx, _ = blobs.Rebuild(digest)
+	}
+	return output.ReadFile(file, idx, options)
 }
 
 func (s *Server) Shutdown() {
 	s.once.Do(func() {
 		close(s.stop)
-		if s.ln != nil {
-			_ = s.ln.Close()
-		}
 	})
 }
 

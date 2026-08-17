@@ -100,6 +100,67 @@ func Read(reader io.Reader, options Options) (Result, error) {
 	return Result{Text: render(selected, options.Lines != "" || options.Grep != ""), Bytes: int64(len(data)), Lines: int64(len(all))}, nil
 }
 
+// ReadFile reads output from a seekable stream, using an optional line index
+// to bound the read when a line range is requested without grep. When the
+// index is unavailable or a grep is requested, it falls back to scanning the
+// whole stream.
+func ReadFile(reader io.ReadSeeker, idx *storage.LineIndex, options Options) (Result, error) {
+	if options.Grep != "" || options.Lines == "" || idx == nil || len(idx.Entries) == 0 {
+		if _, err := reader.Seek(0, io.SeekStart); err != nil {
+			return Result{}, err
+		}
+		return Read(reader, options)
+	}
+	start, end, err := parseRange(options.Lines, int(idx.Lines))
+	if err != nil {
+		return Result{}, err
+	}
+	selected, err := readLineRange(reader, int64(start), int64(end), idx.Lookup(int64(start)))
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Text: render(selected, true), Bytes: idx.Bytes, Lines: idx.Lines}, nil
+}
+
+func readLineRange(r io.ReadSeeker, start, end int64, entry storage.IndexEntry) ([]line, error) {
+	if _, err := r.Seek(entry.Offset, io.SeekStart); err != nil {
+		return nil, err
+	}
+	br := bufio.NewReaderSize(r, 64*1024)
+	for skip := start - entry.Line; skip > 0; skip-- {
+		if _, err := br.ReadBytes('\n'); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil, nil
+			}
+			return nil, err
+		}
+	}
+	result := make([]line, 0, int(end-start+1))
+	for number := start; number <= end; number++ {
+		b, err := br.ReadBytes('\n')
+		if len(b) > 0 {
+			result = append(result, line{number: int(number), data: stripLineEnding(b)})
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, err
+		}
+	}
+	return result, nil
+}
+
+func stripLineEnding(b []byte) []byte {
+	if n := len(b); n > 0 && b[n-1] == '\n' {
+		b = b[:n-1]
+		if len(b) > 0 && b[len(b)-1] == '\r' {
+			b = b[:len(b)-1]
+		}
+	}
+	return b
+}
+
 type line struct {
 	number int
 	data   []byte
