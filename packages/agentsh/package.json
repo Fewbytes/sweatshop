@@ -1,0 +1,12 @@
+{
+  "name": "@sweatshop/agentsh",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Claude Code and pi.dev adapters for the agentsh runtime",
+  "type": "module",
+  "files": [".claude-plugin", "pi", "skills", "README.md"],
+  "pi": {
+    "extensions": ["./pi/extensions/agentsh.ts"],
+    "skills": ["./skills/agentsh"]
+  }
+}

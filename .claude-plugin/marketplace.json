@@ -1,0 +1,20 @@
+{
+  "name": "sweatshop",
+  "owner": {
+    "name": "Avishai Ish-Shalom"
+  },
+  "metadata": {
+    "description": "Related Claude Code plugins and pi.dev extensions for software factories",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "agentsh",
+      "source": "./packages/agentsh",
+      "description": "Supervised Bash execution runtime for LLM agents",
+      "version": "0.1.0",
+      "category": "development",
+      "tags": ["execution", "bash", "mcp", "software-factory"]
+    }
+  ]
+}

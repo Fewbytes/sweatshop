@@ -1,0 +1,8 @@
+{
+  "name": "agentsh",
+  "version": "0.1.0",
+  "description": "Supervised Bash execution runtime for LLM agents",
+  "author": { "name": "Avishai Ish-Shalom" },
+  "license": "MIT",
+  "keywords": ["bash", "mcp", "execution", "software-factory"]
+}

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "agentsh": {
+      "command": "agentshd",
+      "args": ["mcp"]
+    }
+  }
+}

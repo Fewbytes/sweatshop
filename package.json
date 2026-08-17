@@ -1,0 +1,9 @@
+{
+  "name": "sweatshop",
+  "private": true,
+  "description": "Marketplace of related Claude Code plugins and pi.dev extensions for software factories",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "validate:marketplace": "node scripts/validate-marketplace.mjs"
+  }
+}
