@@ -1,13 +1,15 @@
 package storage
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
+	"hash"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 type BlobStore struct {
@@ -19,12 +21,15 @@ type BlobStore struct {
 }
 
 type BlobWriter struct {
-	store BlobStore
-	file  *os.File
-	path  string
-	hash  [sha256.Size]byte
-	bytes int64
-	lines int64
+	// mu guards every field. The command's output arrives on one goroutine
+	// while readers call OpenSnapshot from another to tail a running stream.
+	mu     sync.Mutex
+	store  BlobStore
+	file   *os.File
+	path   string
+	hasher hash.Hash
+	bytes  int64
+	lines  int64
 
 	checkpointLines int64
 	checkpointBytes int64
@@ -43,25 +48,34 @@ func (s BlobStore) NewWriter() (*BlobWriter, error) {
 		return nil, err
 	}
 	return &BlobWriter{
-		store: s, file: file, path: file.Name(),
+		store: s, file: file, path: file.Name(), hasher: sha256.New(),
 		checkpointLines: s.checkpointLines(),
 		checkpointBytes: s.checkpointBytes(),
 	}, nil
 }
 
 func (w *BlobWriter) Write(data []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	n, err := w.file.Write(data)
 	written := data[:n]
 	if n > 0 {
+		// Hash as the bytes go by. Re-reading the finished stream to digest it
+		// doubles the I/O of every invocation.
+		w.hasher.Write(written)
 		pos := w.bytes
-		w.bytes += int64(n)
-		for i, b := range written {
-			if b == '\n' {
-				w.lines++
-				w.lineStart = pos + int64(i) + 1
-				w.maybeCheckpoint()
+		for offset := 0; offset < len(written); {
+			index := bytes.IndexByte(written[offset:], '\n')
+			if index < 0 {
+				break
 			}
+			absolute := offset + index
+			w.lines++
+			w.lineStart = pos + int64(absolute) + 1
+			w.maybeCheckpoint()
+			offset = absolute + 1
 		}
+		w.bytes += int64(n)
 	}
 	return n, err
 }
@@ -91,6 +105,8 @@ func (w *BlobWriter) totalLines() int64 {
 // OpenSnapshot opens the stream's current temporary file. It remains readable
 // while the command appends to it.
 func (w *BlobWriter) OpenSnapshot() (*os.File, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if w.path == "" {
 		return nil, errors.New("blob writer has no backing file")
 	}
@@ -98,18 +114,13 @@ func (w *BlobWriter) OpenSnapshot() (*os.File, error) {
 }
 
 func (w *BlobWriter) Commit() (StreamRef, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if w.file == nil {
 		return StreamRef{}, errors.New("blob writer is closed")
 	}
 	name := w.file.Name()
-	if _, err := w.file.Seek(0, io.SeekStart); err != nil {
-		return StreamRef{}, w.abort(err)
-	}
-	h := sha256.New()
-	if _, err := io.Copy(h, w.file); err != nil {
-		return StreamRef{}, w.abort(err)
-	}
-	copy(w.hash[:], h.Sum(nil))
+	digestBytes := w.hasher.Sum(nil)
 	if err := w.file.Sync(); err != nil {
 		return StreamRef{}, w.abort(err)
 	}
@@ -117,7 +128,7 @@ func (w *BlobWriter) Commit() (StreamRef, error) {
 		return StreamRef{}, w.abort(err)
 	}
 	w.file = nil
-	digest := hex.EncodeToString(w.hash[:])
+	digest := hex.EncodeToString(digestBytes)
 	destination := filepath.Join(w.store.Root, digest)
 	if err := os.Rename(name, destination); err != nil {
 		if _, statErr := os.Stat(destination); statErr == nil {
@@ -133,7 +144,21 @@ func (w *BlobWriter) Commit() (StreamRef, error) {
 	if w.store.Index != "" {
 		_ = w.store.writeIndex(digest, &w.index)
 	}
-	return StreamRef{SHA256: digest, Bytes: w.bytes, Lines: w.lines}, nil
+	// totalLines, not w.lines: a final line without a trailing newline still
+	// counts, and the line index already records it that way. Reporting the two
+	// differently puts StreamRef and LineIndex permanently out of step.
+	return StreamRef{SHA256: digest, Bytes: w.bytes, Lines: w.index.Lines}, nil
+}
+
+// Discard releases the writer's temp file without producing a blob. It is safe
+// to call on an already-committed or already-discarded writer.
+func (w *BlobWriter) Discard() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.file == nil {
+		return
+	}
+	_ = w.abort(nil)
 }
 
 func (w *BlobWriter) abort(cause error) error {
