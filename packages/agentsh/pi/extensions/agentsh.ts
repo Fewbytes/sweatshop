@@ -21,13 +21,26 @@ async function ensureDaemon(cwd: string): Promise<void> {
   }
 }
 
+// Control operations answer from daemon state; a command runs for as long as
+// the caller asked. A single fixed socket timeout caps every call at the
+// shortest case and orphans the invocation, which the daemon still completes.
+const CONTROL_TIMEOUT_MS = 30_000;
+const CALL_GRACE_MS = 30_000;
+const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
+
+function callTimeout(op: string, params: unknown): number {
+  if (op !== "bash" && op !== "bash_replay") return CONTROL_TIMEOUT_MS;
+  const requested = (params as { timeout_ms?: number } | undefined)?.timeout_ms;
+  return (requested && requested > 0 ? requested : DEFAULT_COMMAND_TIMEOUT_MS) + CALL_GRACE_MS;
+}
+
 async function call(cwd: string, op: string, params: unknown): Promise<unknown> {
   await ensureDaemon(cwd);
   const socket = socketPath(cwd);
   return new Promise((resolve, reject) => {
     let data = "";
     const connection: Socket = createConnection(socket);
-    connection.setTimeout(10000);
+    connection.setTimeout(callTimeout(op, params));
     connection.on("connect", () => connection.write(JSON.stringify({ version: 1, id: `pi-${Date.now()}`, op, params }) + "\n"));
     connection.on("data", chunk => {
       data += chunk.toString();

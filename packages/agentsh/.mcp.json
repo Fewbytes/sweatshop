@@ -1,0 +1,6 @@
+{
+  "agentsh": {
+    "command": "agentshd",
+    "args": ["mcp"]
+  }
+}
