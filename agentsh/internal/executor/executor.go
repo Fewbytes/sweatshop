@@ -540,11 +540,23 @@ func (e *Executor) mapExit(inv *storage.Invocation, err error) {
 	inv.ExitCode, inv.Reason = &code, &reason
 }
 
+// withheld names variables that must never reach a supervised command. The
+// daemon takes its own settings from a config file, so these carry no meaning
+// for children — but an operator's shell may still hold them, and a credential
+// handed to arbitrary agent-run processes is a credential leaked.
+var withheld = map[string]bool{
+	"TURSO_AUTH_TOKEN":   true,
+	"TURSO_DATABASE_URL": true,
+}
+
 // environmentMap is the environment a supervised command inherits.
 func environmentMap() map[string]string {
 	values := map[string]string{}
 	for _, item := range os.Environ() {
 		if key, value, ok := strings.Cut(item, "="); ok {
+			if withheld[key] {
+				continue
+			}
 			values[key] = value
 		}
 	}
