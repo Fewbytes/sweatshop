@@ -29,7 +29,10 @@ func main() {
 	if err != nil {
 		fatal(err.Error())
 	}
-	client := agentrpc.Client{Socket: paths.Socket}
+	// The dial timeout stays short, but a command may run to the daemon's own
+	// limit; the overall bound must sit above it so the CLI does not abandon a
+	// result the daemon is still producing.
+	client := agentrpc.Client{Socket: paths.Socket, Timeout: 180 * time.Second}
 	op := flag.Arg(0)
 	args := flag.Args()[1:]
 	if op == "output" {

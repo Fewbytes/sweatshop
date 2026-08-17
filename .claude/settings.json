@@ -2,11 +2,5 @@
   "hooks": {},
   "permissions": {
     "deny": ["Bash"]
-  },
-  "mcpServers": {
-    "agentsh": {
-      "command": "agentshd",
-      "args": ["mcp"]
-    }
   }
 }
