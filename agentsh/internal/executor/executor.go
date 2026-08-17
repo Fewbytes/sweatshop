@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -60,6 +61,11 @@ type Executor struct {
 	MaxTimeout   time.Duration
 	LoopDetector *LoopDetector
 
+	// baseEnv is the environment commands inherit. It is the comparison point
+	// for a fresh session's first command; without it every inherited variable
+	// reads as a change that command made.
+	baseEnv map[string]string
+
 	mu      sync.Mutex
 	running map[string]*run
 }
@@ -72,16 +78,35 @@ type run struct {
 	controlWg  sync.WaitGroup
 	stdout     *storage.BlobWriter
 	stderr     *storage.BlobWriter
-	cancel     context.CancelFunc
-	done       chan struct{}
-	inputCh    chan struct{}
-	lastOutput time.Time
+	cancel  context.CancelFunc
+	done    chan struct{}
+	inputCh chan struct{}
+
+	// lastOutput is unix nanos of the most recent write on either stream. It is
+	// atomic because the output goroutines record it while the waiter reads it.
+	lastOutput atomic.Int64
+}
+
+// activityWriter timestamps writes so the idle check measures silence rather
+// than elapsed runtime. Without it a chatty long-running command looks idle.
+type activityWriter struct {
+	dest io.Writer
+	last *atomic.Int64
+}
+
+func (w activityWriter) Write(data []byte) (int, error) {
+	n, err := w.dest.Write(data)
+	if n > 0 {
+		w.last.Store(time.Now().UnixNano())
+	}
+	return n, err
 }
 
 func New(store Store, blobs storage.BlobStore) *Executor {
 	return &Executor{
 		Store: store, Blobs: blobs, Sessions: session.NewManager(), Containment: DefaultContainment(),
 		Grace: DefaultGrace, IdleWait: DefaultIdleWait, LoopDetector: NewLoopDetector(DefaultLoopConfig()),
+		baseEnv: environmentMap(),
 		running: make(map[string]*run),
 	}
 }
@@ -103,11 +128,10 @@ func (e *Executor) Execute(ctx context.Context, request Request) (storage.Invoca
 	if e.MaxTimeout > 0 && timeout > e.MaxTimeout {
 		timeout = e.MaxTimeout
 	}
+	// Defaults are resolved without writing to the receiver: concurrent Execute
+	// calls would otherwise race on these fields.
 	if e.Containment == nil {
 		e.Containment = Null{}
-	}
-	if e.Grace <= 0 {
-		e.Grace = DefaultGrace
 	}
 	idleWait := request.IdleTimeout
 	if idleWait <= 0 {
@@ -128,8 +152,9 @@ func (e *Executor) Execute(ctx context.Context, request Request) (storage.Invoca
 	runCtx, cancel := context.WithCancel(context.Background())
 	r := &run{
 		invocation: invocation, cancel: cancel, done: make(chan struct{}),
-		inputCh: make(chan struct{}, 1), lastOutput: time.Now(),
+		inputCh: make(chan struct{}, 1),
 	}
+	r.lastOutput.Store(time.Now().UnixNano())
 	if err := e.start(runCtx, r, request); err != nil {
 		cancel()
 		now := time.Now().UTC()
@@ -165,15 +190,27 @@ func (e *Executor) Execute(ctx context.Context, request Request) (storage.Invoca
 	}
 }
 
-func (e *Executor) start(ctx context.Context, r *run, request Request) error {
+func (e *Executor) start(ctx context.Context, r *run, request Request) (err error) {
 	stdout, err := e.Blobs.NewWriter()
 	if err != nil {
 		return err
 	}
 	stderr, err := e.Blobs.NewWriter()
 	if err != nil {
+		stdout.Discard()
 		return err
 	}
+	// Every failure below this point must release both writers. Each holds an
+	// open temp file, so leaking them costs two descriptors and one stray
+	// .stream-* file per failed start, forever.
+	started := false
+	defer func() {
+		if !started {
+			stdout.Discard()
+			stderr.Discard()
+		}
+	}()
+
 	controlRead, controlWrite, err := os.Pipe()
 	if err != nil {
 		return err
@@ -197,7 +234,9 @@ func (e *Executor) start(ctx context.Context, r *run, request Request) error {
 	}()
 
 	cmd := exec.CommandContext(ctx, "bash", "--noprofile", "--norc", "-c", script)
-	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = request.CWD, cleanEnvironment(), stdout, stderr
+	cmd.Dir, cmd.Env = request.CWD, cleanEnvironment()
+	cmd.Stdout = activityWriter{dest: stdout, last: &r.lastOutput}
+	cmd.Stderr = activityWriter{dest: stderr, last: &r.lastOutput}
 	cmd.ExtraFiles = []*os.File{controlWrite}
 	if request.Interactive {
 		stdinPipe, pipeErr := cmd.StdinPipe()
@@ -239,6 +278,7 @@ func (e *Executor) start(ctx context.Context, r *run, request Request) error {
 			return fmt.Errorf("attach process containment: %w", err)
 		}
 	}
+	started = true
 	return e.Store.SetPID(context.Background(), r.invocation.ID, pid)
 }
 
@@ -259,12 +299,15 @@ waitLoop:
 		case err = <-wait:
 			break waitLoop
 		case <-timer.C:
+			e.mu.Lock()
 			r.invocation.State = storage.StateTimeout
+			e.mu.Unlock()
 			err = e.terminate(r, wait)
 			break waitLoop
 		case <-ticker.C:
 			if !waitingTriggered && r.stdinPipe != nil && r.cmd != nil && r.cmd.Process != nil {
-				if time.Since(r.lastOutput) >= idleWait && isWaitingOnStdin(r.cmd.Process.Pid) {
+				idle := time.Since(time.Unix(0, r.lastOutput.Load()))
+				if idle >= idleWait && isWaitingOnStdin(r.cmd.Process.Pid) {
 					waitingTriggered = true
 					e.mu.Lock()
 					r.invocation.State = storage.StateWaitingOnInput
@@ -284,6 +327,11 @@ waitLoop:
 	now := time.Now().UTC()
 	r.controlWg.Wait()
 	baseline := e.Sessions.Get(r.invocation.Session, r.invocation.CWD)
+	if len(baseline.Env) == 0 && e.baseEnv != nil {
+		// A session with no recorded environment yet would otherwise report
+		// every inherited variable as this command's doing.
+		baseline.Env = e.baseEnv
+	}
 	newState, envDelta := session.ParseCapturedState(r.control.Bytes(), baseline)
 
 	e.mu.Lock()
@@ -301,37 +349,27 @@ waitLoop:
 	}
 	e.mapExit(&r.invocation, err)
 	e.mu.Unlock()
+	var oomReason *string
 	if lifecycle, ok := e.Containment.(ProcessLifecycle); ok {
 		if lifecycle.OOMKilled(r.invocation.ID) {
 			reason := "oom"
-			r.invocation.Reason = &reason
+			oomReason = &reason
 		}
 		defer lifecycle.Cleanup(r.invocation.ID)
 	}
-	// Writers are the direct command outputs and are safe to finalize after Wait.
-	var stdoutText, stderrText string
-	if ref, commitErr := r.stdout.Commit(); commitErr == nil {
-		if file, openErr := e.Blobs.Open(ref.SHA256); openErr == nil {
-			preview, previewErr := output.Preview(file, r.invocation.ID, "stdout")
-			file.Close()
-			if previewErr == nil {
-				ref.Preview, ref.Truncated = preview.Preview, preview.Truncated
-			}
-		}
-		r.invocation.Stdout = ref
-		stdoutText = readBlobExcerpt(e.Blobs, ref.SHA256, 512*1024)
+
+	// Finalize the streams into locals first. Committing and previewing touches
+	// the filesystem, and holding the lock across it would stall Processes and
+	// Kill for the length of an I/O pass.
+	invocationID := r.invocation.ID
+	stdoutRef, stdoutText := e.finalizeStream(r.stdout, invocationID, "stdout")
+	stderrRef, stderrText := e.finalizeStream(r.stderr, invocationID, "stderr")
+
+	e.mu.Lock()
+	if oomReason != nil {
+		r.invocation.Reason = oomReason
 	}
-	if ref, commitErr := r.stderr.Commit(); commitErr == nil {
-		if file, openErr := e.Blobs.Open(ref.SHA256); openErr == nil {
-			preview, previewErr := output.Preview(file, r.invocation.ID, "stderr")
-			file.Close()
-			if previewErr == nil {
-				ref.Preview, ref.Truncated = preview.Preview, preview.Truncated
-			}
-		}
-		r.invocation.Stderr = ref
-		stderrText = readBlobExcerpt(e.Blobs, ref.SHA256, 512*1024)
-	}
+	r.invocation.Stdout, r.invocation.Stderr = stdoutRef, stderrRef
 	exitCode := 0
 	if r.invocation.ExitCode != nil {
 		exitCode = *r.invocation.ExitCode
@@ -339,19 +377,52 @@ waitLoop:
 	r.invocation.Summary = output.FormatCommand(r.invocation.Command, stdoutText, stderrText, exitCode)
 	if r.invocation.Reason != nil && *r.invocation.Reason != "ok" {
 		r.invocation.Stdout.Preview += recoveryHint(r.invocation)
-		if e.LoopDetector != nil {
-			if warn := e.LoopDetector.RecordAndCheck(r.invocation); warn != "" {
-				r.invocation.Stdout.Preview += "\n" + warn
-			}
-		}
-	} else if e.LoopDetector != nil {
-		e.LoopDetector.RecordSuccess(r.invocation)
 	}
-	_ = e.Store.FinishInvocation(context.Background(), r.invocation)
+	// Copy before releasing the lock; everything below reads a stable record.
+	finished := r.invocation
+	e.mu.Unlock()
+
+	if e.LoopDetector != nil {
+		if finished.Reason != nil && *finished.Reason != "ok" {
+			if warn := e.LoopDetector.RecordAndCheck(finished); warn != "" {
+				finished.Stdout.Preview += "\n" + warn
+				e.mu.Lock()
+				r.invocation.Stdout.Preview = finished.Stdout.Preview
+				e.mu.Unlock()
+			}
+		} else {
+			e.LoopDetector.RecordSuccess(finished)
+		}
+	}
+
+	_ = e.Store.FinishInvocation(context.Background(), finished)
 	e.mu.Lock()
-	delete(e.running, r.invocation.ID)
+	delete(e.running, invocationID)
 	e.mu.Unlock()
 	r.cancel()
+}
+
+// finalizeStream commits a stream and builds its preview and summary excerpt.
+func (e *Executor) finalizeStream(writer *storage.BlobWriter, invocationID, name string) (storage.StreamRef, string) {
+	ref, err := writer.Commit()
+	if err != nil {
+		return storage.StreamRef{}, ""
+	}
+	if file, openErr := e.Blobs.Open(ref.SHA256); openErr == nil {
+		preview, previewErr := output.Preview(file, invocationID, name)
+		file.Close()
+		if previewErr == nil {
+			ref.Preview, ref.Truncated = preview.Preview, preview.Truncated
+		}
+	}
+	return ref, readBlobExcerpt(e.Blobs, ref.SHA256, 512*1024)
+}
+
+func (e *Executor) grace() time.Duration {
+	if e.Grace <= 0 {
+		return DefaultGrace
+	}
+	return e.Grace
 }
 
 func (e *Executor) terminate(r *run, wait <-chan error) error {
@@ -359,7 +430,7 @@ func (e *Executor) terminate(r *run, wait <-chan error) error {
 	select {
 	case err := <-wait:
 		return err
-	case <-time.After(e.Grace):
+	case <-time.After(e.grace()):
 		var killErr error
 		if killer, ok := e.Containment.(WholeTreeKiller); ok {
 			killErr = killer.KillInvocation(r.invocation.ID)
@@ -443,16 +514,21 @@ func (e *Executor) mapExit(inv *storage.Invocation, err error) {
 	reason := "ok"
 	code := 0
 	if err != nil {
-		reason = "nonzero"
-		code = 1
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
+			reason = "nonzero"
 			code = exit.ExitCode()
 			if status, ok := exit.Sys().(syscall.WaitStatus); ok && status.Signaled() {
 				signal := int(status.Signal())
 				inv.Signal = &signal
 				reason = "signal"
 			}
+		} else {
+			// Not the command's exit status — the supervisor itself failed.
+			// Reporting "exit 1" here invents a result the command never
+			// produced and sends the agent debugging the wrong thing.
+			reason = "supervisor_error"
+			code = -1
 		}
 	}
 	if inv.State == storage.StateTimeout {
@@ -464,7 +540,8 @@ func (e *Executor) mapExit(inv *storage.Invocation, err error) {
 	inv.ExitCode, inv.Reason = &code, &reason
 }
 
-func cleanEnvironment() []string {
+// environmentMap is the environment a supervised command inherits.
+func environmentMap() map[string]string {
 	values := map[string]string{}
 	for _, item := range os.Environ() {
 		if key, value, ok := strings.Cut(item, "="); ok {
@@ -474,6 +551,11 @@ func cleanEnvironment() []string {
 	for key, value := range hygiene {
 		values[key] = value
 	}
+	return values
+}
+
+func cleanEnvironment() []string {
+	values := environmentMap()
 	keys := make([]string, 0, len(values))
 	for key := range values {
 		keys = append(keys, key)
