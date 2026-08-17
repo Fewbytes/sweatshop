@@ -22,7 +22,7 @@ func main() {
 	workspaceFlag := flag.String("workspace", "", "workspace directory")
 	flag.Parse()
 	if flag.NArg() < 1 {
-		fatal("usage: agentsh [--workspace DIR] health|shutdown|bash COMMAND|output ID")
+		fatal("usage: agentsh [--workspace DIR] health|shutdown|bash COMMAND|output ID|processes [--session NAME]")
 	}
 
 	paths, err := workspace.Resolve(*workspaceFlag)
@@ -31,16 +31,23 @@ func main() {
 	}
 	client := agentrpc.Client{Socket: paths.Socket}
 	op := flag.Arg(0)
+	args := flag.Args()[1:]
 	if op == "output" {
 		op = agentrpc.OpBashOutput
 	}
-	if op != agentrpc.OpHealth && op != agentrpc.OpShutdown && op != agentrpc.OpBash && op != agentrpc.OpBashOutput {
+	if op == "processes" {
+		op = agentrpc.OpBashProcesses
+	}
+	if op != agentrpc.OpHealth && op != agentrpc.OpShutdown && op != agentrpc.OpBash && op != agentrpc.OpBashOutput && op != agentrpc.OpBashProcesses {
 		fatal("unknown command: " + op)
 	}
-	if (op == agentrpc.OpBash || op == agentrpc.OpBashOutput) && flag.NArg() != 2 {
+	if (op == agentrpc.OpBash || op == agentrpc.OpBashOutput) && len(args) != 1 {
 		fatal("bash and output commands require one argument")
 	}
-	if err := call(client, paths, op, flag.Args()[1:]); err != nil {
+	if op == agentrpc.OpBashProcesses && len(args) > 2 {
+		fatal("usage: agentsh processes [--session NAME]")
+	}
+	if err := call(client, paths, op, args); err != nil {
 		fatal(err.Error())
 	}
 }
@@ -57,6 +64,15 @@ func call(client agentrpc.Client, paths workspace.Paths, op string, args []strin
 	case agentrpc.OpBashOutput:
 		request.Params, _ = json.Marshal(agentrpc.BashOutputRequest{ID: args[0]})
 		result = &map[string]any{}
+	case agentrpc.OpBashProcesses:
+		var session string
+		if len(args) == 2 && args[0] == "--session" {
+			session = args[1]
+		} else if len(args) != 0 {
+			return fmt.Errorf("usage: agentsh processes [--session NAME]")
+		}
+		request.Params, _ = json.Marshal(agentrpc.BashStateRequest{Session: session})
+		result = &[]map[string]any{}
 	default:
 		result = &map[string]string{}
 	}
