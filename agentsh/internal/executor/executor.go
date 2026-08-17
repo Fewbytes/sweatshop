@@ -51,13 +51,14 @@ type Request struct {
 }
 
 type Executor struct {
-	Store       Store
-	Blobs       storage.BlobStore
-	Sessions    *session.Manager
-	Containment Containment
-	Grace       time.Duration
-	IdleWait    time.Duration
-	MaxTimeout  time.Duration
+	Store        Store
+	Blobs        storage.BlobStore
+	Sessions     *session.Manager
+	Containment  Containment
+	Grace        time.Duration
+	IdleWait     time.Duration
+	MaxTimeout   time.Duration
+	LoopDetector *LoopDetector
 
 	mu      sync.Mutex
 	running map[string]*run
@@ -80,7 +81,8 @@ type run struct {
 func New(store Store, blobs storage.BlobStore) *Executor {
 	return &Executor{
 		Store: store, Blobs: blobs, Sessions: session.NewManager(), Containment: DefaultContainment(),
-		Grace: DefaultGrace, IdleWait: DefaultIdleWait, running: make(map[string]*run),
+		Grace: DefaultGrace, IdleWait: DefaultIdleWait, LoopDetector: NewLoopDetector(DefaultLoopConfig()),
+		running: make(map[string]*run),
 	}
 }
 
@@ -337,6 +339,13 @@ waitLoop:
 	r.invocation.Summary = output.FormatCommand(r.invocation.Command, stdoutText, stderrText, exitCode)
 	if r.invocation.Reason != nil && *r.invocation.Reason != "ok" {
 		r.invocation.Stdout.Preview += recoveryHint(r.invocation)
+		if e.LoopDetector != nil {
+			if warn := e.LoopDetector.RecordAndCheck(r.invocation); warn != "" {
+				r.invocation.Stdout.Preview += "\n" + warn
+			}
+		}
+	} else if e.LoopDetector != nil {
+		e.LoopDetector.RecordSuccess(r.invocation)
 	}
 	_ = e.Store.FinishInvocation(context.Background(), r.invocation)
 	e.mu.Lock()
