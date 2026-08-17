@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/analyzer"
+	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/config"
 	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/executor"
 	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/output"
 	agentrpc "github.com/avishai-ish-shalom/sweatshop/agentsh/internal/rpc"
@@ -23,6 +24,12 @@ import (
 
 type Server struct {
 	paths workspace.Paths
+
+	// Config holds daemon settings. It comes from a file rather than the
+	// environment: the daemon's environment is inherited by every supervised
+	// command, so credentials must not live there.
+	Config config.Config
+
 	store *storage.Store
 	exec  *executor.Executor
 	stop  chan struct{}
@@ -32,6 +39,10 @@ type Server struct {
 
 func New(paths workspace.Paths) *Server {
 	return &Server{paths: paths, stop: make(chan struct{})}
+}
+
+func NewWithConfig(paths workspace.Paths, settings config.Config) *Server {
+	return &Server{paths: paths, Config: settings, stop: make(chan struct{})}
 }
 
 func (s *Server) Serve(ctx context.Context) error {
@@ -48,9 +59,16 @@ func (s *Server) Serve(ctx context.Context) error {
 	}
 	defer s.cleanup()
 
+	for _, warning := range s.Config.Warnings {
+		fmt.Fprintln(os.Stderr, "agentshd:", warning)
+	}
+	syncInterval := s.Config.SyncInterval()
+	if syncInterval == 0 && s.Config.Turso.URL != "" {
+		syncInterval = time.Minute
+	}
 	store, err := storage.Open(ctx, storage.Config{
-		Path: s.paths.Database, RemoteURL: os.Getenv("TURSO_DATABASE_URL"),
-		AuthToken: os.Getenv("TURSO_AUTH_TOKEN"), SyncInterval: time.Minute,
+		Path: s.paths.Database, RemoteURL: s.Config.Turso.URL,
+		AuthToken: s.Config.Turso.AuthToken, SyncInterval: syncInterval,
 	})
 	if err != nil {
 		_ = ln.Close()
