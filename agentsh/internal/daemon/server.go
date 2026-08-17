@@ -38,24 +38,31 @@ func (s *Server) Serve(ctx context.Context) error {
 	if err := s.paths.Ensure(); err != nil {
 		return err
 	}
+	// Claim the socket before opening storage. The listener is the singleton
+	// guard: opening the database first lets a second daemon reach the libSQL
+	// file and die on "database is locked" before listen() ever gets to report
+	// "daemon already running", turning a clear conflict into a cryptic one.
+	ln, err := s.listen()
+	if err != nil {
+		return err
+	}
+	defer s.cleanup()
+
 	store, err := storage.Open(ctx, storage.Config{
 		Path: s.paths.Database, RemoteURL: os.Getenv("TURSO_DATABASE_URL"),
 		AuthToken: os.Getenv("TURSO_AUTH_TOKEN"), SyncInterval: time.Minute,
 	})
 	if err != nil {
+		_ = ln.Close()
 		return fmt.Errorf("open invocation storage: %w", err)
 	}
 	s.store = store
 	s.exec = executor.New(store, storage.BlobStore{Root: s.paths.Blobs, Index: s.paths.Index})
 	defer store.Close()
 	if _, err := store.Reconcile(ctx, processAlive); err != nil {
+		_ = ln.Close()
 		return fmt.Errorf("reconcile invocations: %w", err)
 	}
-	ln, err := s.listen()
-	if err != nil {
-		return err
-	}
-	defer s.cleanup()
 
 	// Close the listener when shutdown is signaled so Accept unblocks. The
 	// listener is owned by this goroutine, so there is no shared mutable
@@ -162,7 +169,7 @@ func (s *Server) handle(conn net.Conn) {
 		if err != nil {
 			response = agentrpc.Failure(request.ID, "execution", err.Error())
 		} else {
-			response = agentrpc.Success(request.ID, invocation)
+			response = agentrpc.Success(request.ID, invocation.View())
 		}
 	case agentrpc.OpBashOutput:
 		var params agentrpc.BashOutputRequest
@@ -215,7 +222,7 @@ func (s *Server) handle(conn net.Conn) {
 	case agentrpc.OpBashProcesses:
 		var params agentrpc.BashStateRequest
 		_ = json.Unmarshal(request.Params, &params)
-		response = agentrpc.Success(request.ID, s.exec.Processes(params.Session))
+		response = agentrpc.Success(request.ID, storage.Views(s.exec.Processes(params.Session)))
 	case agentrpc.OpBashHistory:
 		var params agentrpc.BashHistoryRequest
 		if err := json.Unmarshal(request.Params, &params); err != nil {
@@ -226,7 +233,7 @@ func (s *Server) handle(conn net.Conn) {
 		if err != nil {
 			response = agentrpc.Failure(request.ID, "history", err.Error())
 		} else {
-			response = agentrpc.Success(request.ID, history)
+			response = agentrpc.Success(request.ID, storage.Views(history))
 		}
 	case agentrpc.OpBashReplay:
 		var params agentrpc.BashReplayRequest
@@ -243,7 +250,7 @@ func (s *Server) handle(conn net.Conn) {
 		if err != nil {
 			response = agentrpc.Failure(request.ID, "replay", err.Error())
 		} else {
-			response = agentrpc.Success(request.ID, replayed)
+			response = agentrpc.Success(request.ID, replayed.View())
 		}
 	case agentrpc.OpBashGC:
 		var params agentrpc.BashGCRequest

@@ -43,6 +43,51 @@ type CommandSummary struct {
 	Details   string    `json:"details,omitempty"`
 }
 
+// View is the invocation projection sent to clients.
+//
+// It deliberately omits EnvAfter, Argv, StdinSHA256 and PathsTouched. A full
+// environment snapshot on every response costs an agent more context than the
+// command's own output, and echoes the daemon's environment — credentials
+// included — back into the transcript. EnvDelta carries what actually changed;
+// the complete record stays in the database for BashState and the exporter.
+type View struct {
+	ID         string            `json:"id"`
+	Session    string            `json:"session"`
+	Command    string            `json:"command"`
+	State      InvocationState   `json:"state"`
+	PID        *int              `json:"pid,omitempty"`
+	ExitCode   *int              `json:"exit_code,omitempty"`
+	Reason     *string           `json:"reason,omitempty"`
+	Signal     *int              `json:"signal,omitempty"`
+	StartedAt  time.Time         `json:"started_at"`
+	EndedAt    *time.Time        `json:"ended_at,omitempty"`
+	DurationMS int64             `json:"duration_ms"`
+	CWD        string            `json:"cwd"`
+	CWDAfter   *string           `json:"cwd_after,omitempty"`
+	EnvDelta   map[string]string `json:"env_delta,omitempty"`
+	Stdout     StreamRef         `json:"stdout"`
+	Stderr     StreamRef         `json:"stderr"`
+	Summary    *CommandSummary   `json:"summary,omitempty"`
+}
+
+func (i Invocation) View() View {
+	return View{
+		ID: i.ID, Session: i.Session, Command: i.Command, State: i.State, PID: i.PID,
+		ExitCode: i.ExitCode, Reason: i.Reason, Signal: i.Signal,
+		StartedAt: i.StartedAt, EndedAt: i.EndedAt, DurationMS: i.DurationMS,
+		CWD: i.CWD, CWDAfter: i.CWDAfter, EnvDelta: i.EnvDelta,
+		Stdout: i.Stdout, Stderr: i.Stderr, Summary: i.Summary,
+	}
+}
+
+func Views(invocations []Invocation) []View {
+	views := make([]View, 0, len(invocations))
+	for _, invocation := range invocations {
+		views = append(views, invocation.View())
+	}
+	return views
+}
+
 type Invocation struct {
 	ID           string
 	Session      string

@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"time"
 
@@ -19,23 +21,11 @@ func main() {
 	paths, err := workspace.Resolve(*workspaceFlag)
 	if err == nil {
 		if flag.NArg() > 0 && flag.Arg(0) == "mcp" {
-			// MCP transport and workspace daemon share one process. Start the
-			// stateful daemon behind the transport before accepting tool calls.
-			daemonErr := make(chan error, 1)
-			go func() { daemonErr <- daemon.New(paths).Serve(context.Background()) }()
-			for i := 0; i < 100; i++ {
-				if _, statErr := os.Stat(paths.Socket); statErr == nil {
-					break
-				}
-				select {
-				case err = <-daemonErr:
-					break
-				default:
-				}
-				if err != nil {
-					break
-				}
-				time.Sleep(10 * time.Millisecond)
+			// MCP transport and workspace daemon share one process, but only
+			// when this workspace has no daemon yet. Every MCP client launch
+			// starting its own daemon puts several of them on one database.
+			if !daemonReachable(paths.Socket) {
+				err = startDaemon(paths)
 			}
 			if err == nil {
 				err = mcp.New(paths).Serve(context.Background(), os.Stdin, os.Stdout)
@@ -48,4 +38,37 @@ func main() {
 		fmt.Fprintln(os.Stderr, "agentshd:", err)
 		os.Exit(1)
 	}
+}
+
+// daemonReachable reports whether a daemon is already serving this workspace.
+// A socket file alone is not proof: a crashed daemon leaves one behind.
+func daemonReachable(socket string) bool {
+	conn, err := net.DialTimeout("unix", socket, 200*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+// startDaemon runs the workspace daemon behind the transport and waits for it
+// to accept connections, so the first tool call cannot race the listener.
+func startDaemon(paths workspace.Paths) error {
+	failed := make(chan error, 1)
+	go func() { failed <- daemon.New(paths).Serve(context.Background()) }()
+	for i := 0; i < 100; i++ {
+		select {
+		case err := <-failed:
+			if err == nil {
+				return errors.New("daemon stopped before it began serving")
+			}
+			return err
+		default:
+		}
+		if daemonReachable(paths.Socket) {
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return fmt.Errorf("daemon did not start serving %s within 1s", paths.Socket)
 }
