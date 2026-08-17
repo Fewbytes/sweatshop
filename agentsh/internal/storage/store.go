@@ -80,7 +80,7 @@ func (s *Store) migrate(ctx context.Context) error {
 			stdin_sha256 TEXT, state TEXT NOT NULL, exit_code INTEGER, reason TEXT, signal INTEGER,
 			started_at TEXT NOT NULL, ended_at TEXT, duration_ms INTEGER NOT NULL DEFAULT 0,
 			stdout_ref TEXT NOT NULL, stderr_ref TEXT NOT NULL, cwd_after TEXT,
-			env_after TEXT NOT NULL, paths_touched TEXT NOT NULL,
+			env_after TEXT NOT NULL, paths_touched TEXT NOT NULL, summary TEXT,
 			FOREIGN KEY(session) REFERENCES sessions(name)
 		)`,
 		`CREATE INDEX IF NOT EXISTS invocations_session_started ON invocations(session, started_at)`,
@@ -102,6 +102,8 @@ func (s *Store) migrate(ctx context.Context) error {
 			return fmt.Errorf("apply storage migration: %w", err)
 		}
 	}
+	// Upgrade existing table schemas that predate summary.
+	_, _ = s.db.ExecContext(ctx, `ALTER TABLE invocations ADD COLUMN summary TEXT`)
 	return nil
 }
 
@@ -161,11 +163,17 @@ func (s *Store) FinishInvocation(ctx context.Context, invocation Invocation) err
 	stderr, _ := json.Marshal(invocation.Stderr)
 	envAfter, _ := json.Marshal(nonNilMap(invocation.EnvAfter))
 	paths, _ := json.Marshal(nonNilSlice(invocation.PathsTouched))
+	var summary sql.NullString
+	if invocation.Summary != nil {
+		if b, err := json.Marshal(invocation.Summary); err == nil {
+			summary = sql.NullString{String: string(b), Valid: true}
+		}
+	}
 	result, err := s.db.ExecContext(ctx, `UPDATE invocations SET state=?,exit_code=?,reason=?,signal=?,ended_at=?,
-		duration_ms=?,stdout_ref=?,stderr_ref=?,cwd_after=?,env_after=?,paths_touched=? WHERE id=?`,
+		duration_ms=?,stdout_ref=?,stderr_ref=?,cwd_after=?,env_after=?,paths_touched=?,summary=? WHERE id=?`,
 		invocation.State, invocation.ExitCode, invocation.Reason, invocation.Signal,
 		invocation.EndedAt.UTC().Format(time.RFC3339Nano), invocation.DurationMS, string(stdout), string(stderr),
-		invocation.CWDAfter, string(envAfter), string(paths), invocation.ID)
+		invocation.CWDAfter, string(envAfter), string(paths), summary, invocation.ID)
 	return changed(result, err, invocation.ID)
 }
 
@@ -225,7 +233,7 @@ func (s *Store) History(ctx context.Context, session, command, since string, exi
 
 func (s *Store) GetInvocation(ctx context.Context, id string) (Invocation, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT id,session,pid,argv,command,cwd,env_delta,stdin_sha256,state,
-		exit_code,reason,signal,started_at,ended_at,duration_ms,stdout_ref,stderr_ref,cwd_after,env_after,paths_touched
+		exit_code,reason,signal,started_at,ended_at,duration_ms,stdout_ref,stderr_ref,cwd_after,env_after,paths_touched,summary
 		FROM invocations WHERE id=?`, id)
 	return scanInvocation(row)
 }
@@ -285,11 +293,11 @@ type scanner interface{ Scan(...any) error }
 func scanInvocation(row scanner) (Invocation, error) {
 	var value Invocation
 	var pid, exitCode, signal sql.NullInt64
-	var stdin, reason, endedAt, cwdAfter sql.NullString
+	var stdin, reason, endedAt, cwdAfter, summary sql.NullString
 	var argv, envDelta, stdout, stderr, envAfter, paths, startedAt string
 	err := row.Scan(&value.ID, &value.Session, &pid, &argv, &value.Command, &value.CWD, &envDelta, &stdin,
 		&value.State, &exitCode, &reason, &signal, &startedAt, &endedAt, &value.DurationMS, &stdout,
-		&stderr, &cwdAfter, &envAfter, &paths)
+		&stderr, &cwdAfter, &envAfter, &paths, &summary)
 	if err != nil {
 		return value, err
 	}
@@ -324,6 +332,12 @@ func scanInvocation(row scanner) (Invocation, error) {
 	}
 	if cwdAfter.Valid {
 		value.CWDAfter = &cwdAfter.String
+	}
+	if summary.Valid && summary.String != "" {
+		var s CommandSummary
+		if err := json.Unmarshal([]byte(summary.String), &s); err == nil {
+			value.Summary = &s
+		}
 	}
 	for _, item := range []struct {
 		raw    string

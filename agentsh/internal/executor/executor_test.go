@@ -99,6 +99,51 @@ func TestBackgroundReturnsBeforeCompletion(t *testing.T) {
 	t.Fatal("background invocation did not complete")
 }
 
+func TestExecuteDerivesStructuredSummary(t *testing.T) {
+	exec, store, root := testExecutor(t)
+
+	// 1. Supported command (mocking go test output)
+	inv, err := exec.Execute(context.Background(), Request{
+		Command: `printf '=== RUN   TestSample\n--- PASS: TestSample (0.00s)\nPASS\nok  pkg 0.01s\n'`,
+		CWD:     root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Note: the command was "printf ...", which is not a supported family, so Summary should be nil
+	if inv.Summary != nil {
+		t.Fatalf("unexpected summary for printf command: %+v", inv.Summary)
+	}
+
+	// 2. Command detected as go test via mock binary/script or go test invocation
+	// Running "go test" with custom output
+	goTestInv, err := exec.Execute(context.Background(), Request{
+		Command: `go test -mock-flag 2>/dev/null || printf '=== RUN   TestOne\n--- PASS: TestOne (0.00s)\n=== RUN   TestTwo\n    t_test.go:12: fail\n--- FAIL: TestTwo (0.01s)\nFAIL\n'`,
+		CWD:     root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if goTestInv.Summary == nil {
+		t.Fatal("expected summary for go test command, got nil")
+	}
+	if goTestInv.Summary.Family != "go test" {
+		t.Errorf("summary family = %q, want 'go test'", goTestInv.Summary.Family)
+	}
+	if goTestInv.Summary.Passed != 1 || goTestInv.Summary.Failed != 1 {
+		t.Errorf("summary counts: passed=%d failed=%d", goTestInv.Summary.Passed, goTestInv.Summary.Failed)
+	}
+
+	// Verify persistence in SQLite
+	persisted, err := store.GetInvocation(context.Background(), goTestInv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Summary == nil || persisted.Summary.Family != "go test" {
+		t.Fatalf("persisted summary = %+v", persisted.Summary)
+	}
+}
+
 func readBlob(t *testing.T, store storage.BlobStore, digest string) string {
 	t.Helper()
 	file, err := store.Open(digest)
