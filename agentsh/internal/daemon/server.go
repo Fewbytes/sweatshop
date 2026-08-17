@@ -270,6 +270,13 @@ func (s *Server) readOutput(params agentrpc.BashOutputRequest) (output.Result, e
 	}
 	if running {
 		defer reader.Close()
+		if options.Grep != "" && options.Lines == "" {
+			if file, ok := reader.(*os.File); ok {
+				result, err := output.Grep(file, options)
+				result.Running = true
+				return result, err
+			}
+		}
 		result, err := output.Read(reader, options)
 		result.Running = true
 		return result, err
@@ -293,12 +300,15 @@ func (s *Server) readOutput(params agentrpc.BashOutputRequest) (output.Result, e
 		return output.Result{}, err
 	}
 	defer file.Close()
-	idx, err := blobs.LoadIndex(digest)
-	if err != nil {
-		idx = nil
-	}
-	if idx == nil {
-		idx, _ = blobs.Rebuild(digest)
+	var idx *storage.LineIndex
+	if options.Grep == "" && options.Lines != "" {
+		idx, err = blobs.LoadIndex(digest)
+		if err != nil {
+			idx = nil
+		}
+		if idx == nil {
+			idx, _ = blobs.Rebuild(digest)
+		}
 	}
 	return output.ReadFile(file, idx, options)
 }

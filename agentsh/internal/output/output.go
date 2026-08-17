@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/storage"
@@ -31,6 +31,8 @@ type Result struct {
 	Lines     int64  `json:"lines"`
 	Truncated bool   `json:"truncated"`
 	Running   bool   `json:"running,omitempty"`
+	Matches   int64  `json:"matches,omitempty"`
+	Omitted   int64  `json:"omitted,omitempty"`
 }
 
 func Preview(reader io.Reader, invocationID, stream string) (storage.StreamRef, error) {
@@ -73,31 +75,20 @@ func Read(reader io.Reader, options Options) (Result, error) {
 		}
 		selected = all[start-1 : end]
 	}
+	result := Result{Bytes: int64(len(data)), Lines: int64(len(all))}
 	if options.Grep != "" {
 		expression, err := regexp.Compile(options.Grep)
 		if err != nil {
 			return Result{}, fmt.Errorf("invalid grep expression: %w", err)
 		}
-		included := map[int]bool{}
-		for i, item := range selected {
-			if expression.Match(item.data) {
-				for j := max(0, i-options.Context); j <= min(len(selected)-1, i+options.Context); j++ {
-					included[j] = true
-				}
-			}
-		}
-		filtered := make([]line, 0, len(included))
-		indices := make([]int, 0, len(included))
-		for i := range included {
-			indices = append(indices, i)
-		}
-		sort.Ints(indices)
-		for _, i := range indices {
-			filtered = append(filtered, selected[i])
-		}
+		filtered, total, shown := grepLines(selected, expression, options.Context, GrepMaxMatches)
 		selected = filtered
+		result.Matches = int64(total)
+		result.Omitted = int64(max(0, total-shown))
+		result.Truncated = result.Omitted > 0
 	}
-	return Result{Text: render(selected, options.Lines != "" || options.Grep != ""), Bytes: int64(len(data)), Lines: int64(len(all))}, nil
+	result.Text = render(selected, options.Lines != "" || options.Grep != "")
+	return result, nil
 }
 
 // ReadFile reads output from a seekable stream, using an optional line index
@@ -105,7 +96,18 @@ func Read(reader io.Reader, options Options) (Result, error) {
 // index is unavailable or a grep is requested, it falls back to scanning the
 // whole stream.
 func ReadFile(reader io.ReadSeeker, idx *storage.LineIndex, options Options) (Result, error) {
-	if options.Grep != "" || options.Lines == "" || idx == nil || len(idx.Entries) == 0 {
+	if options.Grep != "" {
+		if options.Lines == "" {
+			if file, ok := reader.(*os.File); ok {
+				return Grep(file, options)
+			}
+		}
+		if _, err := reader.Seek(0, io.SeekStart); err != nil {
+			return Result{}, err
+		}
+		return Read(reader, options)
+	}
+	if options.Lines == "" || idx == nil || len(idx.Entries) == 0 {
 		if _, err := reader.Seek(0, io.SeekStart); err != nil {
 			return Result{}, err
 		}
