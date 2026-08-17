@@ -207,3 +207,102 @@ func TestBashReturnsStructuredSummary(t *testing.T) {
 		t.Fatalf("expected nil summary for unknown command, got %+v", unknownInv.Summary)
 	}
 }
+
+func TestBashTemplatesAndBaselineComparison(t *testing.T) {
+	root := t.TempDir()
+	paths, err := workspace.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := New(paths)
+	done := make(chan error, 1)
+	go func() { done <- server.Serve(context.Background()) }()
+	defer func() {
+		server.Shutdown()
+		<-done
+	}()
+
+	client := agentrpc.Client{Socket: paths.Socket, Timeout: 5 * time.Second}
+	waitForSocket(t, paths.Socket)
+
+	// Run 1: Standard repetitive logs
+	scriptFile := filepath.Join(root, "worker.sh")
+	if err := os.WriteFile(scriptFile, []byte("#!/bin/bash\nprintf '2026-08-17 10:00:01 INFO Connection from 192.168.1.1:1000\\n2026-08-17 10:00:02 INFO Connection from 192.168.1.2:2000\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	p1, _ := json.Marshal(agentrpc.BashRequest{Command: "bash worker.sh", Session: "default"})
+	var inv1 storage.Invocation
+	if err := client.Call(context.Background(), agentrpc.Request{ID: "r1", Op: agentrpc.OpBash, Params: p1}, &inv1); err != nil {
+		t.Fatal(err)
+	}
+
+	// Query templates for Run 1 via OpBashTemplates
+	tReq1, _ := json.Marshal(agentrpc.BashTemplatesRequest{ID: inv1.ID, Stream: "stdout", Baseline: false})
+	var analysis1 struct {
+		TotalLines int `json:"total_lines"`
+		Templates  []struct {
+			Template string `json:"template"`
+			Count    int    `json:"count"`
+		} `json:"templates"`
+		Levels map[string]int `json:"levels"`
+	}
+	if err := client.Call(context.Background(), agentrpc.Request{ID: "t1", Op: agentrpc.OpBashTemplates, Params: tReq1}, &analysis1); err != nil {
+		t.Fatal(err)
+	}
+	if analysis1.TotalLines != 2 || len(analysis1.Templates) != 1 {
+		t.Fatalf("unexpected analysis1: %+v", analysis1)
+	}
+	if analysis1.Templates[0].Count != 2 {
+		t.Errorf("template count = %d, want 2", analysis1.Templates[0].Count)
+	}
+
+	// Run 2: Same command, but introduces a new novel error
+	if err := os.WriteFile(scriptFile, []byte("#!/bin/bash\nprintf '2026-08-17 10:00:03 INFO Connection from 192.168.1.3:3000\\n2026-08-17 10:00:04 ERROR Database connection timeout to 10.0.0.5:5432\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	p2, _ := json.Marshal(agentrpc.BashRequest{Command: "bash worker.sh", Session: "default"})
+	var inv2 storage.Invocation
+	if err := client.Call(context.Background(), agentrpc.Request{ID: "r2", Op: agentrpc.OpBash, Params: p2}, &inv2); err != nil {
+		t.Fatal(err)
+	}
+
+	// Query templates for Run 2 with Baseline comparison enabled
+	tReq2, _ := json.Marshal(agentrpc.BashTemplatesRequest{ID: inv2.ID, Stream: "stdout", Baseline: true})
+	var analysis2 struct {
+		TotalLines int `json:"total_lines"`
+		Templates  []struct {
+			ID       string `json:"id"`
+			Template string `json:"template"`
+			Count    int    `json:"count"`
+			Novel    bool   `json:"novel"`
+			Level    string `json:"level"`
+		} `json:"templates"`
+		Summary string `json:"summary"`
+	}
+	if err := client.Call(context.Background(), agentrpc.Request{ID: "t2", Op: agentrpc.OpBashTemplates, Params: tReq2}, &analysis2); err != nil {
+		t.Fatal(err)
+	}
+	if len(analysis2.Templates) != 2 {
+		t.Fatalf("expected 2 templates in run 2, got %d", len(analysis2.Templates))
+	}
+	// The novel error template should be prioritized at top
+	top := analysis2.Templates[0]
+	if !top.Novel || top.Level != "ERROR" {
+		t.Errorf("top template is not novel error: %+v", top)
+	}
+	if !strings.Contains(analysis2.Summary, "1 novel template (1 error)") {
+		t.Errorf("summary missing novel error: %q", analysis2.Summary)
+	}
+
+	// Also verify BashOutput mode="templates"
+	outReq, _ := json.Marshal(agentrpc.BashOutputRequest{ID: inv2.ID, Stream: "stdout", Mode: "templates"})
+	var outRes output.Result
+	if err := client.Call(context.Background(), agentrpc.Request{ID: "out-tmpl", Op: agentrpc.OpBashOutput, Params: outReq}, &outRes); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(outRes.Text, "Database connection timeout") {
+		t.Errorf("BashOutput templates mode output missing error text: %q", outRes.Text)
+	}
+}

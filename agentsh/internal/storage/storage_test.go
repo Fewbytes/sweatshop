@@ -121,3 +121,52 @@ func TestBlobStoreSeparatesAndDeduplicatesStreams(t *testing.T) {
 		t.Fatalf("unexpected blob: %q %+v", data, stdout)
 	}
 }
+
+func TestLogTemplatesStorageAndPriorLookup(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, Config{Path: filepath.Join(t.TempDir(), "history.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	inv1 := Invocation{ID: "inv_t1", Session: "default", Command: "run_worker", CWD: "/app", State: StateRunning}
+	if err := store.CreateInvocation(ctx, inv1); err != nil {
+		t.Fatal(err)
+	}
+	ended := time.Now().UTC()
+	inv1.State = StateExited
+	inv1.EndedAt = &ended
+	if err := store.FinishInvocation(ctx, inv1); err != nil {
+		t.Fatal(err)
+	}
+
+	templates := []StoredLogTemplate{
+		{InvocationID: "inv_t1", Stream: "stdout", TemplateID: "tmpl_ping", Template: "Ping <IP>", Count: 50, FirstLine: 1, LastLine: 50, Level: "INFO"},
+		{InvocationID: "inv_t1", Stream: "stdout", TemplateID: "tmpl_warn", Template: "High latency: <NUM>ms", Count: 3, FirstLine: 5, LastLine: 40, Level: "WARN"},
+	}
+
+	if err := store.SaveLogTemplates(ctx, "inv_t1", "stdout", templates); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.GetLogTemplates(ctx, "inv_t1", "stdout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("GetLogTemplates returned %d templates, want 2", len(got))
+	}
+
+	// Test prior template frequency aggregation
+	priorCounts, priorRuns, err := store.GetPriorTemplatesForCommand(ctx, "run_worker", "inv_t2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if priorRuns != 1 {
+		t.Errorf("priorRuns = %d, want 1", priorRuns)
+	}
+	if priorCounts["tmpl_ping"] != 50 || priorCounts["tmpl_warn"] != 3 {
+		t.Errorf("unexpected prior counts: %+v", priorCounts)
+	}
+}

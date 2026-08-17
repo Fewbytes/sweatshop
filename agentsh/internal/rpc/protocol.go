@@ -19,6 +19,7 @@ const (
 	OpBashReplay    = "bash_replay"
 	OpBashProcesses = "bash_processes"
 	OpBashGC        = "bash_gc"
+	OpBashTemplates = "bash_templates"
 )
 
 type Request struct {
@@ -64,6 +65,13 @@ type BashOutputRequest struct {
 	Lines   string `json:"lines,omitempty"`
 	Grep    string `json:"grep,omitempty"`
 	Context int    `json:"context,omitempty"`
+	Mode    string `json:"mode,omitempty"`
+}
+
+type BashTemplatesRequest struct {
+	ID       string `json:"id"`
+	Stream   string `json:"stream,omitempty"`
+	Baseline bool   `json:"baseline,omitempty"`
 }
 
 type BashInputRequest struct {
