@@ -18,6 +18,7 @@ type Paths struct {
 	Log      string
 	Database string
 	Blobs    string
+	Index    string
 }
 
 func Resolve(start string) (Paths, error) {
@@ -57,6 +58,7 @@ func Resolve(start string) (Paths, error) {
 		Root: root, StateDir: state, Socket: socketPath(root, state),
 		PID: filepath.Join(state, "agentshd.pid"), Log: filepath.Join(state, "agentshd.log"),
 		Database: filepath.Join(state, "history.db"), Blobs: filepath.Join(state, "blobs"),
+		Index: filepath.Join(state, "index"),
 	}, nil
 }
 
@@ -64,7 +66,10 @@ func (p Paths) Ensure() error {
 	if p.Root == "" || p.StateDir == "" {
 		return errors.New("invalid workspace paths")
 	}
-	return os.MkdirAll(p.Blobs, 0o700)
+	if err := os.MkdirAll(p.Blobs, 0o700); err != nil {
+		return err
+	}
+	return os.MkdirAll(p.Index, 0o700)
 }
 
 // Unix socket paths are short on macOS. Fall back to the temp directory when

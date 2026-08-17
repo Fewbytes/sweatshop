@@ -2,13 +2,17 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/output"
 	agentrpc "github.com/avishai-ish-shalom/sweatshop/agentsh/internal/rpc"
+	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/storage"
 	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/workspace"
 )
 
@@ -78,4 +82,46 @@ func waitForSocket(t *testing.T, path string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("socket did not become ready")
+}
+
+func TestBashOutputPagesViaIndex(t *testing.T) {
+	root := t.TempDir()
+	paths, err := workspace.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := New(paths)
+	done := make(chan error, 1)
+	go func() { done <- server.Serve(context.Background()) }()
+	defer func() {
+		server.Shutdown()
+		<-done
+	}()
+
+	client := agentrpc.Client{Socket: paths.Socket, Timeout: 5 * time.Second}
+	waitForSocket(t, paths.Socket)
+
+	params, _ := json.Marshal(agentrpc.BashRequest{Command: "seq 1000", Session: "default"})
+	var invocation storage.Invocation
+	if err := client.Call(context.Background(), agentrpc.Request{ID: "run", Op: agentrpc.OpBash, Params: params}, &invocation); err != nil {
+		t.Fatal(err)
+	}
+	if invocation.Stdout.SHA256 == "" {
+		t.Fatalf("no stdout digest: %+v", invocation)
+	}
+	if _, err := os.Stat(filepath.Join(paths.Index, invocation.Stdout.SHA256+".idx")); err != nil {
+		t.Fatalf("sidecar index not written: %v", err)
+	}
+
+	outParams, _ := json.Marshal(agentrpc.BashOutputRequest{ID: invocation.ID, Stream: "stdout", Lines: "500:503"})
+	var result output.Result
+	if err := client.Call(context.Background(), agentrpc.Request{ID: "out", Op: agentrpc.OpBashOutput, Params: outParams}, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Text != "500:500\n501:501\n502:502\n503:503" {
+		t.Fatalf("paged output = %q", result.Text)
+	}
+	if result.Lines != 1000 || result.Bytes != int64(invocation.Stdout.Bytes) {
+		t.Fatalf("paged metadata = %+v", result)
+	}
 }
