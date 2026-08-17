@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/analyzer"
 	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/executor"
 	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/output"
 	agentrpc "github.com/avishai-ish-shalom/sweatshop/agentsh/internal/rpc"
@@ -253,6 +254,18 @@ func (s *Server) handle(conn net.Conn) {
 		} else {
 			response = agentrpc.Success(request.ID, gc)
 		}
+	case agentrpc.OpBashTemplates:
+		var params agentrpc.BashTemplatesRequest
+		if err := json.Unmarshal(request.Params, &params); err != nil {
+			response = agentrpc.Failure(request.ID, "invalid_params", err.Error())
+			break
+		}
+		analysis, err := s.readTemplates(params)
+		if err != nil {
+			response = agentrpc.Failure(request.ID, "templates", err.Error())
+		} else {
+			response = agentrpc.Success(request.ID, analysis)
+		}
 	default:
 		response = agentrpc.Failure(request.ID, "unknown_operation", request.Op)
 	}
@@ -262,6 +275,23 @@ func (s *Server) handle(conn net.Conn) {
 func (s *Server) readOutput(params agentrpc.BashOutputRequest) (output.Result, error) {
 	if params.Stream == "" {
 		params.Stream = "stdout"
+	}
+	if params.Mode == "templates" {
+		analysis, err := s.readTemplates(agentrpc.BashTemplatesRequest{
+			ID:       params.ID,
+			Stream:   params.Stream,
+			Baseline: true,
+		})
+		if err != nil {
+			return output.Result{}, err
+		}
+		summaryJSON, _ := json.Marshal(analysis)
+		return output.Result{
+			Text:      string(summaryJSON),
+			Bytes:     int64(len(summaryJSON)),
+			Lines:     int64(len(analysis.Templates)),
+			Truncated: false,
+		}, nil
 	}
 	options := output.Options{Lines: params.Lines, Grep: params.Grep, Context: params.Context}
 	reader, running, err := s.exec.OpenRunning(params.ID, params.Stream)
@@ -311,6 +341,99 @@ func (s *Server) readOutput(params agentrpc.BashOutputRequest) (output.Result, e
 		}
 	}
 	return output.ReadFile(file, idx, options)
+}
+
+func (s *Server) readTemplates(params agentrpc.BashTemplatesRequest) (*analyzer.LogAnalysis, error) {
+	if params.Stream == "" {
+		params.Stream = "stdout"
+	}
+
+	invocation, err := s.store.GetInvocation(context.Background(), params.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 1. Check if templates are already stored in SQLite
+	stored, err := s.store.GetLogTemplates(context.Background(), params.ID, params.Stream)
+	var analysis *analyzer.LogAnalysis
+	if err == nil && len(stored) > 0 {
+		analysis = &analyzer.LogAnalysis{
+			InvocationID: params.ID,
+			Stream:       params.Stream,
+			Levels:       make(map[string]int),
+		}
+		for _, st := range stored {
+			analysis.Templates = append(analysis.Templates, analyzer.LogTemplate{
+				ID:             st.TemplateID,
+				Template:       st.Template,
+				Count:          st.Count,
+				FirstLine:      st.FirstLine,
+				LastLine:       st.LastLine,
+				ExemplarOffset: st.ExemplarOffset,
+				Exemplar:       st.Exemplar,
+				Level:          st.Level,
+				IsStackTrace:   st.IsStackTrace,
+			})
+			analysis.TotalLines += st.Count
+			if st.Level != "" {
+				analysis.Levels[st.Level] += st.Count
+			}
+		}
+	} else {
+		// 2. Derive templates by reading the raw stream blob
+		var digest string
+		switch params.Stream {
+		case "stdout":
+			digest = invocation.Stdout.SHA256
+		case "stderr":
+			digest = invocation.Stderr.SHA256
+		default:
+			return nil, errors.New("stream must be stdout or stderr")
+		}
+
+		blobs := storage.BlobStore{Root: s.paths.Blobs, Index: s.paths.Index}
+		file, err := blobs.Open(digest)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		data, err := io.ReadAll(file)
+		if err != nil {
+			return nil, err
+		}
+
+		analysis = analyzer.AnalyzeStream(params.ID, params.Stream, string(data))
+
+		// Persist derived templates into SQLite
+		var toStore []storage.StoredLogTemplate
+		for _, t := range analysis.Templates {
+			toStore = append(toStore, storage.StoredLogTemplate{
+				InvocationID:   params.ID,
+				Stream:         params.Stream,
+				TemplateID:     t.ID,
+				Template:       t.Template,
+				Count:          t.Count,
+				FirstLine:      t.FirstLine,
+				LastLine:       t.LastLine,
+				ExemplarOffset: t.ExemplarOffset,
+				Exemplar:       t.Exemplar,
+				Level:          t.Level,
+				IsStackTrace:   t.IsStackTrace,
+			})
+		}
+		_ = s.store.SaveLogTemplates(context.Background(), params.ID, params.Stream, toStore)
+	}
+
+	// 3. Baseline comparison if requested
+	if params.Baseline {
+		priorCounts, priorRunCount, err := s.store.GetPriorTemplatesForCommand(context.Background(), invocation.Command, invocation.ID)
+		if err == nil && priorRunCount > 0 {
+			analyzer.BaselineComparison(analysis, priorCounts, priorRunCount)
+		}
+	}
+
+	return analysis, nil
 }
 
 func (s *Server) Shutdown() {

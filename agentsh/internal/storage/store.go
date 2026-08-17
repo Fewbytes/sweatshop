@@ -96,6 +96,21 @@ func (s *Store) migrate(ctx context.Context) error {
 		`CREATE TRIGGER IF NOT EXISTS invocation_commands_delete AFTER DELETE ON invocations BEGIN
 			DELETE FROM invocation_commands WHERE id = old.id;
 		END`,
+		`CREATE TABLE IF NOT EXISTS log_templates (
+			invocation_id TEXT NOT NULL,
+			stream TEXT NOT NULL,
+			template_id TEXT NOT NULL,
+			template TEXT NOT NULL,
+			count INTEGER NOT NULL,
+			first_line INTEGER NOT NULL,
+			last_line INTEGER NOT NULL,
+			exemplar_offset INTEGER NOT NULL DEFAULT 0,
+			exemplar TEXT NOT NULL DEFAULT '',
+			level TEXT NOT NULL DEFAULT '',
+			is_stack_trace INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY(invocation_id, stream, template_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS log_templates_template ON log_templates(template_id)`,
 	}
 	for _, statement := range statements {
 		if _, err := s.db.ExecContext(ctx, statement); err != nil {
@@ -348,6 +363,112 @@ func scanInvocation(row scanner) (Invocation, error) {
 		}
 	}
 	return value, nil
+}
+
+type StoredLogTemplate struct {
+	InvocationID   string `json:"invocation_id"`
+	Stream         string `json:"stream"`
+	TemplateID     string `json:"template_id"`
+	Template       string `json:"template"`
+	Count          int    `json:"count"`
+	FirstLine      int    `json:"first_line"`
+	LastLine       int    `json:"last_line"`
+	ExemplarOffset int64  `json:"exemplar_offset"`
+	Exemplar       string `json:"exemplar"`
+	Level          string `json:"level"`
+	IsStackTrace   bool   `json:"is_stack_trace"`
+}
+
+func (s *Store) SaveLogTemplates(ctx context.Context, invocationID, stream string, templates []StoredLogTemplate) error {
+	if len(templates) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stmt, err := tx.PrepareContext(ctx, `INSERT OR REPLACE INTO log_templates(
+		invocation_id, stream, template_id, template, count, first_line, last_line,
+		exemplar_offset, exemplar, level, is_stack_trace
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, t := range templates {
+		st := 0
+		if t.IsStackTrace {
+			st = 1
+		}
+		if _, err := stmt.ExecContext(ctx, invocationID, stream, t.TemplateID, t.Template, t.Count,
+			t.FirstLine, t.LastLine, t.ExemplarOffset, t.Exemplar, t.Level, st); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) GetLogTemplates(ctx context.Context, invocationID, stream string) ([]StoredLogTemplate, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT invocation_id, stream, template_id, template, count,
+		first_line, last_line, exemplar_offset, exemplar, level, is_stack_trace
+		FROM log_templates WHERE invocation_id=? AND stream=? ORDER BY count DESC`, invocationID, stream)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []StoredLogTemplate
+	for rows.Next() {
+		var t StoredLogTemplate
+		var st int
+		if err := rows.Scan(&t.InvocationID, &t.Stream, &t.TemplateID, &t.Template, &t.Count,
+			&t.FirstLine, &t.LastLine, &t.ExemplarOffset, &t.Exemplar, &t.Level, &st); err != nil {
+			return nil, err
+		}
+		t.IsStackTrace = (st != 0)
+		result = append(result, t)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) GetPriorTemplatesForCommand(ctx context.Context, command, excludeInvocationID string) (map[string]int, int, error) {
+	invRows, err := s.db.QueryContext(ctx, `SELECT id FROM invocations WHERE command=? AND id!=? AND state=?`, command, excludeInvocationID, StateExited)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer invRows.Close()
+	var invIDs []string
+	for invRows.Next() {
+		var id string
+		if err := invRows.Scan(&id); err == nil {
+			invIDs = append(invIDs, id)
+		}
+	}
+	if len(invIDs) == 0 {
+		return make(map[string]int), 0, nil
+	}
+
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(invIDs)), ",")
+	args := make([]any, len(invIDs))
+	for i, id := range invIDs {
+		args[i] = id
+	}
+
+	query := `SELECT template_id, SUM(count) FROM log_templates WHERE invocation_id IN (` + placeholders + `) GROUP BY template_id`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, len(invIDs), err
+	}
+	defer rows.Close()
+	counts := make(map[string]int)
+	for rows.Next() {
+		var tmplID string
+		var sum int
+		if err := rows.Scan(&tmplID, &sum); err == nil {
+			counts[tmplID] = sum
+		}
+	}
+	return counts, len(invIDs), rows.Err()
 }
 
 func nonNilMap(value map[string]string) map[string]string {

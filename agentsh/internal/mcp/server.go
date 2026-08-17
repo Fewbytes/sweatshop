@@ -83,6 +83,7 @@ func toolDefinitions() []tool {
 		{Name: "BashHistory", Description: "Query durable invocation history.", InputSchema: map[string]any{"type": "object"}},
 		{Name: "BashState", Description: "Get session shell state.", InputSchema: map[string]any{"type": "object"}},
 		{Name: "BashReplay", Description: "Replay a recorded invocation.", InputSchema: stringSchema("id")},
+		{Name: "BashTemplates", Description: "Retrieve Drain-clustered log templates, stack traces, level histogram, and baseline diff for an invocation stream.", InputSchema: stringSchema("id")},
 	}
 }
 
@@ -112,6 +113,8 @@ func (s *Server) call(ctx context.Context, request message) result {
 		op = rpc.OpBashState
 	case "BashReplay":
 		op = rpc.OpBashReplay
+	case "BashTemplates":
+		op = rpc.OpBashTemplates
 	default:
 		return result{JSONRPC: "2.0", ID: request.ID, Error: map[string]string{"message": "unknown tool"}}
 	}
