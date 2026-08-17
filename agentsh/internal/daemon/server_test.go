@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -123,5 +124,41 @@ func TestBashOutputPagesViaIndex(t *testing.T) {
 	}
 	if result.Lines != 1000 || result.Bytes != int64(invocation.Stdout.Bytes) {
 		t.Fatalf("paged metadata = %+v", result)
+	}
+}
+
+func TestBashOutputGrep(t *testing.T) {
+	root := t.TempDir()
+	paths, err := workspace.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := New(paths)
+	done := make(chan error, 1)
+	go func() { done <- server.Serve(context.Background()) }()
+	defer func() {
+		server.Shutdown()
+		<-done
+	}()
+
+	client := agentrpc.Client{Socket: paths.Socket, Timeout: 5 * time.Second}
+	waitForSocket(t, paths.Socket)
+
+	params, _ := json.Marshal(agentrpc.BashRequest{Command: `printf 'alpha\nerror one\nbeta\nerror two\n'`, Session: "default"})
+	var invocation storage.Invocation
+	if err := client.Call(context.Background(), agentrpc.Request{ID: "run", Op: agentrpc.OpBash, Params: params}, &invocation); err != nil {
+		t.Fatal(err)
+	}
+
+	outParams, _ := json.Marshal(agentrpc.BashOutputRequest{ID: invocation.ID, Stream: "stdout", Grep: "error"})
+	var result output.Result
+	if err := client.Call(context.Background(), agentrpc.Request{ID: "grep", Op: agentrpc.OpBashOutput, Params: outParams}, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Matches != 2 {
+		t.Fatalf("grep matches = %d, want 2 (%+v)", result.Matches, result)
+	}
+	if !strings.Contains(result.Text, "error one") || !strings.Contains(result.Text, "error two") {
+		t.Fatalf("grep text = %q", result.Text)
 	}
 }
