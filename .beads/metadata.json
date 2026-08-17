@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "sweatshop",
+  "project_id": "1b1bf885-f558-4fc0-a056-29f38a5db7a4"
+}
