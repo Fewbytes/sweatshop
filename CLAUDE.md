@@ -60,18 +60,21 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 
 ## Build & Test
 
-_Add your build and test commands here_
-
 ```bash
-# Example:
-# npm install
-# npm test
+# agentsh (Go)
+cd agentsh && go build ./... && go test ./...
 ```
 
 ## Architecture Overview
 
-_Add a brief overview of your project architecture_
+Sweatshop provides tools and agent plugins for autonomous software factories, targeting **Claude Code** (first) and **pi.dev** (second).
+
+- **agentsh**: Go-based daemon & MCP server replacing raw bash execution with supervised session management, out-of-context output storage, process control, and replay capabilities. Invocation metadata uses Turso/libSQL (embedded local mode by default, optional remote sync); large streams remain content-addressed filesystem blobs.
+- **beads (`bd`)**: Dolt-backed local/syncable issue tracking for agent task assignment and state synchronization.
+- **skills**: Shared tool skills for software factory workflows (build, lint, test, coordinate).
 
 ## Conventions & Patterns
 
-_Add your project-specific conventions here_
+- Tool interfaces prioritize model compatibility (e.g. `Bash` command parameter matching default model priors).
+- Agentsh storage uses Turso's Go libSQL driver, with local-first embedded operation and optional remote Turso configuration.
+- Non-interactive flags forced on shell commands to prevent hanging agents.
