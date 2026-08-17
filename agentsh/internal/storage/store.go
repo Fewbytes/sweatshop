@@ -37,7 +37,11 @@ func Open(ctx context.Context, config Config) (*Store, error) {
 	var db *sql.DB
 	var connector *libsql.Connector
 	if config.RemoteURL == "" {
-		db, _ = sql.Open("libsql", "file:"+config.Path)
+		var err error
+		db, err = sql.Open("libsql", "file:"+config.Path)
+		if err != nil {
+			return nil, fmt.Errorf("open local database: %w", err)
+		}
 	} else {
 		opts := []libsql.Option{libsql.WithAuthToken(config.AuthToken), libsql.WithReadYourWrites(true)}
 		if config.SyncInterval > 0 {
@@ -52,6 +56,11 @@ func Open(ctx context.Context, config Config) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1)
 	store := &Store{db: db, connector: connector}
+	// Wait for a competing writer instead of failing instantly. Queried rather
+	// than Exec'd because the pragma may return the resulting value as a row.
+	if rows, pragmaErr := db.QueryContext(ctx, `PRAGMA busy_timeout=5000`); pragmaErr == nil {
+		_ = rows.Close()
+	}
 	if err := store.migrate(ctx); err != nil {
 		store.Close()
 		return nil, err
