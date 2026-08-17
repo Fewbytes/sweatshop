@@ -162,3 +162,48 @@ func TestBashOutputGrep(t *testing.T) {
 		t.Fatalf("grep text = %q", result.Text)
 	}
 }
+
+func TestBashReturnsStructuredSummary(t *testing.T) {
+	root := t.TempDir()
+	paths, err := workspace.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := New(paths)
+	done := make(chan error, 1)
+	go func() { done <- server.Serve(context.Background()) }()
+	defer func() {
+		server.Shutdown()
+		<-done
+	}()
+
+	client := agentrpc.Client{Socket: paths.Socket, Timeout: 5 * time.Second}
+	waitForSocket(t, paths.Socket)
+
+	// Command detected as pytest with failure output
+	pytestCmd := `python3 -m pytest tests/ 2>/dev/null || printf '============================= test session starts ==============================\ncollected 2 items\n\ntests/test_app.py .F                                                     [100%%]\n\n=================================== FAILURES ===================================\n__________________________________ test_fail ___________________________________\ntests/test_app.py:10: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_app.py::test_fail - AssertionError: assert False\n========================= 1 failed, 1 passed in 0.05s ==========================\n'`
+	params, _ := json.Marshal(agentrpc.BashRequest{Command: pytestCmd, Session: "default"})
+	var invocation storage.Invocation
+	if err := client.Call(context.Background(), agentrpc.Request{ID: "run-pytest", Op: agentrpc.OpBash, Params: params}, &invocation); err != nil {
+		t.Fatal(err)
+	}
+	if invocation.Summary == nil {
+		t.Fatal("expected non-nil summary on pytest command")
+	}
+	if invocation.Summary.Family != "pytest" || invocation.Summary.Passed != 1 || invocation.Summary.Failed != 1 {
+		t.Fatalf("unexpected summary: %+v", invocation.Summary)
+	}
+	if len(invocation.Summary.Failures) == 0 {
+		t.Fatal("expected failure frame in summary")
+	}
+
+	// Unknown command returns nil summary
+	unknownParams, _ := json.Marshal(agentrpc.BashRequest{Command: "echo 'plain command'", Session: "default"})
+	var unknownInv storage.Invocation
+	if err := client.Call(context.Background(), agentrpc.Request{ID: "run-unknown", Op: agentrpc.OpBash, Params: unknownParams}, &unknownInv); err != nil {
+		t.Fatal(err)
+	}
+	if unknownInv.Summary != nil {
+		t.Fatalf("expected nil summary for unknown command, got %+v", unknownInv.Summary)
+	}
+}

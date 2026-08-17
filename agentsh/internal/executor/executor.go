@@ -307,6 +307,7 @@ waitLoop:
 		defer lifecycle.Cleanup(r.invocation.ID)
 	}
 	// Writers are the direct command outputs and are safe to finalize after Wait.
+	var stdoutText, stderrText string
 	if ref, commitErr := r.stdout.Commit(); commitErr == nil {
 		if file, openErr := e.Blobs.Open(ref.SHA256); openErr == nil {
 			preview, previewErr := output.Preview(file, r.invocation.ID, "stdout")
@@ -316,6 +317,7 @@ waitLoop:
 			}
 		}
 		r.invocation.Stdout = ref
+		stdoutText = readBlobExcerpt(e.Blobs, ref.SHA256, 512*1024)
 	}
 	if ref, commitErr := r.stderr.Commit(); commitErr == nil {
 		if file, openErr := e.Blobs.Open(ref.SHA256); openErr == nil {
@@ -326,7 +328,13 @@ waitLoop:
 			}
 		}
 		r.invocation.Stderr = ref
+		stderrText = readBlobExcerpt(e.Blobs, ref.SHA256, 512*1024)
 	}
+	exitCode := 0
+	if r.invocation.ExitCode != nil {
+		exitCode = *r.invocation.ExitCode
+	}
+	r.invocation.Summary = output.FormatCommand(r.invocation.Command, stdoutText, stderrText, exitCode)
 	if r.invocation.Reason != nil && *r.invocation.Reason != "ok" {
 		r.invocation.Stdout.Preview += recoveryHint(r.invocation)
 	}
@@ -492,6 +500,22 @@ func startReason(err error) string {
 		return "permission"
 	}
 	return "nonzero"
+}
+
+func readBlobExcerpt(blobs storage.BlobStore, sha string, maxBytes int64) string {
+	if sha == "" {
+		return ""
+	}
+	file, err := blobs.Open(sha)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes))
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 func newID() string {

@@ -21,6 +21,28 @@ type StreamRef struct {
 	Truncated bool   `json:"truncated"`
 }
 
+type Failure struct {
+	Name     string `json:"name,omitempty"`
+	Message  string `json:"message,omitempty"`
+	Location string `json:"location,omitempty"`
+	Excerpt  string `json:"excerpt,omitempty"`
+}
+
+type CommandSummary struct {
+	Family    string    `json:"family"`
+	Status    string    `json:"status"`
+	Passed    int       `json:"passed,omitempty"`
+	Failed    int       `json:"failed,omitempty"`
+	Skipped   int       `json:"skipped,omitempty"`
+	Total     int       `json:"total,omitempty"`
+	Duration  string    `json:"duration,omitempty"`
+	Added     int       `json:"added,omitempty"`
+	Changed   int       `json:"changed,omitempty"`
+	Destroyed int       `json:"destroyed,omitempty"`
+	Failures  []Failure `json:"failures,omitempty"`
+	Details   string    `json:"details,omitempty"`
+}
+
 type Invocation struct {
 	ID           string
 	Session      string
@@ -42,4 +64,5 @@ type Invocation struct {
 	CWDAfter     *string
 	EnvAfter     map[string]string
 	PathsTouched []string
+	Summary      *CommandSummary `json:"summary,omitempty"`
 }
