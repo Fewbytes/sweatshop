@@ -90,6 +90,10 @@ func (s *Server) Serve(ctx context.Context) error {
 		_ = ln.Close()
 		return fmt.Errorf("reconcile invocations: %w", err)
 	}
+	if err := s.exec.LoadServices(s.paths.Services, processAlive); err != nil {
+		_ = ln.Close()
+		return fmt.Errorf("load services: %w", err)
+	}
 
 	// Close the listener when shutdown is signaled so Accept unblocks. The
 	// listener is owned by this goroutine, so there is no shared mutable
@@ -220,6 +224,48 @@ func (s *Server) handle(conn net.Conn, serverCtx context.Context) {
 			response = agentrpc.Failure(request.ID, "execution", err.Error())
 		} else {
 			response = agentrpc.Success(request.ID, invocation.View())
+		}
+	case agentrpc.OpBashService:
+		var params agentrpc.BashServiceRequest
+		if err := json.Unmarshal(request.Params, &params); err != nil {
+			response = agentrpc.Failure(request.ID, "invalid_params", err.Error())
+			break
+		}
+		svc, err := s.exec.StartService(ctx, executor.ServiceRequest{
+			Name: params.Name, Command: params.Command, Session: params.Session,
+			CWD: s.paths.Root, Timeout: time.Duration(params.TimeoutMS) * time.Millisecond,
+		})
+		if err != nil {
+			response = agentrpc.Failure(request.ID, "service", err.Error())
+		} else {
+			response = agentrpc.Success(request.ID, svc)
+		}
+	case agentrpc.OpBashServiceStatus:
+		var params agentrpc.BashServiceStatusRequest
+		if err := json.Unmarshal(request.Params, &params); err != nil {
+			response = agentrpc.Failure(request.ID, "invalid_params", err.Error())
+			break
+		}
+		svc, err := s.exec.ServiceStatus(ctx, params.Name)
+		if err != nil {
+			response = agentrpc.Failure(request.ID, "service_status", err.Error())
+		} else {
+			response = agentrpc.Success(request.ID, svc)
+		}
+	case agentrpc.OpBashServiceKill:
+		var params agentrpc.BashServiceKillRequest
+		if err := json.Unmarshal(request.Params, &params); err != nil {
+			response = agentrpc.Failure(request.ID, "invalid_params", err.Error())
+			break
+		}
+		sig := syscall.Signal(params.Signal)
+		if sig == 0 {
+			sig = syscall.SIGTERM
+		}
+		if err := s.exec.KillService(params.Name, sig); err != nil {
+			response = agentrpc.Failure(request.ID, "service_kill", err.Error())
+		} else {
+			response = agentrpc.Success(request.ID, map[string]string{"status": "killed"})
 		}
 	case agentrpc.OpBashOutput:
 		var params agentrpc.BashOutputRequest

@@ -20,6 +20,10 @@ const (
 	OpBashProcesses = "bash_processes"
 	OpBashGC        = "bash_gc"
 	OpBashTemplates = "bash_templates"
+
+	OpBashService       = "bash_service"
+	OpBashServiceStatus = "bash_service_status"
+	OpBashServiceKill   = "bash_service_kill"
 )
 
 type Request struct {
@@ -98,6 +102,22 @@ type BashHistoryRequest struct {
 
 type BashReplayRequest struct {
 	ID string `json:"id"`
+}
+
+type BashServiceRequest struct {
+	Name      string `json:"name"`
+	Command   string `json:"command"`
+	Session   string `json:"session,omitempty"`
+	TimeoutMS int64  `json:"timeout_ms,omitempty"`
+}
+
+type BashServiceStatusRequest struct {
+	Name string `json:"name"`
+}
+
+type BashServiceKillRequest struct {
+	Name   string `json:"name"`
+	Signal int    `json:"signal,omitempty"`
 }
 
 type BashGCRequest struct {
