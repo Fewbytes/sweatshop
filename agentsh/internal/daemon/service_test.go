@@ -73,6 +73,22 @@ func TestBashServiceLifecycleOverRPC(t *testing.T) {
 	if err := client.Call(context.Background(), agentrpc.Request{ID: "kill2", Op: agentrpc.OpBashServiceKill, Params: killParams2}, nil); err != nil {
 		t.Fatal(err)
 	}
+	// KillService only signals; the killed processes' async blob-finalize
+	// goroutines can still be writing after this call returns. Drain them
+	// before the deferred Shutdown/t.TempDir() cleanup races that I/O.
+	waitForNoRunningInvocations(t, server)
+}
+
+func waitForNoRunningInvocations(t *testing.T, server *Server) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(server.exec.Processes("")) == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("invocations still running after deadline")
 }
 
 func TestServicesSurviveDaemonRestartAsStopped(t *testing.T) {
@@ -110,6 +126,7 @@ func TestServicesSurviveDaemonRestartAsStopped(t *testing.T) {
 	if processAlive(svc.PID) {
 		t.Fatal("service process did not die")
 	}
+	waitForNoRunningInvocations(t, first)
 
 	first.Shutdown()
 	<-done
@@ -134,6 +151,90 @@ func TestServicesSurviveDaemonRestartAsStopped(t *testing.T) {
 	if status.InvocationID != svc.InvocationID {
 		t.Fatalf("invocation id changed across restart: %q -> %q", svc.InvocationID, status.InvocationID)
 	}
+}
+
+func TestBashServiceBlocksUntilStdoutRegexReady(t *testing.T) {
+	root := t.TempDir()
+	paths, err := workspace.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := New(paths)
+	server.Grace = 100 * time.Millisecond
+	done := make(chan error, 1)
+	go func() { done <- server.Serve(context.Background()) }()
+	defer func() {
+		server.Shutdown()
+		<-done
+	}()
+	waitForSocket(t, paths.Socket)
+
+	client := agentrpc.Client{Socket: paths.Socket, Timeout: 5 * time.Second}
+	startParams, _ := json.Marshal(agentrpc.BashServiceRequest{
+		Name: "warmup", Command: `sleep 0.2; echo ready-to-go; sleep 30`, Session: "default",
+		Readiness: &agentrpc.ReadinessSpec{StdoutRegex: "ready-to-go", TimeoutMS: 2000, PollIntervalMS: 20},
+	})
+	start := time.Now()
+	var svc executor.Service
+	if err := client.Call(context.Background(), agentrpc.Request{ID: "start", Op: agentrpc.OpBashService, Params: startParams}, &svc); err != nil {
+		t.Fatal(err)
+	}
+	elapsed := time.Since(start)
+	if elapsed < 150*time.Millisecond {
+		t.Fatalf("BashService returned after %v, before the service could have printed its readiness line", elapsed)
+	}
+	if svc.State != executor.ServiceStateRunning {
+		t.Fatalf("unexpected state: %+v", svc)
+	}
+
+	killParams, _ := json.Marshal(agentrpc.BashServiceKillRequest{Name: "warmup"})
+	if err := client.Call(context.Background(), agentrpc.Request{ID: "kill", Op: agentrpc.OpBashServiceKill, Params: killParams}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitForNoRunningInvocations(t, server)
+}
+
+func TestBashServiceReadinessTimeoutReturnsErrorButServiceKeepsRunning(t *testing.T) {
+	root := t.TempDir()
+	paths, err := workspace.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := New(paths)
+	server.Grace = 100 * time.Millisecond
+	done := make(chan error, 1)
+	go func() { done <- server.Serve(context.Background()) }()
+	defer func() {
+		server.Shutdown()
+		<-done
+	}()
+	waitForSocket(t, paths.Socket)
+
+	client := agentrpc.Client{Socket: paths.Socket, Timeout: 5 * time.Second}
+	startParams, _ := json.Marshal(agentrpc.BashServiceRequest{
+		Name: "never-ready", Command: "sleep 30", Session: "default",
+		Readiness: &agentrpc.ReadinessSpec{StdoutRegex: "this never prints", TimeoutMS: 150, PollIntervalMS: 20},
+	})
+	err = client.Call(context.Background(), agentrpc.Request{ID: "start", Op: agentrpc.OpBashService, Params: startParams}, nil)
+	if err == nil {
+		t.Fatal("expected a readiness timeout error")
+	}
+
+	// The service itself is still running — readiness failure doesn't kill it.
+	statusParams, _ := json.Marshal(agentrpc.BashServiceStatusRequest{Name: "never-ready"})
+	var status executor.Service
+	if err := client.Call(context.Background(), agentrpc.Request{ID: "status", Op: agentrpc.OpBashServiceStatus, Params: statusParams}, &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.State != executor.ServiceStateRunning {
+		t.Fatalf("expected the service to still be running after a readiness timeout, got: %+v", status)
+	}
+
+	killParams, _ := json.Marshal(agentrpc.BashServiceKillRequest{Name: "never-ready"})
+	if err := client.Call(context.Background(), agentrpc.Request{ID: "kill", Op: agentrpc.OpBashServiceKill, Params: killParams}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitForNoRunningInvocations(t, server)
 }
 
 func TestBashServiceUnknownNameReturnsClearError(t *testing.T) {

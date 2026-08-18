@@ -109,6 +109,22 @@ type BashServiceRequest struct {
 	Command   string `json:"command"`
 	Session   string `json:"session,omitempty"`
 	TimeoutMS int64  `json:"timeout_ms,omitempty"`
+
+	Readiness *ReadinessSpec `json:"readiness,omitempty"`
+}
+
+// ReadinessSpec configures BashService to block until a service is ready
+// instead of returning as soon as it's started. Fields left unset skip that
+// predicate; leaving them all unset makes readiness instant.
+type ReadinessSpec struct {
+	Port        int    `json:"port,omitempty"`
+	Host        string `json:"host,omitempty"`
+	StdoutRegex string `json:"stdout_regex,omitempty"`
+	TailBytes   int    `json:"tail_bytes,omitempty"`
+	HTTPURL     string `json:"http_url,omitempty"`
+
+	TimeoutMS      int64 `json:"timeout_ms,omitempty"`
+	PollIntervalMS int64 `json:"poll_interval_ms,omitempty"`
 }
 
 type BashServiceStatusRequest struct {

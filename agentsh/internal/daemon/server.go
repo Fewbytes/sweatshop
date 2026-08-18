@@ -18,6 +18,7 @@ import (
 	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/executor"
 	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/output"
 	agentrpc "github.com/avishai-ish-shalom/sweatshop/agentsh/internal/rpc"
+	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/service"
 	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/storage"
 	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/workspace"
 )
@@ -234,6 +235,7 @@ func (s *Server) handle(conn net.Conn, serverCtx context.Context) {
 		svc, err := s.exec.StartService(ctx, executor.ServiceRequest{
 			Name: params.Name, Command: params.Command, Session: params.Session,
 			CWD: s.paths.Root, Timeout: time.Duration(params.TimeoutMS) * time.Millisecond,
+			Readiness: readinessSpec(params.Readiness),
 		})
 		if err != nil {
 			response = agentrpc.Failure(request.ID, "service", err.Error())
@@ -543,6 +545,18 @@ func (s *Server) Shutdown() {
 func (s *Server) cleanup() {
 	_ = os.Remove(s.paths.Socket)
 	_ = os.Remove(s.paths.PID)
+}
+
+func readinessSpec(r *agentrpc.ReadinessSpec) service.ReadinessSpec {
+	if r == nil {
+		return service.ReadinessSpec{}
+	}
+	return service.ReadinessSpec{
+		Port: r.Port, Host: r.Host, StdoutRegex: r.StdoutRegex, TailBytes: r.TailBytes,
+		HTTPURL:      r.HTTPURL,
+		Timeout:      time.Duration(r.TimeoutMS) * time.Millisecond,
+		PollInterval: time.Duration(r.PollIntervalMS) * time.Millisecond,
+	}
 }
 
 func processAlive(pid int) bool {
