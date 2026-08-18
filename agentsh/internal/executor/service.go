@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/service"
 )
 
 type ServiceState string
@@ -49,6 +52,12 @@ type ServiceRequest struct {
 	Session string
 	CWD     string
 	Timeout time.Duration
+
+	// Readiness, if it has any predicates set, makes StartService block
+	// until they all pass or Readiness.Timeout expires. The service is
+	// already running (and returned) either way — a readiness failure
+	// doesn't kill it, it just reports that it never became ready.
+	Readiness service.ReadinessSpec
 }
 
 var serviceNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
@@ -125,7 +134,53 @@ func (e *Executor) StartService(ctx context.Context, req ServiceRequest) (Servic
 	if err := e.persistService(svc); err != nil {
 		return svc, fmt.Errorf("start service: persist record: %w", err)
 	}
+
+	predicates, err := service.BuildPredicates(req.Readiness, e.serviceStdoutTail(invocation.ID, req.Readiness.TailBytes))
+	if err != nil {
+		return svc, err
+	}
+	if len(predicates) > 0 {
+		if err := service.WaitReady(ctx, predicates, req.Readiness.Timeout, req.Readiness.PollInterval); err != nil {
+			return svc, fmt.Errorf("service %q did not become ready: %w", req.Name, err)
+		}
+	}
 	return svc, nil
+}
+
+// serviceStdoutTail returns a func reading the last tailBytes of a running
+// invocation's stdout, for a StdoutRegexPredicate. It opens a fresh
+// snapshot on every call — readiness polls at ~250ms intervals, so this is
+// not hot enough to warrant keeping a reader open across calls.
+func (e *Executor) serviceStdoutTail(invocationID string, tailBytes int) func() ([]byte, error) {
+	if tailBytes <= 0 {
+		tailBytes = service.DefaultTailBytes
+	}
+	return func() ([]byte, error) {
+		reader, running, err := e.OpenRunning(invocationID, "stdout")
+		if err != nil {
+			return nil, err
+		}
+		if !running || reader == nil {
+			return nil, fmt.Errorf("invocation %q is not running", invocationID)
+		}
+		defer reader.Close()
+		file, ok := reader.(*os.File)
+		if !ok {
+			return io.ReadAll(reader)
+		}
+		info, err := file.Stat()
+		if err != nil {
+			return nil, err
+		}
+		start := int64(0)
+		if size := info.Size(); size > int64(tailBytes) {
+			start = size - int64(tailBytes)
+		}
+		if _, err := file.Seek(start, io.SeekStart); err != nil {
+			return nil, err
+		}
+		return io.ReadAll(file)
+	}
 }
 
 // isServiceRunning asks the live invocation table rather than trusting
