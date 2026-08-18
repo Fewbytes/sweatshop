@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -269,6 +270,18 @@ func (s *Server) handle(conn net.Conn, serverCtx context.Context) {
 		} else {
 			response = agentrpc.Success(request.ID, map[string]string{"status": "killed"})
 		}
+	case agentrpc.OpBashServiceLogs:
+		var params agentrpc.BashServiceLogsRequest
+		if err := json.Unmarshal(request.Params, &params); err != nil {
+			response = agentrpc.Failure(request.ID, "invalid_params", err.Error())
+			break
+		}
+		result, err := s.serviceLogs(ctx, params)
+		if err != nil {
+			response = agentrpc.Failure(request.ID, "service_logs", err.Error())
+		} else {
+			response = agentrpc.Success(request.ID, result)
+		}
 	case agentrpc.OpBashOutput:
 		var params agentrpc.BashOutputRequest
 		if err := json.Unmarshal(request.Params, &params); err != nil {
@@ -375,6 +388,119 @@ func (s *Server) handle(conn net.Conn, serverCtx context.Context) {
 		response = agentrpc.Failure(request.ID, "unknown_operation", request.Op)
 	}
 	_ = json.NewEncoder(conn).Encode(response)
+}
+
+// serviceLogs resolves a service name to its (current or last) invocation
+// and pages its output through the same infrastructure BashOutput uses.
+// Cross-restart concatenation is intentionally out of scope: a Service
+// record only tracks its current invocation ID (see executor/service.go),
+// so logs from a prior run under the same name aren't linked here.
+func (s *Server) serviceLogs(ctx context.Context, params agentrpc.BashServiceLogsRequest) (output.Result, error) {
+	if params.Stream == "" {
+		params.Stream = "stdout"
+	}
+	svc, err := s.exec.ServiceStatus(ctx, params.Name)
+	if err != nil {
+		return output.Result{}, err
+	}
+
+	if params.Follow && svc.State == executor.ServiceStateRunning {
+		idle := time.Duration(params.FollowIdleMS) * time.Millisecond
+		if idle <= 0 {
+			idle = 3 * time.Second
+		}
+		overall := time.Duration(params.FollowTimeoutMS) * time.Millisecond
+		if overall <= 0 {
+			overall = 30 * time.Second
+		}
+		maxLines := params.FollowMaxLines
+		if maxLines <= 0 {
+			maxLines = 10000
+		}
+		startLine := 0
+		if params.Tail > 0 {
+			if current, cerr := s.readOutput(ctx, agentrpc.BashOutputRequest{ID: svc.InvocationID, Stream: params.Stream}); cerr == nil {
+				startLine = int(current.Lines) - params.Tail
+				if startLine < 0 {
+					startLine = 0
+				}
+			}
+		}
+		return s.followServiceLogs(ctx, svc.InvocationID, params.Stream, startLine, idle, overall, maxLines)
+	}
+
+	if params.Tail > 0 && params.Lines == "" {
+		current, err := s.readOutput(ctx, agentrpc.BashOutputRequest{
+			ID: svc.InvocationID, Stream: params.Stream, Grep: params.Grep, Context: params.Context,
+		})
+		if err != nil {
+			return output.Result{}, err
+		}
+		lines := strings.Split(current.Text, "\n")
+		if len(lines) > params.Tail {
+			lines = lines[len(lines)-params.Tail:]
+		}
+		current.Text = strings.Join(lines, "\n")
+		return current, nil
+	}
+
+	return s.readOutput(ctx, agentrpc.BashOutputRequest{
+		ID: svc.InvocationID, Stream: params.Stream, Lines: params.Lines, Grep: params.Grep, Context: params.Context,
+	})
+}
+
+// followServiceLogs polls a running invocation's live stdout/stderr for
+// lines beyond startLine, returning what accumulated once idleTimeout
+// passes with nothing new, maxLines is reached, overallTimeout expires, or
+// the process itself stops. There's no push transport on this connection,
+// so this blocks the RPC call rather than truly streaming.
+func (s *Server) followServiceLogs(ctx context.Context, invocationID, streamName string, startLine int, idleTimeout, overallTimeout time.Duration, maxLines int) (output.Result, error) {
+	deadline := time.Now().Add(overallTimeout)
+	idleDeadline := time.Now().Add(idleTimeout)
+	cursor := startLine
+	var lines []string
+	running := true
+
+	for {
+		reader, isRunning, err := s.exec.OpenRunning(invocationID, streamName)
+		if err != nil {
+			return output.Result{}, err
+		}
+		running = isRunning
+		if reader != nil {
+			result, rerr := output.Read(reader, output.Options{})
+			reader.Close()
+			if rerr != nil {
+				return output.Result{}, rerr
+			}
+			if total := int(result.Lines); total > cursor {
+				all := strings.Split(result.Text, "\n")
+				if cursor < len(all) {
+					lines = append(lines, all[cursor:]...)
+				}
+				cursor = total
+				idleDeadline = time.Now().Add(idleTimeout)
+				if len(lines) >= maxLines {
+					lines = lines[:maxLines]
+					break
+				}
+			}
+		}
+		if !running {
+			break
+		}
+		if !time.Now().Before(deadline) || !time.Now().Before(idleDeadline) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return output.Result{}, ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+
+	text := strings.Join(lines, "\n")
+	return output.Result{Text: text, Lines: int64(len(lines)), Bytes: int64(len(text)), Running: running}, nil
 }
 
 func (s *Server) readOutput(ctx context.Context, params agentrpc.BashOutputRequest) (output.Result, error) {

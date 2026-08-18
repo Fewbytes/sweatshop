@@ -24,6 +24,7 @@ const (
 	OpBashService       = "bash_service"
 	OpBashServiceStatus = "bash_service_status"
 	OpBashServiceKill   = "bash_service_kill"
+	OpBashServiceLogs   = "bash_service_logs"
 )
 
 type Request struct {
@@ -125,6 +126,28 @@ type ReadinessSpec struct {
 
 	TimeoutMS      int64 `json:"timeout_ms,omitempty"`
 	PollIntervalMS int64 `json:"poll_interval_ms,omitempty"`
+}
+
+// BashServiceLogsRequest pages a named service's output, addressing it by
+// service name instead of invocation ID so a caller doesn't need to track
+// one across restarts. Lines is the same "A:B" cursor BashOutput accepts;
+// Tail is a convenience for "last N lines" when Lines is left empty. With
+// Follow set, the call blocks collecting new output until FollowIdleMS
+// passes with nothing new, FollowMaxLines is reached, or FollowTimeoutMS
+// (an overall cap) expires — there is no push/streaming transport here, so
+// this is "wait and return what showed up," not a live stream.
+type BashServiceLogsRequest struct {
+	Name    string `json:"name"`
+	Stream  string `json:"stream,omitempty"`
+	Lines   string `json:"lines,omitempty"`
+	Tail    int    `json:"tail,omitempty"`
+	Grep    string `json:"grep,omitempty"`
+	Context int    `json:"context,omitempty"`
+
+	Follow          bool  `json:"follow,omitempty"`
+	FollowIdleMS    int64 `json:"follow_idle_ms,omitempty"`
+	FollowMaxLines  int   `json:"follow_max_lines,omitempty"`
+	FollowTimeoutMS int64 `json:"follow_timeout_ms,omitempty"`
 }
 
 type BashServiceStatusRequest struct {
