@@ -194,9 +194,35 @@ func (e *Executor) Execute(ctx context.Context, request Request) (storage.Invoca
 		e.mu.Unlock()
 		return snapshot, nil
 	case <-ctx.Done():
-		_ = e.Kill(r.invocation.ID, syscall.SIGTERM)
+		// The caller's context ended — a client disconnect or daemon
+		// shutdown — while this foreground command was still running.
+		// Background invocations never reach this select (they return
+		// above), so they're unaffected and keep running under their own
+		// detached runCtx.
+		e.terminateRunning(r)
 		<-r.done
 		return r.invocation, ctx.Err()
+	}
+}
+
+// terminateRunning asks r's process to exit and, if it hasn't within the
+// grace period, force-kills it. Unlike terminate (used by wait's own
+// timeout path), it waits on r.done rather than an internal wait channel so
+// it can be called from Execute after the caller's context is cancelled.
+func (e *Executor) terminateRunning(r *run) {
+	e.mu.Lock()
+	r.invocation.State = storage.StateKilled
+	e.mu.Unlock()
+	_ = e.Containment.Signal(r.cmd.Process, syscall.SIGTERM)
+	select {
+	case <-r.done:
+		return
+	case <-time.After(e.grace()):
+	}
+	if killer, ok := e.Containment.(WholeTreeKiller); ok {
+		_ = killer.KillInvocation(r.invocation.ID)
+	} else {
+		_ = e.Containment.Signal(r.cmd.Process, syscall.SIGKILL)
 	}
 }
 

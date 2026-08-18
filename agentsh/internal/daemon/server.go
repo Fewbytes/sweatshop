@@ -35,6 +35,12 @@ type Server struct {
 	stop  chan struct{}
 	once  sync.Once
 	wg    sync.WaitGroup
+
+	// Grace overrides the executor's kill grace period (SIGTERM-to-SIGKILL
+	// wait) when > 0. Set before calling Serve; tests use it to keep
+	// cancellation/shutdown assertions fast without racing the executor
+	// field itself.
+	Grace time.Duration
 }
 
 func New(paths workspace.Paths) *Server {
@@ -76,6 +82,9 @@ func (s *Server) Serve(ctx context.Context) error {
 	}
 	s.store = store
 	s.exec = executor.New(store, storage.BlobStore{Root: s.paths.Blobs, Index: s.paths.Index})
+	if s.Grace > 0 {
+		s.exec.Grace = s.Grace
+	}
 	defer store.Close()
 	if _, err := store.Reconcile(ctx, processAlive); err != nil {
 		_ = ln.Close()
@@ -97,12 +106,20 @@ func (s *Server) Serve(ctx context.Context) error {
 
 	sigCtx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	// serverCtx is the parent for every in-flight handler. It ends the
+	// moment shutdown is signaled (by SIGINT/SIGTERM or an OpShutdown RPC),
+	// so a foreground command started before shutdown gets cancelled instead
+	// of blocking Shutdown/s.wg.Wait() indefinitely.
+	serverCtx, serverCancel := context.WithCancel(context.Background())
+	defer serverCancel()
 	go func() {
 		select {
 		case <-sigCtx.Done():
 			s.Shutdown()
 		case <-s.stop:
 		}
+		serverCancel()
 	}()
 
 	for {
@@ -119,7 +136,7 @@ func (s *Server) Serve(ctx context.Context) error {
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			s.handle(conn)
+			s.handle(conn, serverCtx)
 		}()
 	}
 }
@@ -151,7 +168,7 @@ func (s *Server) listen() (net.Listener, error) {
 	return ln, nil
 }
 
-func (s *Server) handle(conn net.Conn) {
+func (s *Server) handle(conn net.Conn, serverCtx context.Context) {
 	defer conn.Close()
 	var request agentrpc.Request
 	if err := json.NewDecoder(io.LimitReader(conn, 1<<20)).Decode(&request); err != nil {
@@ -162,6 +179,21 @@ func (s *Server) handle(conn net.Conn) {
 		_ = json.NewEncoder(conn).Encode(agentrpc.Failure(request.ID, "version", "unsupported protocol version"))
 		return
 	}
+
+	// ctx ends when the server shuts down or this client disconnects,
+	// whichever comes first. The request body is already fully decoded
+	// above, so it's safe to have a goroutine read from conn concurrently:
+	// any further read only ever observes EOF/error when the peer goes
+	// away (net.Conn allows concurrent Read/Write from different
+	// goroutines). executor.Execute treats a background invocation
+	// independently of this ctx, so disconnecting doesn't kill it.
+	ctx, cancel := context.WithCancel(serverCtx)
+	defer cancel()
+	go func() {
+		var probe [1]byte
+		_, _ = conn.Read(probe[:])
+		cancel()
+	}()
 
 	var response agentrpc.Response
 	switch request.Op {
@@ -176,7 +208,7 @@ func (s *Server) handle(conn net.Conn) {
 			response = agentrpc.Failure(request.ID, "invalid_params", err.Error())
 			break
 		}
-		invocation, err := s.exec.Execute(context.Background(), executor.Request{
+		invocation, err := s.exec.Execute(ctx, executor.Request{
 			Command: params.Command, Session: params.Session, CWD: s.paths.Root,
 			Timeout:     time.Duration(params.TimeoutMS) * time.Millisecond,
 			IdleTimeout: time.Duration(params.IdleWaitMS) * time.Millisecond,
@@ -195,7 +227,7 @@ func (s *Server) handle(conn net.Conn) {
 			response = agentrpc.Failure(request.ID, "invalid_params", err.Error())
 			break
 		}
-		result, err := s.readOutput(params)
+		result, err := s.readOutput(ctx, params)
 		if err != nil {
 			response = agentrpc.Failure(request.ID, "output", err.Error())
 		} else {
@@ -247,7 +279,7 @@ func (s *Server) handle(conn net.Conn) {
 			response = agentrpc.Failure(request.ID, "invalid_params", err.Error())
 			break
 		}
-		history, err := s.store.History(context.Background(), params.Session, params.Command, params.Since, params.Exit, params.Limit)
+		history, err := s.store.History(ctx, params.Session, params.Command, params.Since, params.Exit, params.Limit)
 		if err != nil {
 			response = agentrpc.Failure(request.ID, "history", err.Error())
 		} else {
@@ -259,12 +291,12 @@ func (s *Server) handle(conn net.Conn) {
 			response = agentrpc.Failure(request.ID, "invalid_params", err.Error())
 			break
 		}
-		original, err := s.store.GetInvocation(context.Background(), params.ID)
+		original, err := s.store.GetInvocation(ctx, params.ID)
 		if err != nil {
 			response = agentrpc.Failure(request.ID, "replay", err.Error())
 			break
 		}
-		replayed, err := s.exec.Replay(context.Background(), original)
+		replayed, err := s.exec.Replay(ctx, original)
 		if err != nil {
 			response = agentrpc.Failure(request.ID, "replay", err.Error())
 		} else {
@@ -285,7 +317,7 @@ func (s *Server) handle(conn net.Conn) {
 			response = agentrpc.Failure(request.ID, "invalid_params", err.Error())
 			break
 		}
-		analysis, err := s.readTemplates(params)
+		analysis, err := s.readTemplates(ctx, params)
 		if err != nil {
 			response = agentrpc.Failure(request.ID, "templates", err.Error())
 		} else {
@@ -297,12 +329,12 @@ func (s *Server) handle(conn net.Conn) {
 	_ = json.NewEncoder(conn).Encode(response)
 }
 
-func (s *Server) readOutput(params agentrpc.BashOutputRequest) (output.Result, error) {
+func (s *Server) readOutput(ctx context.Context, params agentrpc.BashOutputRequest) (output.Result, error) {
 	if params.Stream == "" {
 		params.Stream = "stdout"
 	}
 	if params.Mode == "templates" {
-		analysis, err := s.readTemplates(agentrpc.BashTemplatesRequest{
+		analysis, err := s.readTemplates(ctx, agentrpc.BashTemplatesRequest{
 			ID:       params.ID,
 			Stream:   params.Stream,
 			Baseline: true,
@@ -336,7 +368,7 @@ func (s *Server) readOutput(params agentrpc.BashOutputRequest) (output.Result, e
 		result.Running = true
 		return result, err
 	}
-	invocation, err := s.store.GetInvocation(context.Background(), params.ID)
+	invocation, err := s.store.GetInvocation(ctx, params.ID)
 	if err != nil {
 		return output.Result{}, err
 	}
@@ -368,18 +400,18 @@ func (s *Server) readOutput(params agentrpc.BashOutputRequest) (output.Result, e
 	return output.ReadFile(file, idx, options)
 }
 
-func (s *Server) readTemplates(params agentrpc.BashTemplatesRequest) (*analyzer.LogAnalysis, error) {
+func (s *Server) readTemplates(ctx context.Context, params agentrpc.BashTemplatesRequest) (*analyzer.LogAnalysis, error) {
 	if params.Stream == "" {
 		params.Stream = "stdout"
 	}
 
-	invocation, err := s.store.GetInvocation(context.Background(), params.ID)
+	invocation, err := s.store.GetInvocation(ctx, params.ID)
 	if err != nil {
 		return nil, err
 	}
 
 	// 1. Check if templates are already stored in SQLite
-	stored, err := s.store.GetLogTemplates(context.Background(), params.ID, params.Stream)
+	stored, err := s.store.GetLogTemplates(ctx, params.ID, params.Stream)
 	var analysis *analyzer.LogAnalysis
 	if err == nil && len(stored) > 0 {
 		analysis = &analyzer.LogAnalysis{
@@ -442,12 +474,12 @@ func (s *Server) readTemplates(params agentrpc.BashTemplatesRequest) (*analyzer.
 				IsStackTrace:   t.IsStackTrace,
 			})
 		}
-		_ = s.store.SaveLogTemplates(context.Background(), params.ID, params.Stream, toStore)
+		_ = s.store.SaveLogTemplates(ctx, params.ID, params.Stream, toStore)
 	}
 
 	// 3. Baseline comparison if requested
 	if params.Baseline {
-		priorCounts, priorRunCount, err := s.store.GetPriorTemplatesForCommand(context.Background(), invocation.Command, invocation.ID)
+		priorCounts, priorRunCount, err := s.store.GetPriorTemplatesForCommand(ctx, invocation.Command, invocation.ID)
 		if err == nil && priorRunCount > 0 {
 			analyzer.BaselineComparison(analysis, priorCounts, priorRunCount)
 		}
