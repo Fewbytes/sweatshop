@@ -23,4 +23,7 @@ type LogAnalysis struct {
 	Templates    []LogTemplate  `json:"templates"`
 	Levels       map[string]int `json:"levels"`
 	Summary      string         `json:"summary,omitempty"`
+	// Truncated is true when the source stream exceeded the analysis byte cap
+	// and trailing content was not scanned.
+	Truncated bool `json:"truncated,omitempty"`
 }

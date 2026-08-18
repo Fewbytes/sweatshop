@@ -3,25 +3,66 @@ package analyzer
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 )
 
+// DefaultMaxAnalysisBytes bounds how much of a stream AnalyzeReader will scan.
+// It keeps peak memory for template analysis independent of blob size: a
+// multi-GB log is capped rather than read in full.
+const DefaultMaxAnalysisBytes = 64 * 1024 * 1024 // 64MB
+
+// maxLineBytes bounds a single scanned line. Without a cap, bufio.Scanner's
+// default 64KB token limit makes it silently stop scanning (ErrTooLong) on a
+// single huge line; this cap is generous but still finite.
+const maxLineBytes = 1 << 20 // 1MB
+
 // AnalyzeStream processes the raw text of a log stream (stdout or stderr) and returns
 // a complete structured LogAnalysis containing Drain-clustered templates, collapsed
-// stack traces, and a level histogram.
+// stack traces, and a level histogram. It reads content already resident in memory;
+// for reading a stream from disk without buffering it all upfront, use AnalyzeReader.
 func AnalyzeStream(invocationID, stream, content string) *LogAnalysis {
 	if content == "" {
-		return &LogAnalysis{
-			InvocationID: invocationID,
-			Stream:       stream,
-			TotalLines:   0,
-			Templates:    nil,
-			Levels:       make(map[string]int),
-		}
+		return emptyAnalysis(invocationID, stream)
+	}
+	lines, offsets := scanLinesWithOffsets(strings.NewReader(content))
+	return analyzeLines(invocationID, stream, lines, offsets)
+}
+
+// AnalyzeReader scans a log stream directly from r, avoiding a full-content
+// read+copy of the underlying blob. Scanning stops after maxBytes (or
+// DefaultMaxAnalysisBytes if maxBytes <= 0); Truncated on the result reports
+// whether trailing content was left unscanned.
+func AnalyzeReader(invocationID, stream string, r io.Reader, maxBytes int64) *LogAnalysis {
+	if maxBytes <= 0 {
+		maxBytes = DefaultMaxAnalysisBytes
+	}
+	lines, offsets := scanLinesWithOffsets(io.LimitReader(r, maxBytes))
+	if len(lines) == 0 {
+		return emptyAnalysis(invocationID, stream)
 	}
 
-	lines, offsets := splitLinesWithOffsets(content)
+	var probe [1]byte
+	n, _ := r.Read(probe[:])
+	truncated := n > 0
+
+	analysis := analyzeLines(invocationID, stream, lines, offsets)
+	analysis.Truncated = truncated
+	return analysis
+}
+
+func emptyAnalysis(invocationID, stream string) *LogAnalysis {
+	return &LogAnalysis{
+		InvocationID: invocationID,
+		Stream:       stream,
+		TotalLines:   0,
+		Templates:    nil,
+		Levels:       make(map[string]int),
+	}
+}
+
+func analyzeLines(invocationID, stream string, lines []string, offsets []int64) *LogAnalysis {
 	totalLines := len(lines)
 	levels := ComputeLevelHistogram(lines)
 
@@ -142,14 +183,12 @@ func AnalyzeStream(invocationID, stream, content string) *LogAnalysis {
 	}
 }
 
-func splitLinesWithOffsets(s string) ([]string, []int64) {
-	if s == "" {
-		return nil, nil
-	}
+func scanLinesWithOffsets(r io.Reader) ([]string, []int64) {
 	var lines []string
 	var offsets []int64
 
-	scanner := bufio.NewScanner(strings.NewReader(s))
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 64*1024), maxLineBytes)
 	var currentOffset int64
 	for scanner.Scan() {
 		offsets = append(offsets, currentOffset)

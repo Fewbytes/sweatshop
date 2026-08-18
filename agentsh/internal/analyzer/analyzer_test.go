@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 )
@@ -200,6 +201,55 @@ func TestBaselineComparisonPrioritization(t *testing.T) {
 		t.Errorf("summary missing prior runs info: %q", current.Summary)
 	}
 }
+
+// repeatingLineReader yields the same log line forever without materializing
+// the whole stream in memory, standing in for a multi-GB blob.
+type repeatingLineReader struct {
+	line []byte
+	buf  []byte
+}
+
+func (r *repeatingLineReader) Read(p []byte) (int, error) {
+	n := 0
+	for n < len(p) {
+		if len(r.buf) == 0 {
+			r.buf = r.line
+		}
+		c := copy(p[n:], r.buf)
+		r.buf = r.buf[c:]
+		n += c
+	}
+	return n, nil
+}
+
+func TestAnalyzeReaderBoundsMemoryOnHugeStream(t *testing.T) {
+	line := []byte("2026-08-17T14:28:47Z INFO [worker.go:50] Processed job 42 successfully\n")
+	src := &repeatingLineReader{line: line}
+
+	const maxBytes = 1 << 20 // 1MB cap, well under a synthetic ~1GB source
+	analysis := AnalyzeReader("inv_huge", "stdout", src, maxBytes)
+
+	if !analysis.Truncated {
+		t.Fatal("expected Truncated=true for a stream exceeding the cap")
+	}
+	wantLines := maxBytes / len(line)
+	if analysis.TotalLines < wantLines-1 || analysis.TotalLines > wantLines+1 {
+		t.Errorf("TotalLines = %d, want ~%d (bounded by cap, not source size)", analysis.TotalLines, wantLines)
+	}
+}
+
+func TestAnalyzeReaderNoTruncationWhenUnderCap(t *testing.T) {
+	content := "one line\nanother line\n"
+	analysis := AnalyzeReader("inv_small", "stdout", strings.NewReader(content), DefaultMaxAnalysisBytes)
+	if analysis.Truncated {
+		t.Error("expected Truncated=false when stream fits under the cap")
+	}
+	if analysis.TotalLines != 2 {
+		t.Errorf("TotalLines = %d, want 2", analysis.TotalLines)
+	}
+}
+
+var _ io.Reader = (*repeatingLineReader)(nil)
 
 func TestEmptyAndDegradedStream(t *testing.T) {
 	analysis := AnalyzeStream("inv_empty", "stdout", "")

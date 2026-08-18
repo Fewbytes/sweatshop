@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -46,6 +47,25 @@ func TestExecuteSeparatesStreamsAndAppliesEnvironment(t *testing.T) {
 	}
 	if readBlob(t, exec.Blobs, persisted.Stderr.SHA256) != "err" {
 		t.Fatal("stderr mismatch")
+	}
+}
+
+func TestControlPipeOverflowIsCappedAndReported(t *testing.T) {
+	exec, _, root := testExecutor(t)
+	// Write well past maxControlBytes to fd 3, the pipe used to capture
+	// post-command shell state. Without a cap this would grow daemon heap
+	// without limit; instead the copy goroutine should stop at the cap and
+	// flag the run as truncated rather than hang or OOM.
+	inv, err := exec.Execute(context.Background(), Request{
+		Command: `head -c $((6*1024*1024)) /dev/zero >&3`,
+		CWD:     root,
+		Timeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inv.Stdout.Preview == "" || !strings.Contains(inv.Stdout.Preview, "shell state capture exceeded") {
+		t.Fatalf("expected truncation warning in preview, got: %q", inv.Stdout.Preview)
 	}
 }
 
