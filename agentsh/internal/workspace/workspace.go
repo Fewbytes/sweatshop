@@ -19,6 +19,7 @@ type Paths struct {
 	Database string
 	Blobs    string
 	Index    string
+	Services string
 }
 
 func Resolve(start string) (Paths, error) {
@@ -58,7 +59,7 @@ func Resolve(start string) (Paths, error) {
 		Root: root, StateDir: state, Socket: socketPath(root, state),
 		PID: filepath.Join(state, "agentshd.pid"), Log: filepath.Join(state, "agentshd.log"),
 		Database: filepath.Join(state, "history.db"), Blobs: filepath.Join(state, "blobs"),
-		Index: filepath.Join(state, "index"),
+		Index: filepath.Join(state, "index"), Services: filepath.Join(state, "services"),
 	}, nil
 }
 
@@ -69,7 +70,10 @@ func (p Paths) Ensure() error {
 	if err := os.MkdirAll(p.Blobs, 0o700); err != nil {
 		return err
 	}
-	return os.MkdirAll(p.Index, 0o700)
+	if err := os.MkdirAll(p.Index, 0o700); err != nil {
+		return err
+	}
+	return os.MkdirAll(p.Services, 0o700)
 }
 
 // Unix socket paths are short on macOS. Fall back to the temp directory when

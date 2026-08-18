@@ -44,6 +44,7 @@ type Store interface {
 	CreateInvocation(context.Context, storage.Invocation) error
 	SetPID(context.Context, string, int) error
 	FinishInvocation(context.Context, storage.Invocation) error
+	GetInvocation(context.Context, string) (storage.Invocation, error)
 }
 
 type Request struct {
@@ -74,6 +75,8 @@ type Executor struct {
 
 	mu      sync.Mutex
 	running map[string]*run
+
+	serviceSupport
 }
 
 type run struct {
