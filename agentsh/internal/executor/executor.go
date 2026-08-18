@@ -26,6 +26,12 @@ const (
 	DefaultTimeout  = 120 * time.Second
 	DefaultGrace    = 5 * time.Second
 	DefaultIdleWait = 10 * time.Second
+
+	// maxControlBytes bounds the fd-3 "control pipe" used to capture shell
+	// state (cwd/env) after a command runs. It should only ever carry a few
+	// KB; the cap guards against a command that writes to fd 3 (deliberately
+	// or by accident) growing daemon heap without limit.
+	maxControlBytes = 4 * 1024 * 1024 // 4MB
 )
 
 var hygiene = map[string]string{
@@ -75,12 +81,16 @@ type run struct {
 	cmd        *exec.Cmd
 	stdinPipe  io.WriteCloser
 	control    *bytes.Buffer
-	controlWg  sync.WaitGroup
-	stdout     *storage.BlobWriter
-	stderr     *storage.BlobWriter
-	cancel  context.CancelFunc
-	done    chan struct{}
-	inputCh chan struct{}
+	// controlTruncated is set by the control-pipe copy goroutine before
+	// controlWg is released, so reading it after controlWg.Wait() is safe
+	// without a lock.
+	controlTruncated bool
+	controlWg        sync.WaitGroup
+	stdout           *storage.BlobWriter
+	stderr           *storage.BlobWriter
+	cancel           context.CancelFunc
+	done             chan struct{}
+	inputCh          chan struct{}
 
 	// lastOutput is unix nanos of the most recent write on either stream. It is
 	// atomic because the output goroutines record it while the waiter reads it.
@@ -229,7 +239,14 @@ func (e *Executor) start(ctx context.Context, r *run, request Request) (err erro
 	r.controlWg.Add(1)
 	go func() {
 		defer r.controlWg.Done()
-		_, _ = io.Copy(r.control, controlRead)
+		n, _ := io.CopyN(r.control, controlRead, maxControlBytes)
+		if n == maxControlBytes {
+			// The child is still writing to fd 3; drain and discard the rest
+			// so it doesn't block on a full pipe, and flag the capture as
+			// incomplete instead of silently truncating it.
+			_, _ = io.Copy(io.Discard, controlRead)
+			r.controlTruncated = true
+		}
 		_ = controlRead.Close()
 	}()
 
@@ -375,6 +392,9 @@ waitLoop:
 		exitCode = *r.invocation.ExitCode
 	}
 	r.invocation.Summary = output.FormatCommand(r.invocation.Command, stdoutText, stderrText, exitCode)
+	if r.controlTruncated {
+		r.invocation.Stdout.Preview += fmt.Sprintf("\n[warning: shell state capture exceeded %dMB and was truncated; cwd/env delta may be incomplete]", maxControlBytes/(1024*1024))
+	}
 	if r.invocation.Reason != nil && *r.invocation.Reason != "ok" {
 		r.invocation.Stdout.Preview += recoveryHint(r.invocation)
 	}

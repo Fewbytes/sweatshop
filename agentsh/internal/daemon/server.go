@@ -423,12 +423,7 @@ func (s *Server) readTemplates(params agentrpc.BashTemplatesRequest) (*analyzer.
 		}
 		defer file.Close()
 
-		data, err := io.ReadAll(file)
-		if err != nil {
-			return nil, err
-		}
-
-		analysis = analyzer.AnalyzeStream(params.ID, params.Stream, string(data))
+		analysis = analyzer.AnalyzeReader(params.ID, params.Stream, file, analyzer.DefaultMaxAnalysisBytes)
 
 		// Persist derived templates into SQLite
 		var toStore []storage.StoredLogTemplate
