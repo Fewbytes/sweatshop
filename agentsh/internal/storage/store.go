@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	libsql "github.com/tursodatabase/go-libsql"
@@ -75,60 +76,158 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-func (s *Store) migrate(ctx context.Context) error {
-	// libSQL manages the embedded database journal mode. PRAGMA journal_mode
-	// returns a row and cannot be applied through the driver's Exec path.
-	statements := []string{
-		`PRAGMA foreign_keys=ON`,
-		`CREATE TABLE IF NOT EXISTS sessions (
-			name TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS invocations (
-			id TEXT PRIMARY KEY, session TEXT NOT NULL, pid INTEGER, argv TEXT NOT NULL,
-			command TEXT NOT NULL, cwd TEXT NOT NULL, env_delta TEXT NOT NULL,
-			stdin_sha256 TEXT, state TEXT NOT NULL, exit_code INTEGER, reason TEXT, signal INTEGER,
-			started_at TEXT NOT NULL, ended_at TEXT, duration_ms INTEGER NOT NULL DEFAULT 0,
-			stdout_ref TEXT NOT NULL, stderr_ref TEXT NOT NULL, cwd_after TEXT,
-			env_after TEXT NOT NULL, paths_touched TEXT NOT NULL, summary TEXT,
-			FOREIGN KEY(session) REFERENCES sessions(name)
-		)`,
-		`CREATE INDEX IF NOT EXISTS invocations_session_started ON invocations(session, started_at)`,
-		`CREATE INDEX IF NOT EXISTS invocations_exit_code ON invocations(exit_code)`,
-		`CREATE VIRTUAL TABLE IF NOT EXISTS invocation_commands USING fts5(id UNINDEXED, command)`,
-		`CREATE TRIGGER IF NOT EXISTS invocation_commands_insert AFTER INSERT ON invocations BEGIN
-			INSERT INTO invocation_commands(id, command) VALUES (new.id, new.command);
-		END`,
-		`CREATE TRIGGER IF NOT EXISTS invocation_commands_update AFTER UPDATE OF command ON invocations BEGIN
-			DELETE FROM invocation_commands WHERE id = old.id;
-			INSERT INTO invocation_commands(id, command) VALUES (new.id, new.command);
-		END`,
-		`CREATE TRIGGER IF NOT EXISTS invocation_commands_delete AFTER DELETE ON invocations BEGIN
-			DELETE FROM invocation_commands WHERE id = old.id;
-		END`,
-		`CREATE TABLE IF NOT EXISTS log_templates (
-			invocation_id TEXT NOT NULL,
-			stream TEXT NOT NULL,
-			template_id TEXT NOT NULL,
-			template TEXT NOT NULL,
-			count INTEGER NOT NULL,
-			first_line INTEGER NOT NULL,
-			last_line INTEGER NOT NULL,
-			exemplar_offset INTEGER NOT NULL DEFAULT 0,
-			exemplar TEXT NOT NULL DEFAULT '',
-			level TEXT NOT NULL DEFAULT '',
-			is_stack_trace INTEGER NOT NULL DEFAULT 0,
-			PRIMARY KEY(invocation_id, stream, template_id)
-		)`,
-		`CREATE INDEX IF NOT EXISTS log_templates_template ON log_templates(template_id)`,
+// migration is one forward step in the schema. Steps are applied in order,
+// each in its own transaction, and the highest applied version is recorded
+// in schema_version so a restart only runs what's new.
+type migration struct {
+	version int
+	apply   func(ctx context.Context, tx *sql.Tx) error
+}
+
+var migrations = []migration{
+	{
+		version: 1,
+		apply: func(ctx context.Context, tx *sql.Tx) error {
+			// libSQL manages the embedded database journal mode. PRAGMA
+			// journal_mode returns a row and cannot be applied through the
+			// driver's Exec path.
+			statements := []string{
+				`CREATE TABLE IF NOT EXISTS sessions (
+					name TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+				)`,
+				`CREATE TABLE IF NOT EXISTS invocations (
+					id TEXT PRIMARY KEY, session TEXT NOT NULL, pid INTEGER, argv TEXT NOT NULL,
+					command TEXT NOT NULL, cwd TEXT NOT NULL, env_delta TEXT NOT NULL,
+					stdin_sha256 TEXT, state TEXT NOT NULL, exit_code INTEGER, reason TEXT, signal INTEGER,
+					started_at TEXT NOT NULL, ended_at TEXT, duration_ms INTEGER NOT NULL DEFAULT 0,
+					stdout_ref TEXT NOT NULL, stderr_ref TEXT NOT NULL, cwd_after TEXT,
+					env_after TEXT NOT NULL, paths_touched TEXT NOT NULL, summary TEXT,
+					FOREIGN KEY(session) REFERENCES sessions(name)
+				)`,
+				`CREATE INDEX IF NOT EXISTS invocations_session_started ON invocations(session, started_at)`,
+				`CREATE INDEX IF NOT EXISTS invocations_exit_code ON invocations(exit_code)`,
+				`CREATE VIRTUAL TABLE IF NOT EXISTS invocation_commands USING fts5(id UNINDEXED, command)`,
+				`CREATE TRIGGER IF NOT EXISTS invocation_commands_insert AFTER INSERT ON invocations BEGIN
+					INSERT INTO invocation_commands(id, command) VALUES (new.id, new.command);
+				END`,
+				`CREATE TRIGGER IF NOT EXISTS invocation_commands_update AFTER UPDATE OF command ON invocations BEGIN
+					DELETE FROM invocation_commands WHERE id = old.id;
+					INSERT INTO invocation_commands(id, command) VALUES (new.id, new.command);
+				END`,
+				`CREATE TRIGGER IF NOT EXISTS invocation_commands_delete AFTER DELETE ON invocations BEGIN
+					DELETE FROM invocation_commands WHERE id = old.id;
+				END`,
+				`CREATE TABLE IF NOT EXISTS log_templates (
+					invocation_id TEXT NOT NULL,
+					stream TEXT NOT NULL,
+					template_id TEXT NOT NULL,
+					template TEXT NOT NULL,
+					count INTEGER NOT NULL,
+					first_line INTEGER NOT NULL,
+					last_line INTEGER NOT NULL,
+					exemplar_offset INTEGER NOT NULL DEFAULT 0,
+					exemplar TEXT NOT NULL DEFAULT '',
+					level TEXT NOT NULL DEFAULT '',
+					is_stack_trace INTEGER NOT NULL DEFAULT 0,
+					PRIMARY KEY(invocation_id, stream, template_id)
+				)`,
+				`CREATE INDEX IF NOT EXISTS log_templates_template ON log_templates(template_id)`,
+			}
+			for _, statement := range statements {
+				if _, err := tx.ExecContext(ctx, statement); err != nil {
+					return err
+				}
+			}
+			// Databases created before schema_version existed may already
+			// have gone through the old ad-hoc `ALTER TABLE ... ADD COLUMN
+			// summary`, in which case the column already exists here and
+			// this is a no-op; check first since ALTER errors on a
+			// duplicate column.
+			has, err := hasColumn(ctx, tx, "invocations", "summary")
+			if err != nil {
+				return err
+			}
+			if !has {
+				if _, err := tx.ExecContext(ctx, `ALTER TABLE invocations ADD COLUMN summary TEXT`); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	},
+}
+
+func hasColumn(ctx context.Context, tx *sql.Tx, table, column string) (bool, error) {
+	rows, err := tx.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return false, err
 	}
-	for _, statement := range statements {
-		if _, err := s.db.ExecContext(ctx, statement); err != nil {
-			return fmt.Errorf("apply storage migration: %w", err)
+	defer rows.Close()
+	cols, err := rows.Columns()
+	if err != nil {
+		return false, err
+	}
+	// PRAGMA table_info columns: cid, name, type, notnull, dflt_value, pk
+	dest := make([]any, len(cols))
+	for i := range dest {
+		dest[i] = new(sql.RawBytes)
+	}
+	for rows.Next() {
+		if err := rows.Scan(dest...); err != nil {
+			return false, err
+		}
+		if name, ok := dest[1].(*sql.RawBytes); ok && string(*name) == column {
+			return true, nil
 		}
 	}
-	// Upgrade existing table schemas that predate summary.
-	_, _ = s.db.ExecContext(ctx, `ALTER TABLE invocations ADD COLUMN summary TEXT`)
+	return false, rows.Err()
+}
+
+func (s *Store) migrate(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, `PRAGMA foreign_keys=ON`); err != nil {
+		return fmt.Errorf("enable foreign keys: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)`); err != nil {
+		return fmt.Errorf("create schema_version table: %w", err)
+	}
+
+	current := 0
+	row := s.db.QueryRowContext(ctx, `SELECT version FROM schema_version LIMIT 1`)
+	if err := row.Scan(&current); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("read schema version: %w", err)
+	}
+	haveRow := current > 0
+
+	for _, m := range migrations {
+		if m.version <= current {
+			continue
+		}
+		if err := s.applyMigration(ctx, m, haveRow); err != nil {
+			return fmt.Errorf("apply schema migration %d: %w", m.version, err)
+		}
+		current = m.version
+		haveRow = true
+	}
 	return nil
+}
+
+func (s *Store) applyMigration(ctx context.Context, m migration, haveRow bool) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := m.apply(ctx, tx); err != nil {
+		return err
+	}
+	if haveRow {
+		if _, err := tx.ExecContext(ctx, `UPDATE schema_version SET version=?`, m.version); err != nil {
+			return err
+		}
+	} else if _, err := tx.ExecContext(ctx, `INSERT INTO schema_version(version) VALUES (?)`, m.version); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) CreateInvocation(ctx context.Context, invocation Invocation) error {
@@ -201,11 +300,32 @@ func (s *Store) FinishInvocation(ctx context.Context, invocation Invocation) err
 	return changed(result, err, invocation.ID)
 }
 
+// queryCounterKey, WithQueryCounter, and countQuery exist to let tests
+// assert that History() issues exactly one query regardless of result size
+// (it used to run one query per row — see sweatshop-c9h). They are inert
+// unless a test installs a counter into the context.
+type queryCounterKey struct{}
+
+// WithQueryCounter returns a context that counts s.db queries made through
+// it. Intended for tests.
+func WithQueryCounter(ctx context.Context) (context.Context, *int64) {
+	var n int64
+	return context.WithValue(ctx, queryCounterKey{}, &n), &n
+}
+
+func countQuery(ctx context.Context) {
+	if n, ok := ctx.Value(queryCounterKey{}).(*int64); ok {
+		atomic.AddInt64(n, 1)
+	}
+}
+
 func (s *Store) History(ctx context.Context, session, command, since string, exit *int, limit int) ([]Invocation, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
-	query := `SELECT id FROM invocations WHERE 1=1`
+	query := `SELECT id,session,pid,argv,command,cwd,env_delta,stdin_sha256,state,
+		exit_code,reason,signal,started_at,ended_at,duration_ms,stdout_ref,stderr_ref,cwd_after,env_after,paths_touched,summary
+		FROM invocations WHERE 1=1`
 	args := []any{}
 	if session != "" {
 		query += ` AND session=?`
@@ -225,32 +345,22 @@ func (s *Store) History(ctx context.Context, session, command, since string, exi
 	}
 	query += ` ORDER BY started_at DESC LIMIT ?`
 	args = append(args, limit)
+	countQuery(ctx)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
+	defer rows.Close()
 	var result []Invocation
-	for _, id := range ids {
-		item, err := s.GetInvocation(ctx, id)
+	for rows.Next() {
+		item, err := scanInvocation(rows)
 		if err != nil {
 			return nil, err
 		}
 		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
@@ -441,43 +551,43 @@ func (s *Store) GetLogTemplates(ctx context.Context, invocationID, stream string
 }
 
 func (s *Store) GetPriorTemplatesForCommand(ctx context.Context, command, excludeInvocationID string) (map[string]int, int, error) {
-	invRows, err := s.db.QueryContext(ctx, `SELECT id FROM invocations WHERE command=? AND id!=? AND state=?`, command, excludeInvocationID, StateExited)
-	if err != nil {
+	var priorRunCount int
+	countRow := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM invocations WHERE command=? AND id!=? AND state=?`,
+		command, excludeInvocationID, StateExited)
+	if err := countRow.Scan(&priorRunCount); err != nil {
 		return nil, 0, err
 	}
-	defer invRows.Close()
-	var invIDs []string
-	for invRows.Next() {
-		var id string
-		if err := invRows.Scan(&id); err == nil {
-			invIDs = append(invIDs, id)
-		}
-	}
-	if len(invIDs) == 0 {
+	if priorRunCount == 0 {
 		return make(map[string]int), 0, nil
 	}
 
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(invIDs)), ",")
-	args := make([]any, len(invIDs))
-	for i, id := range invIDs {
-		args[i] = id
-	}
-
-	query := `SELECT template_id, SUM(count) FROM log_templates WHERE invocation_id IN (` + placeholders + `) GROUP BY template_id`
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	// Joined against invocations directly instead of collecting IDs into an
+	// IN (...) clause: a command run thousands of times would otherwise blow
+	// past SQLite's ~999 bound-parameter limit and this comparison would
+	// start silently failing for exactly the commands that run most often.
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT lt.template_id, SUM(lt.count)
+		FROM log_templates lt
+		JOIN invocations i ON i.id = lt.invocation_id
+		WHERE i.command=? AND i.id!=? AND i.state=?
+		GROUP BY lt.template_id`, command, excludeInvocationID, StateExited)
 	if err != nil {
-		return nil, len(invIDs), err
+		return nil, priorRunCount, err
 	}
 	defer rows.Close()
 	counts := make(map[string]int)
 	for rows.Next() {
 		var tmplID string
 		var sum int
-		if err := rows.Scan(&tmplID, &sum); err == nil {
-			counts[tmplID] = sum
+		if err := rows.Scan(&tmplID, &sum); err != nil {
+			return nil, priorRunCount, err
 		}
+		counts[tmplID] = sum
 	}
-	return counts, len(invIDs), rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, priorRunCount, err
+	}
+	return counts, priorRunCount, nil
 }
 
 func nonNilMap(value map[string]string) map[string]string {
