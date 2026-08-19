@@ -81,7 +81,14 @@ func TestBashServiceLifecycleOverRPC(t *testing.T) {
 
 func waitForNoRunningInvocations(t *testing.T, server *Server) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	// A killed process still has to go through wait()'s full finalize path
+	// (drain the control pipe, commit both stream blobs, write the finished
+	// invocation to SQLite) before it drops out of e.running. 2s was enough
+	// locally but flaked in CI on a loaded/shared runner (see the
+	// TestServicesSurviveDaemonRestartAsStopped failure in GitHub Actions
+	// run 32249829023) — widened for headroom, not because the logic needed
+	// fixing.
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if len(server.exec.Processes("")) == 0 {
 			return
