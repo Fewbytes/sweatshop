@@ -53,7 +53,7 @@ func TestInteractivePromptTransitionsToWaitingOnInput(t *testing.T) {
 }
 
 func TestInteractivePromptCanBeKilled(t *testing.T) {
-	exec, _, root := testExecutor(t)
+	exec, store, root := testExecutor(t)
 	inv, err := exec.Execute(context.Background(), Request{
 		Command:     `read -r line; echo "done"`,
 		CWD:         root,
@@ -70,4 +70,18 @@ func TestInteractivePromptCanBeKilled(t *testing.T) {
 	if err := exec.Kill(inv.ID, 0); err != nil {
 		t.Fatal(err)
 	}
+
+	// Kill only signals; wait for wait()'s finalize (blob commit, DB write)
+	// to actually finish before the test returns, or its async I/O can race
+	// t.TempDir()'s cleanup (flaked as exactly that in CI — GitHub Actions
+	// run 32247405015: "TempDir RemoveAll cleanup: ... directory not empty").
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if got, err := store.GetInvocation(context.Background(), inv.ID); err == nil &&
+			(got.State == storage.StateKilled || got.State == storage.StateExited) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("invocation did not finish after kill")
 }
