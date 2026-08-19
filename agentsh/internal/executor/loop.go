@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/storage"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/storage"
 )
 
 const (

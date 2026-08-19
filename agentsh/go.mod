@@ -1,4 +1,4 @@
-module github.com/avishai-ish-shalom/sweatshop/agentsh
+module github.com/Fewbytes/sweatshop/agentsh
 
 go 1.24.9
 

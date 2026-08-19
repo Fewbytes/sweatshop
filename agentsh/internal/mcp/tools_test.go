@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/rpc"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/rpc"
 )
 
 // requestTypes maps each tool to the daemon request struct it is marshalled

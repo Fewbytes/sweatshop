@@ -9,8 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/exporter"
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/workspace"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/exporter"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
 )
 
 func main() {
