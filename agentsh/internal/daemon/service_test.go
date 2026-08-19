@@ -123,7 +123,15 @@ func TestServicesSurviveDaemonRestartAsStopped(t *testing.T) {
 	if svc.PID == 0 {
 		t.Fatalf("expected a PID for the started service: %+v", svc)
 	}
-	if err := syscall.Kill(svc.PID, syscall.SIGKILL); err != nil {
+	// Kill the whole process group (Setpgid makes the bash leader's pgid
+	// equal to its own pid), not just the leader. "sleep 30" is bash's own
+	// child and inherits copies of the stdout/stderr pipe fds; killing only
+	// the leader PID leaves sleep running and holding those fds open, and
+	// cmd.Wait() blocks until every holder closes them — up to sleep's full
+	// remaining 30s. That's what actually caused this test to flake/hang in
+	// CI (GitHub Actions runs 32247405015, 32255490433: "invocations still
+	// running after deadline" at exactly the poll timeout), not slowness.
+	if err := syscall.Kill(-svc.PID, syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(2 * time.Second)
