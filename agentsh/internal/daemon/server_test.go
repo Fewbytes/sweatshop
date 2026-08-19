@@ -43,6 +43,9 @@ func TestHealthAndShutdown(t *testing.T) {
 	if health.Workspace != root || health.Status != "ok" {
 		t.Fatalf("unexpected health: %+v", health)
 	}
+	if health.Version == "" {
+		t.Fatal("expected health.Version to be populated (see sweatshop-2yn version-mismatch detection)")
+	}
 	if err := client.Call(context.Background(), agentrpc.Request{ID: "stop", Op: agentrpc.OpShutdown}, nil); err != nil {
 		t.Fatal(err)
 	}

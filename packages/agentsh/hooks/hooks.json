@@ -1,0 +1,17 @@
+{
+  "description": "Bootstrap check: warns visibly at session start if agentshd is missing or broken, instead of failing silently (sweatshop-2yn).",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/check-agentshd.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -52,6 +52,10 @@ type Health struct {
 	Status    string `json:"status"`
 	PID       int    `json:"pid"`
 	Workspace string `json:"workspace"`
+	// Version is the daemon's build version (see internal/version), reported
+	// so a client can detect a stale/mismatched daemon rather than fail
+	// obscurely on the rpc.Version protocol check.
+	Version string `json:"version,omitempty"`
 }
 
 type BashRequest struct {

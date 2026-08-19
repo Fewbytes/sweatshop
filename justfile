@@ -2,12 +2,16 @@
 
 agentsh_dir := "agentsh"
 bin_dir := "bin"
+version_pkg := "github.com/Fewbytes/sweatshop/agentsh/internal/version"
+version := `git -C . describe --tags --always --dirty 2>/dev/null || echo dev`
+commit := `git -C . rev-parse --short HEAD 2>/dev/null || echo none`
+ldflags := "-X " + version_pkg + ".Version=" + version + " -X " + version_pkg + ".Commit=" + commit
 
 # Build agentsh and agentshd into ./bin
 build:
     mkdir -p {{bin_dir}}
-    cd {{agentsh_dir}} && go build -o ../{{bin_dir}}/agentsh ./cmd/agentsh
-    cd {{agentsh_dir}} && go build -o ../{{bin_dir}}/agentshd ./cmd/agentshd
+    cd {{agentsh_dir}} && go build -ldflags '{{ldflags}}' -o ../{{bin_dir}}/agentsh ./cmd/agentsh
+    cd {{agentsh_dir}} && go build -ldflags '{{ldflags}}' -o ../{{bin_dir}}/agentshd ./cmd/agentshd
 
 # Run the agentsh Go test suite
 test:
@@ -24,8 +28,8 @@ lint:
 # Build agentsh and agentshd and install them to a directory on PATH
 install dest=(env('HOME') / ".local/bin"):
     mkdir -p {{dest}}
-    cd {{agentsh_dir}} && go build -o {{dest}}/agentsh ./cmd/agentsh
-    cd {{agentsh_dir}} && go build -o {{dest}}/agentshd ./cmd/agentshd
+    cd {{agentsh_dir}} && go build -ldflags '{{ldflags}}' -o {{dest}}/agentsh ./cmd/agentsh
+    cd {{agentsh_dir}} && go build -ldflags '{{ldflags}}' -o {{dest}}/agentshd ./cmd/agentshd
     @echo "Installed agentsh and agentshd to {{dest}} — make sure it's on PATH"
 
 # Validate the plugin marketplace manifest and each plugin's package layout

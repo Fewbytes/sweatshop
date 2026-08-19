@@ -21,13 +21,49 @@ pi install ./packages/agentsh
 ```
 
 The package metadata declares the pi extension and skill. The `agentsh` and
-`agentshd` binaries must be installed separately or available on `PATH` —
-there is no bundled binary distribution yet (tracked in sweatshop-u7z).
+`agentshd` binaries must be installed separately or available on `PATH`.
 
-## Building and installing the binaries
+A SessionStart hook checks for `agentshd` at the start of every session and
+prints a visible, actionable message if it's missing or won't run — you
+should never be left wondering why the agentsh tools didn't show up. Run
+`agentsh doctor` at any time for the full diagnostic (binary versions,
+socket, daemon reachability, database, platform capabilities).
 
-From the repository root, with [`just`](https://github.com/casey/just) and Go
-installed:
+## Supported platforms
+
+| OS      | Arch  | Support                              |
+| ------- | ----- | ------------------------------------- |
+| Linux   | amd64 | Full (cgroup containment)             |
+| Linux   | arm64 | Full (cgroup containment)             |
+| macOS   | arm64 | Degraded (no cgroup containment)      |
+| macOS   | amd64 | **Not supported** — see below         |
+| Windows | any   | **Not supported**                     |
+
+macOS/amd64 (Intel Macs) can't be built at all: the storage layer's
+`github.com/tursodatabase/go-libsql` dependency requires CGO and only ships
+a prebuilt static library for `linux_amd64`, `linux_arm64`, and
+`darwin_arm64`. `agentshd` also refuses to start on an unsupported
+OS/arch combination at runtime, with a clear message, rather than running
+degraded or crashing obscurely.
+
+## Installing a prebuilt release
+
+Each tagged release (`vX.Y.Z`) publishes `agentsh_<tag>_<os>_<arch>.tar.gz`
+archives (containing both binaries) plus a `.sha256` checksum, for each
+platform in the table above, on the
+[GitHub Releases page](https://github.com/Fewbytes/sweatshop/releases).
+
+```bash
+curl -LO https://github.com/Fewbytes/sweatshop/releases/download/<tag>/agentsh_<tag>_<os>_<arch>.tar.gz
+tar -xzf agentsh_<tag>_<os>_<arch>.tar.gz
+mv agentsh_<tag>_<os>_<arch>/{agentsh,agentshd} ~/.local/bin/
+```
+
+## Building and installing from source
+
+If you have a Go toolchain (and, for macOS/arm64 or Linux, a C compiler —
+`go-libsql` needs CGO), build from the repository root with
+[`just`](https://github.com/casey/just):
 
 ```bash
 just install               # builds and installs to ~/.local/bin
@@ -55,6 +91,17 @@ AGENTSHD_PATH=/path/to/agentshd agentsh health
 
 See the repository root `justfile` (`just --list`) for the full set of
 build/test/lint recipes.
+
+## A note if you deny the Bash tool
+
+Some setups deny the built-in `Bash` tool on the assumption `agentsh`
+replaces it entirely. If you do this, verify the `agentsh` MCP tools are
+actually available first (or run `agentsh doctor`) — denying `Bash` before
+confirming agentsh works leaves a session with **no** command execution at
+all. The SessionStart hook already warns about exactly this combination
+(project `.claude/settings.json` denying `Bash` while `agentshd` is
+missing) when it can find `jq` and your project settings file — but treat
+that as a backstop, not a substitute for checking yourself first.
 
 ## Configuration
 

@@ -13,11 +13,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
 	agentrpc "github.com/Fewbytes/sweatshop/agentsh/internal/rpc"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/storage"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/version"
 	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
 )
 
@@ -58,6 +62,27 @@ func main() {
 	}
 
 	name := flag.Arg(0)
+
+	// version and doctor are local diagnostics, not RPC ops: version needs no
+	// workspace or daemon at all, and doctor's whole point is working when
+	// the daemon is down, so neither goes through call()'s auto-spawn path.
+	if name == "version" {
+		fmt.Println("agentsh", version.String())
+		return
+	}
+
+	paths, err := workspace.Resolve(*workspaceFlag)
+	if err != nil {
+		fatal(err.Error())
+	}
+
+	if name == "doctor" {
+		if !runDoctor(paths) {
+			os.Exit(1)
+		}
+		return
+	}
+
 	cmd, ok := commands[name]
 	if !ok {
 		fatal("unknown command: " + name)
@@ -69,10 +94,6 @@ func main() {
 	}
 	request.ID = requestID()
 
-	paths, err := workspace.Resolve(*workspaceFlag)
-	if err != nil {
-		fatal(err.Error())
-	}
 	// The dial timeout stays short, but a command may run to the daemon's own
 	// limit; the overall bound must sit above it so the CLI does not abandon a
 	// result the daemon is still producing.
@@ -85,6 +106,8 @@ func main() {
 func printUsage() {
 	fmt.Fprintln(os.Stderr, "usage: agentsh [--workspace DIR] <command> [flags] [args]")
 	fmt.Fprintln(os.Stderr, "\ncommands:")
+	fmt.Fprintln(os.Stderr, "  agentsh version")
+	fmt.Fprintln(os.Stderr, "  agentsh doctor")
 	names := make([]string, 0, len(commands))
 	for name := range commands {
 		names = append(names, name)
@@ -94,6 +117,82 @@ func printUsage() {
 		fmt.Fprintf(os.Stderr, "  %s\n", commands[name].usage)
 	}
 	fmt.Fprintln(os.Stderr, "\nrun `agentsh <command> -h` for a command's flags")
+}
+
+// runDoctor reports on everything sweatshop-2yn's real incident needed to
+// diagnose from the outside: binary presence/version, socket state, whether
+// the daemon actually answers, whether the database it depends on can even
+// be opened (the "database is locked" crash that started this), and the
+// platform's containment capability. It returns false if it found a problem
+// that would actually block command execution.
+func runDoctor(paths workspace.Paths) bool {
+	ok := true
+	report := func(status, format string, args ...any) {
+		fmt.Printf("%-10s %s\n", status, fmt.Sprintf(format, args...))
+	}
+	problem := func(format string, args ...any) {
+		ok = false
+		report("PROBLEM", format, args...)
+	}
+
+	report("OK", "agentsh binary: version %s (%s/%s)", version.String(), runtime.GOOS, runtime.GOARCH)
+
+	if binary, err := daemonBinary(); err != nil {
+		problem("agentshd binary: not found: %v", err)
+	} else {
+		out, err := exec.Command(binary, "--version").Output()
+		if err != nil {
+			problem("agentshd binary: found at %s but failed to run: %v", binary, err)
+		} else {
+			report("OK", "agentshd binary: %s (%s)", strings.TrimSpace(string(out)), binary)
+		}
+	}
+
+	if _, err := os.Stat(paths.Socket); err != nil {
+		report("INFO", "socket: not present at %s (daemon not started yet)", paths.Socket)
+	} else {
+		report("OK", "socket: present at %s", paths.Socket)
+	}
+
+	client := agentrpc.Client{Socket: paths.Socket, DialTimeout: 2 * time.Second, Timeout: 3 * time.Second}
+	var health agentrpc.Health
+	if err := client.Call(context.Background(), agentrpc.Request{ID: requestID(), Op: agentrpc.OpHealth}, &health); err != nil {
+		problem("daemon: unreachable: %v", err)
+	} else {
+		report("OK", "daemon: reachable, version %s, pid %d, workspace %s", health.Version, health.PID, health.Workspace)
+		if health.Version != "" && health.Version != version.String() {
+			problem("version mismatch: agentsh is %s but agentshd reports %s — rebuild/reinstall so both match", version.String(), health.Version)
+		}
+	}
+
+	if err := paths.Ensure(); err != nil {
+		problem("workspace paths: cannot create %s: %v", paths.StateDir, err)
+	} else {
+		dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		store, err := storage.Open(dbCtx, storage.Config{Path: paths.Database})
+		cancel()
+		if err != nil {
+			problem("database: cannot open %s: %v", paths.Database, err)
+		} else {
+			report("OK", "database: openable at %s", paths.Database)
+			_ = store.Close()
+		}
+	}
+
+	switch runtime.GOOS {
+	case "linux":
+		if _, err := os.Stat("/sys/fs/cgroup"); err != nil {
+			report("WARN", "platform: linux, but /sys/fs/cgroup unavailable — containment degraded")
+		} else {
+			report("OK", "platform: linux, cgroups available")
+		}
+	case "darwin":
+		report("WARN", "platform: darwin — no cgroup containment, degraded fallback path")
+	default:
+		problem("platform: %s is not a supported platform (linux, darwin only)", runtime.GOOS)
+	}
+
+	return ok
 }
 
 func call(client agentrpc.Client, paths workspace.Paths, request agentrpc.Request) error {

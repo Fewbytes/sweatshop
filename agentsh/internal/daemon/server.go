@@ -21,6 +21,7 @@ import (
 	agentrpc "github.com/Fewbytes/sweatshop/agentsh/internal/rpc"
 	"github.com/Fewbytes/sweatshop/agentsh/internal/service"
 	"github.com/Fewbytes/sweatshop/agentsh/internal/storage"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/version"
 	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
 )
 
@@ -204,7 +205,9 @@ func (s *Server) handle(conn net.Conn, serverCtx context.Context) {
 	var response agentrpc.Response
 	switch request.Op {
 	case agentrpc.OpHealth:
-		response = agentrpc.Success(request.ID, agentrpc.Health{Status: "ok", PID: os.Getpid(), Workspace: s.paths.Root})
+		response = agentrpc.Success(request.ID, agentrpc.Health{
+			Status: "ok", PID: os.Getpid(), Workspace: s.paths.Root, Version: version.String(),
+		})
 	case agentrpc.OpShutdown:
 		response = agentrpc.Success(request.ID, map[string]string{"status": "stopping"})
 		defer s.Shutdown()
