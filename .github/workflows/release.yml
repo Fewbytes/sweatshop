@@ -72,4 +72,8 @@ jobs:
           files: |
             agentsh_*.tar.gz
             agentsh_*.tar.gz.sha256
-          generate_release_notes: true
+          # Only one matrix job should generate the changelog note — each
+          # job calling this with generate_release_notes:true appends its
+          # own copy, so three jobs produced three duplicate "Full
+          # Changelog" blocks on the release.
+          generate_release_notes: ${{ matrix.goos == 'linux' && matrix.goarch == 'amd64' }}
