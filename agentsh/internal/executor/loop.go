@@ -36,6 +36,13 @@ type failureRecord struct {
 
 // LoopDetector passively tracks invocations per session to detect when near-identical
 // failing commands are repeated in a loop.
+//
+// State is in-memory only and does not survive a daemon restart: the
+// invocation history in SQLite is durable, but loop counters are not, so a
+// crash/restart mid-loop resets the count to zero. Deriving the window from
+// the invocations table (rather than persisting the detector's own state)
+// would fix this but wasn't justified without a concrete need — it's a
+// known limitation, not an oversight.
 type LoopDetector struct {
 	mu       sync.Mutex
 	config   LoopConfig
@@ -56,6 +63,45 @@ func NewLoopDetector(config LoopConfig) *LoopDetector {
 	}
 }
 
+// sessionAndCommand resolves the session key and normalized command shared
+// by RecordAndCheck and RecordSuccess, and the timestamp records should be
+// compared against (an invocation's own EndedAt when available, so pruning
+// is consistent with replayed/backfilled invocations rather than wall time).
+func sessionAndCommand(inv storage.Invocation) (session, norm string, now time.Time) {
+	session = inv.Session
+	if session == "" {
+		session = "default"
+	}
+	now = time.Now().UTC()
+	if inv.EndedAt != nil {
+		now = *inv.EndedAt
+	}
+	return session, normalizeCommand(inv.Command), now
+}
+
+// pruneStale drops every failure record outside the window, across all
+// sessions, and removes sessions left with none. Called on every
+// RecordAndCheck/RecordSuccess so a session that fails a few times and then
+// goes quiet doesn't hold its records forever — the map only holds entries
+// for sessions with failures still inside the window, not one entry per
+// session ever seen. Caller must hold d.mu.
+func (d *LoopDetector) pruneStale(now time.Time) {
+	cutoff := now.Add(-d.config.Window)
+	for session, records := range d.failures {
+		valid := records[:0]
+		for _, rec := range records {
+			if !rec.timestamp.Before(cutoff) {
+				valid = append(valid, rec)
+			}
+		}
+		if len(valid) == 0 {
+			delete(d.failures, session)
+		} else {
+			d.failures[session] = valid
+		}
+	}
+}
+
 // RecordAndCheck records a failed invocation and returns a warning string if
 // repeated equivalent failures reach the configured threshold.
 func (d *LoopDetector) RecordAndCheck(inv storage.Invocation) string {
@@ -65,46 +111,28 @@ func (d *LoopDetector) RecordAndCheck(inv storage.Invocation) string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	sessionName := inv.Session
-	if sessionName == "" {
-		sessionName = "default"
-	}
-
-	now := time.Now().UTC()
-	if inv.EndedAt != nil {
-		now = *inv.EndedAt
-	}
-
-	norm := normalizeCommand(inv.Command)
+	sessionName, norm, now := sessionAndCommand(inv)
 	if norm == "" {
 		return ""
 	}
 
-	// Prune old records outside window
-	cutoff := now.Add(-d.config.Window)
-	existing := d.failures[sessionName]
-	valid := make([]failureRecord, 0, len(existing)+1)
-	for _, rec := range existing {
-		if !rec.timestamp.Before(cutoff) {
-			valid = append(valid, rec)
-		}
-	}
+	d.pruneStale(now)
 
 	// Find prior matching failures
+	existing := d.failures[sessionName]
 	var priorIDs []string
-	for _, rec := range valid {
+	for _, rec := range existing {
 		if rec.normalized == norm {
 			priorIDs = append(priorIDs, rec.id)
 		}
 	}
 
 	// Add current failure
-	valid = append(valid, failureRecord{
+	d.failures[sessionName] = append(existing, failureRecord{
 		id:         inv.ID,
 		normalized: norm,
 		timestamp:  now,
 	})
-	d.failures[sessionName] = valid
 
 	// Total failures for this command in window (including current)
 	count := len(priorIDs) + 1
@@ -133,15 +161,12 @@ func (d *LoopDetector) RecordSuccess(inv storage.Invocation) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	sessionName := inv.Session
-	if sessionName == "" {
-		sessionName = "default"
-	}
-
-	norm := normalizeCommand(inv.Command)
+	sessionName, norm, now := sessionAndCommand(inv)
 	if norm == "" {
 		return
 	}
+
+	d.pruneStale(now)
 
 	existing := d.failures[sessionName]
 	if len(existing) == 0 {
