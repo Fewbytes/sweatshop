@@ -156,6 +156,48 @@ func TestLoopDetectorConcurrentSessions(t *testing.T) {
 	wg.Wait()
 }
 
+func TestLoopDetectorPrunesStaleSessionsAcrossTheBoard(t *testing.T) {
+	detector := NewLoopDetector(LoopConfig{
+		Threshold: 3,
+		Window:    50 * time.Millisecond,
+	})
+
+	// Many sessions each fail once, then go quiet forever. Without pruning
+	// every session on every call (not just the one currently failing),
+	// this map only ever grows — a long-lived daemon with many one-off
+	// sessions would leak without bound.
+	const staleSessions = 500
+	old := time.Now().UTC().Add(-time.Hour)
+	for i := 0; i < staleSessions; i++ {
+		inv := storage.Invocation{
+			ID:      "inv_stale",
+			Session: "stale-" + string(rune('A'+i%26)) + string(rune('a'+i/26)),
+			Command: "make build",
+			EndedAt: &old,
+		}
+		detector.RecordAndCheck(inv)
+	}
+
+	detector.mu.Lock()
+	before := len(detector.failures)
+	detector.mu.Unlock()
+	if before != staleSessions {
+		t.Fatalf("setup: expected %d sessions recorded, got %d", staleSessions, before)
+	}
+
+	// A single call from an unrelated, current session should prune every
+	// stale session — not just its own — since they're all outside the
+	// window relative to "now".
+	detector.RecordAndCheck(storage.Invocation{ID: "inv_fresh", Session: "fresh", Command: "echo hi"})
+
+	detector.mu.Lock()
+	after := len(detector.failures)
+	detector.mu.Unlock()
+	if after != 1 {
+		t.Fatalf("expected only the fresh session to remain after pruning, got %d sessions", after)
+	}
+}
+
 func TestExecuteAppendsLoopWarning(t *testing.T) {
 	exec, _, root := testExecutor(t)
 	exec.LoopDetector = NewLoopDetector(LoopConfig{
