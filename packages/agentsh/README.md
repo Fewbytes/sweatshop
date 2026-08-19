@@ -8,7 +8,7 @@ execution runtime through Claude Code MCP tools and a pi.dev extension.
 Add the Sweatshop marketplace, then install `agentsh`:
 
 ```text
-/plugin marketplace add https://github.com/OWNER/sweatshop
+/plugin marketplace add https://github.com/Fewbytes/sweatshop
 /plugin install agentsh@sweatshop
 ```
 
@@ -21,7 +21,40 @@ pi install ./packages/agentsh
 ```
 
 The package metadata declares the pi extension and skill. The `agentsh` and
-`agentshd` binaries must be installed separately or available on `PATH`.
+`agentshd` binaries must be installed separately or available on `PATH` —
+there is no bundled binary distribution yet (tracked in sweatshop-u7z).
+
+## Building and installing the binaries
+
+From the repository root, with [`just`](https://github.com/casey/just) and Go
+installed:
+
+```bash
+just install               # builds and installs to ~/.local/bin
+just install /some/dir     # or install to a specific directory
+```
+
+`just install` is equivalent to:
+
+```bash
+cd agentsh
+go build -o ~/.local/bin/agentsh  ./cmd/agentsh
+go build -o ~/.local/bin/agentshd ./cmd/agentshd
+```
+
+Either way, make sure the install directory is on `PATH` — `agentsh` looks up
+`agentshd` there (or next to its own binary) to auto-start the daemon on
+first use.
+
+If you'd rather point `agentsh` at an `agentshd` binary that isn't on `PATH`
+or next to it, set `AGENTSHD_PATH`:
+
+```bash
+AGENTSHD_PATH=/path/to/agentshd agentsh health
+```
+
+See the repository root `justfile` (`just --list`) for the full set of
+build/test/lint recipes.
 
 ## Configuration
 
