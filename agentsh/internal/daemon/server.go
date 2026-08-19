@@ -35,6 +35,10 @@ type Server struct {
 
 	store *storage.Store
 	exec  *executor.Executor
+	// blobs is constructed once in Serve rather than inline at each call
+	// site — it's a plain value wrapping two paths, cheap to build, but
+	// there's no reason for four call sites to each build their own copy.
+	blobs storage.BlobStore
 	stop  chan struct{}
 	once  sync.Once
 	wg    sync.WaitGroup
@@ -84,7 +88,8 @@ func (s *Server) Serve(ctx context.Context) error {
 		return fmt.Errorf("open invocation storage: %w", err)
 	}
 	s.store = store
-	s.exec = executor.New(store, storage.BlobStore{Root: s.paths.Blobs, Index: s.paths.Index})
+	s.blobs = storage.BlobStore{Root: s.paths.Blobs, Index: s.paths.Index}
+	s.exec = executor.New(store, s.blobs)
 	if s.Grace > 0 {
 		s.exec.Grace = s.Grace
 	}
@@ -202,195 +207,267 @@ func (s *Server) handle(conn net.Conn, serverCtx context.Context) {
 		cancel()
 	}()
 
-	var response agentrpc.Response
-	switch request.Op {
-	case agentrpc.OpHealth:
-		response = agentrpc.Success(request.ID, agentrpc.Health{
-			Status: "ok", PID: os.Getpid(), Workspace: s.paths.Root, Version: version.String(),
-		})
-	case agentrpc.OpShutdown:
-		response = agentrpc.Success(request.ID, map[string]string{"status": "stopping"})
-		defer s.Shutdown()
-	case agentrpc.OpBash:
-		var params agentrpc.BashRequest
-		if err := json.Unmarshal(request.Params, &params); err != nil {
-			response = agentrpc.Failure(request.ID, "invalid_params", err.Error())
-			break
-		}
-		invocation, err := s.exec.Execute(ctx, executor.Request{
-			Command: params.Command, Session: params.Session, CWD: s.paths.Root,
-			Timeout:     time.Duration(params.TimeoutMS) * time.Millisecond,
-			IdleTimeout: time.Duration(params.IdleWaitMS) * time.Millisecond,
-			Background:  params.Background,
-			Interactive: params.Interactive,
-			Stdin:       params.Stdin,
-		})
-		if err != nil {
-			response = agentrpc.Failure(request.ID, "execution", err.Error())
-		} else {
-			response = agentrpc.Success(request.ID, invocation.View())
-		}
-	case agentrpc.OpBashService:
-		var params agentrpc.BashServiceRequest
-		if err := json.Unmarshal(request.Params, &params); err != nil {
-			response = agentrpc.Failure(request.ID, "invalid_params", err.Error())
-			break
-		}
-		svc, err := s.exec.StartService(ctx, executor.ServiceRequest{
-			Name: params.Name, Command: params.Command, Session: params.Session,
-			CWD: s.paths.Root, Timeout: time.Duration(params.TimeoutMS) * time.Millisecond,
-			Readiness: readinessSpec(params.Readiness),
-		})
-		if err != nil {
-			response = agentrpc.Failure(request.ID, "service", err.Error())
-		} else {
-			response = agentrpc.Success(request.ID, svc)
-		}
-	case agentrpc.OpBashServiceStatus:
-		var params agentrpc.BashServiceStatusRequest
-		if err := json.Unmarshal(request.Params, &params); err != nil {
-			response = agentrpc.Failure(request.ID, "invalid_params", err.Error())
-			break
-		}
-		svc, err := s.exec.ServiceStatus(ctx, params.Name)
-		if err != nil {
-			response = agentrpc.Failure(request.ID, "service_status", err.Error())
-		} else {
-			response = agentrpc.Success(request.ID, svc)
-		}
-	case agentrpc.OpBashServiceKill:
-		var params agentrpc.BashServiceKillRequest
-		if err := json.Unmarshal(request.Params, &params); err != nil {
-			response = agentrpc.Failure(request.ID, "invalid_params", err.Error())
-			break
-		}
-		sig := syscall.Signal(params.Signal)
-		if sig == 0 {
-			sig = syscall.SIGTERM
-		}
-		if err := s.exec.KillService(params.Name, sig); err != nil {
-			response = agentrpc.Failure(request.ID, "service_kill", err.Error())
-		} else {
-			response = agentrpc.Success(request.ID, map[string]string{"status": "killed"})
-		}
-	case agentrpc.OpBashServiceLogs:
-		var params agentrpc.BashServiceLogsRequest
-		if err := json.Unmarshal(request.Params, &params); err != nil {
-			response = agentrpc.Failure(request.ID, "invalid_params", err.Error())
-			break
-		}
-		result, err := s.serviceLogs(ctx, params)
-		if err != nil {
-			response = agentrpc.Failure(request.ID, "service_logs", err.Error())
-		} else {
-			response = agentrpc.Success(request.ID, result)
-		}
-	case agentrpc.OpBashOutput:
-		var params agentrpc.BashOutputRequest
-		if err := json.Unmarshal(request.Params, &params); err != nil {
-			response = agentrpc.Failure(request.ID, "invalid_params", err.Error())
-			break
-		}
-		result, err := s.readOutput(ctx, params)
-		if err != nil {
-			response = agentrpc.Failure(request.ID, "output", err.Error())
-		} else {
-			response = agentrpc.Success(request.ID, result)
-		}
-	case agentrpc.OpBashInput:
-		var params agentrpc.BashInputRequest
-		if err := json.Unmarshal(request.Params, &params); err != nil {
-			response = agentrpc.Failure(request.ID, "invalid_params", err.Error())
-			break
-		}
-		if err := s.exec.WriteInput(params.ID, []byte(params.Data)); err != nil {
-			response = agentrpc.Failure(request.ID, "input", err.Error())
-		} else {
-			response = agentrpc.Success(request.ID, map[string]string{"status": "written"})
-		}
-	case agentrpc.OpBashKill:
-		var params agentrpc.BashKillRequest
-		if err := json.Unmarshal(request.Params, &params); err != nil {
-			response = agentrpc.Failure(request.ID, "invalid_params", err.Error())
-			break
-		}
-		sig := syscall.Signal(params.Signal)
-		if sig == 0 {
-			sig = syscall.SIGTERM
-		}
-		if err := s.exec.Kill(params.ID, sig); err != nil {
-			response = agentrpc.Failure(request.ID, "kill", err.Error())
-		} else {
-			response = agentrpc.Success(request.ID, map[string]string{"status": "killed"})
-		}
-	case agentrpc.OpBashState:
-		var params agentrpc.BashStateRequest
-		if len(request.Params) > 0 {
-			_ = json.Unmarshal(request.Params, &params)
-		}
-		if params.Session == "" {
-			params.Session = "default"
-		}
-		state := s.exec.Sessions.Get(params.Session, s.paths.Root)
-		response = agentrpc.Success(request.ID, state)
-	case agentrpc.OpBashProcesses:
-		var params agentrpc.BashStateRequest
-		_ = json.Unmarshal(request.Params, &params)
-		response = agentrpc.Success(request.ID, storage.Views(s.exec.Processes(params.Session)))
-	case agentrpc.OpBashHistory:
-		var params agentrpc.BashHistoryRequest
-		if err := json.Unmarshal(request.Params, &params); err != nil {
-			response = agentrpc.Failure(request.ID, "invalid_params", err.Error())
-			break
-		}
-		history, err := s.store.History(ctx, params.Session, params.Command, params.Since, params.Exit, params.Limit)
-		if err != nil {
-			response = agentrpc.Failure(request.ID, "history", err.Error())
-		} else {
-			response = agentrpc.Success(request.ID, storage.Views(history))
-		}
-	case agentrpc.OpBashReplay:
-		var params agentrpc.BashReplayRequest
-		if err := json.Unmarshal(request.Params, &params); err != nil {
-			response = agentrpc.Failure(request.ID, "invalid_params", err.Error())
-			break
-		}
-		original, err := s.store.GetInvocation(ctx, params.ID)
-		if err != nil {
-			response = agentrpc.Failure(request.ID, "replay", err.Error())
-			break
-		}
-		replayed, err := s.exec.Replay(ctx, original)
-		if err != nil {
-			response = agentrpc.Failure(request.ID, "replay", err.Error())
-		} else {
-			response = agentrpc.Success(request.ID, replayed.View())
-		}
-	case agentrpc.OpBashGC:
-		var params agentrpc.BashGCRequest
-		_ = json.Unmarshal(request.Params, &params)
-		gc, err := (storage.BlobStore{Root: s.paths.Blobs, Index: s.paths.Index}).GC(time.Duration(params.OlderThanHours)*time.Hour, params.MaxBytes)
-		if err != nil {
-			response = agentrpc.Failure(request.ID, "gc", err.Error())
-		} else {
-			response = agentrpc.Success(request.ID, gc)
-		}
-	case agentrpc.OpBashTemplates:
-		var params agentrpc.BashTemplatesRequest
-		if err := json.Unmarshal(request.Params, &params); err != nil {
-			response = agentrpc.Failure(request.ID, "invalid_params", err.Error())
-			break
-		}
-		analysis, err := s.readTemplates(ctx, params)
-		if err != nil {
-			response = agentrpc.Failure(request.ID, "templates", err.Error())
-		} else {
-			response = agentrpc.Success(request.ID, analysis)
-		}
-	default:
-		response = agentrpc.Failure(request.ID, "unknown_operation", request.Op)
-	}
+	response, after := s.dispatch(ctx, request)
 	_ = json.NewEncoder(conn).Encode(response)
+	// Only OpShutdown sets this: it must run after the response is on the
+	// wire, not before, so the client's "stopping" ack isn't racing socket
+	// teardown.
+	if after != nil {
+		after()
+	}
+}
+
+// opHandler serves one RPC op. The returned func, when non-nil, runs after
+// the response has been written to the connection — the only user is
+// OpShutdown, which must not tear the socket down before its own ack is sent.
+type opHandler func(s *Server, ctx context.Context, request agentrpc.Request) (agentrpc.Response, func())
+
+var handlers = map[string]opHandler{
+	agentrpc.OpHealth:            handleHealth,
+	agentrpc.OpShutdown:          handleShutdown,
+	agentrpc.OpBash:              handleBash,
+	agentrpc.OpBashService:       handleBashService,
+	agentrpc.OpBashServiceStatus: handleBashServiceStatus,
+	agentrpc.OpBashServiceKill:   handleBashServiceKill,
+	agentrpc.OpBashServiceLogs:   handleBashServiceLogs,
+	agentrpc.OpBashOutput:        handleBashOutput,
+	agentrpc.OpBashInput:         handleBashInput,
+	agentrpc.OpBashKill:          handleBashKill,
+	agentrpc.OpBashState:         handleBashState,
+	agentrpc.OpBashProcesses:     handleBashProcesses,
+	agentrpc.OpBashHistory:       handleBashHistory,
+	agentrpc.OpBashReplay:        handleBashReplay,
+	agentrpc.OpBashGC:            handleBashGC,
+	agentrpc.OpBashTemplates:     handleBashTemplates,
+}
+
+func (s *Server) dispatch(ctx context.Context, request agentrpc.Request) (agentrpc.Response, func()) {
+	h, ok := handlers[request.Op]
+	if !ok {
+		return agentrpc.Failure(request.ID, "unknown_operation", request.Op), nil
+	}
+	return h(s, ctx, request)
+}
+
+// decodeParams unmarshals request.Params into T, matching how every op
+// handled it before this table existed: empty params is itself a decode
+// error (most request types have required fields). Ops where params are
+// genuinely optional (state/processes/gc) use decodeOptionalParams instead.
+func decodeParams[T any](raw json.RawMessage) (T, error) {
+	var v T
+	err := json.Unmarshal(raw, &v)
+	return v, err
+}
+
+// decodeOptionalParams treats missing params as the zero value rather than
+// a decode error, but — unlike the three ops this replaces used to — still
+// reports genuinely malformed (non-empty, invalid) params as an error
+// instead of silently discarding it.
+func decodeOptionalParams[T any](raw json.RawMessage) (T, error) {
+	var v T
+	if len(raw) == 0 {
+		return v, nil
+	}
+	err := json.Unmarshal(raw, &v)
+	return v, err
+}
+
+func invalidParams(request agentrpc.Request, err error) (agentrpc.Response, func()) {
+	return agentrpc.Failure(request.ID, "invalid_params", err.Error()), nil
+}
+
+func handleHealth(s *Server, ctx context.Context, request agentrpc.Request) (agentrpc.Response, func()) {
+	return agentrpc.Success(request.ID, agentrpc.Health{
+		Status: "ok", PID: os.Getpid(), Workspace: s.paths.Root, Version: version.String(),
+	}), nil
+}
+
+func handleShutdown(s *Server, ctx context.Context, request agentrpc.Request) (agentrpc.Response, func()) {
+	return agentrpc.Success(request.ID, map[string]string{"status": "stopping"}), s.Shutdown
+}
+
+func handleBash(s *Server, ctx context.Context, request agentrpc.Request) (agentrpc.Response, func()) {
+	params, err := decodeParams[agentrpc.BashRequest](request.Params)
+	if err != nil {
+		return invalidParams(request, err)
+	}
+	invocation, err := s.exec.Execute(ctx, executor.Request{
+		Command: params.Command, Session: params.Session, CWD: s.paths.Root,
+		Timeout:     time.Duration(params.TimeoutMS) * time.Millisecond,
+		IdleTimeout: time.Duration(params.IdleWaitMS) * time.Millisecond,
+		Background:  params.Background,
+		Interactive: params.Interactive,
+		Stdin:       params.Stdin,
+	})
+	if err != nil {
+		return agentrpc.Failure(request.ID, "execution", err.Error()), nil
+	}
+	return agentrpc.Success(request.ID, invocation.View()), nil
+}
+
+func handleBashService(s *Server, ctx context.Context, request agentrpc.Request) (agentrpc.Response, func()) {
+	params, err := decodeParams[agentrpc.BashServiceRequest](request.Params)
+	if err != nil {
+		return invalidParams(request, err)
+	}
+	svc, err := s.exec.StartService(ctx, executor.ServiceRequest{
+		Name: params.Name, Command: params.Command, Session: params.Session,
+		CWD: s.paths.Root, Timeout: time.Duration(params.TimeoutMS) * time.Millisecond,
+		Readiness: readinessSpec(params.Readiness),
+	})
+	if err != nil {
+		return agentrpc.Failure(request.ID, "service", err.Error()), nil
+	}
+	return agentrpc.Success(request.ID, svc), nil
+}
+
+func handleBashServiceStatus(s *Server, ctx context.Context, request agentrpc.Request) (agentrpc.Response, func()) {
+	params, err := decodeParams[agentrpc.BashServiceStatusRequest](request.Params)
+	if err != nil {
+		return invalidParams(request, err)
+	}
+	svc, err := s.exec.ServiceStatus(ctx, params.Name)
+	if err != nil {
+		return agentrpc.Failure(request.ID, "service_status", err.Error()), nil
+	}
+	return agentrpc.Success(request.ID, svc), nil
+}
+
+func handleBashServiceKill(s *Server, ctx context.Context, request agentrpc.Request) (agentrpc.Response, func()) {
+	params, err := decodeParams[agentrpc.BashServiceKillRequest](request.Params)
+	if err != nil {
+		return invalidParams(request, err)
+	}
+	sig := syscall.Signal(params.Signal)
+	if sig == 0 {
+		sig = syscall.SIGTERM
+	}
+	if err := s.exec.KillService(params.Name, sig); err != nil {
+		return agentrpc.Failure(request.ID, "service_kill", err.Error()), nil
+	}
+	return agentrpc.Success(request.ID, map[string]string{"status": "killed"}), nil
+}
+
+func handleBashServiceLogs(s *Server, ctx context.Context, request agentrpc.Request) (agentrpc.Response, func()) {
+	params, err := decodeParams[agentrpc.BashServiceLogsRequest](request.Params)
+	if err != nil {
+		return invalidParams(request, err)
+	}
+	result, err := s.serviceLogs(ctx, params)
+	if err != nil {
+		return agentrpc.Failure(request.ID, "service_logs", err.Error()), nil
+	}
+	return agentrpc.Success(request.ID, result), nil
+}
+
+func handleBashOutput(s *Server, ctx context.Context, request agentrpc.Request) (agentrpc.Response, func()) {
+	params, err := decodeParams[agentrpc.BashOutputRequest](request.Params)
+	if err != nil {
+		return invalidParams(request, err)
+	}
+	result, err := s.readOutput(ctx, params)
+	if err != nil {
+		return agentrpc.Failure(request.ID, "output", err.Error()), nil
+	}
+	return agentrpc.Success(request.ID, result), nil
+}
+
+func handleBashInput(s *Server, ctx context.Context, request agentrpc.Request) (agentrpc.Response, func()) {
+	params, err := decodeParams[agentrpc.BashInputRequest](request.Params)
+	if err != nil {
+		return invalidParams(request, err)
+	}
+	if err := s.exec.WriteInput(params.ID, []byte(params.Data)); err != nil {
+		return agentrpc.Failure(request.ID, "input", err.Error()), nil
+	}
+	return agentrpc.Success(request.ID, map[string]string{"status": "written"}), nil
+}
+
+func handleBashKill(s *Server, ctx context.Context, request agentrpc.Request) (agentrpc.Response, func()) {
+	params, err := decodeParams[agentrpc.BashKillRequest](request.Params)
+	if err != nil {
+		return invalidParams(request, err)
+	}
+	sig := syscall.Signal(params.Signal)
+	if sig == 0 {
+		sig = syscall.SIGTERM
+	}
+	if err := s.exec.Kill(params.ID, sig); err != nil {
+		return agentrpc.Failure(request.ID, "kill", err.Error()), nil
+	}
+	return agentrpc.Success(request.ID, map[string]string{"status": "killed"}), nil
+}
+
+func handleBashState(s *Server, ctx context.Context, request agentrpc.Request) (agentrpc.Response, func()) {
+	params, err := decodeOptionalParams[agentrpc.BashStateRequest](request.Params)
+	if err != nil {
+		return invalidParams(request, err)
+	}
+	if params.Session == "" {
+		params.Session = "default"
+	}
+	state := s.exec.Sessions.Get(params.Session, s.paths.Root)
+	return agentrpc.Success(request.ID, state), nil
+}
+
+func handleBashProcesses(s *Server, ctx context.Context, request agentrpc.Request) (agentrpc.Response, func()) {
+	params, err := decodeOptionalParams[agentrpc.BashStateRequest](request.Params)
+	if err != nil {
+		return invalidParams(request, err)
+	}
+	return agentrpc.Success(request.ID, storage.Views(s.exec.Processes(params.Session))), nil
+}
+
+func handleBashHistory(s *Server, ctx context.Context, request agentrpc.Request) (agentrpc.Response, func()) {
+	params, err := decodeParams[agentrpc.BashHistoryRequest](request.Params)
+	if err != nil {
+		return invalidParams(request, err)
+	}
+	history, err := s.store.History(ctx, params.Session, params.Command, params.Since, params.Exit, params.Limit)
+	if err != nil {
+		return agentrpc.Failure(request.ID, "history", err.Error()), nil
+	}
+	return agentrpc.Success(request.ID, storage.Views(history)), nil
+}
+
+func handleBashReplay(s *Server, ctx context.Context, request agentrpc.Request) (agentrpc.Response, func()) {
+	params, err := decodeParams[agentrpc.BashReplayRequest](request.Params)
+	if err != nil {
+		return invalidParams(request, err)
+	}
+	original, err := s.store.GetInvocation(ctx, params.ID)
+	if err != nil {
+		return agentrpc.Failure(request.ID, "replay", err.Error()), nil
+	}
+	replayed, err := s.exec.Replay(ctx, original)
+	if err != nil {
+		return agentrpc.Failure(request.ID, "replay", err.Error()), nil
+	}
+	return agentrpc.Success(request.ID, replayed.View()), nil
+}
+
+func handleBashGC(s *Server, ctx context.Context, request agentrpc.Request) (agentrpc.Response, func()) {
+	params, err := decodeOptionalParams[agentrpc.BashGCRequest](request.Params)
+	if err != nil {
+		return invalidParams(request, err)
+	}
+	gc, err := s.blobs.GC(time.Duration(params.OlderThanHours)*time.Hour, params.MaxBytes)
+	if err != nil {
+		return agentrpc.Failure(request.ID, "gc", err.Error()), nil
+	}
+	return agentrpc.Success(request.ID, gc), nil
+}
+
+func handleBashTemplates(s *Server, ctx context.Context, request agentrpc.Request) (agentrpc.Response, func()) {
+	params, err := decodeParams[agentrpc.BashTemplatesRequest](request.Params)
+	if err != nil {
+		return invalidParams(request, err)
+	}
+	analysis, err := s.readTemplates(ctx, params)
+	if err != nil {
+		return agentrpc.Failure(request.ID, "templates", err.Error()), nil
+	}
+	return agentrpc.Success(request.ID, analysis), nil
 }
 
 // serviceLogs resolves a service name to its (current or last) invocation
@@ -549,32 +626,40 @@ func (s *Server) readOutput(ctx context.Context, params agentrpc.BashOutputReque
 	if err != nil {
 		return output.Result{}, err
 	}
-	var digest string
-	switch params.Stream {
-	case "stdout":
-		digest = invocation.Stdout.SHA256
-	case "stderr":
-		digest = invocation.Stderr.SHA256
-	default:
-		return output.Result{}, errors.New("stream must be stdout or stderr")
+	digest, err := digestForStream(invocation, params.Stream)
+	if err != nil {
+		return output.Result{}, err
 	}
-	blobs := storage.BlobStore{Root: s.paths.Blobs, Index: s.paths.Index}
-	file, err := blobs.Open(digest)
+	file, err := s.blobs.Open(digest)
 	if err != nil {
 		return output.Result{}, err
 	}
 	defer file.Close()
 	var idx *storage.LineIndex
 	if options.Grep == "" && options.Lines != "" {
-		idx, err = blobs.LoadIndex(digest)
+		idx, err = s.blobs.LoadIndex(digest)
 		if err != nil {
 			idx = nil
 		}
 		if idx == nil {
-			idx, _ = blobs.Rebuild(digest)
+			idx, _ = s.blobs.Rebuild(digest)
 		}
 	}
 	return output.ReadFile(file, idx, options)
+}
+
+// digestForStream picks the blob digest for an invocation's stdout or
+// stderr stream — the same lookup was duplicated at every call site that
+// needed to go from an invocation to its raw stream blob.
+func digestForStream(invocation storage.Invocation, stream string) (string, error) {
+	switch stream {
+	case "stdout":
+		return invocation.Stdout.SHA256, nil
+	case "stderr":
+		return invocation.Stderr.SHA256, nil
+	default:
+		return "", errors.New("stream must be stdout or stderr")
+	}
 }
 
 func (s *Server) readTemplates(ctx context.Context, params agentrpc.BashTemplatesRequest) (*analyzer.LogAnalysis, error) {
@@ -615,18 +700,12 @@ func (s *Server) readTemplates(ctx context.Context, params agentrpc.BashTemplate
 		}
 	} else {
 		// 2. Derive templates by reading the raw stream blob
-		var digest string
-		switch params.Stream {
-		case "stdout":
-			digest = invocation.Stdout.SHA256
-		case "stderr":
-			digest = invocation.Stderr.SHA256
-		default:
-			return nil, errors.New("stream must be stdout or stderr")
+		digest, err := digestForStream(invocation, params.Stream)
+		if err != nil {
+			return nil, err
 		}
 
-		blobs := storage.BlobStore{Root: s.paths.Blobs, Index: s.paths.Index}
-		file, err := blobs.Open(digest)
+		file, err := s.blobs.Open(digest)
 		if err != nil {
 			return nil, err
 		}
