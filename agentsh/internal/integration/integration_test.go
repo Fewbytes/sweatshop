@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/executor"
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/storage"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/executor"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/storage"
 )
 
 func newExecutor(t *testing.T) (*executor.Executor, string) {

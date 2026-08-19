@@ -14,8 +14,8 @@ import (
 	"path/filepath"
 	"time"
 
-	agentrpc "github.com/avishai-ish-shalom/sweatshop/agentsh/internal/rpc"
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/workspace"
+	agentrpc "github.com/Fewbytes/sweatshop/agentsh/internal/rpc"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
 )
 
 func main() {

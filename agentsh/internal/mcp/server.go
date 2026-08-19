@@ -8,8 +8,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/rpc"
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/workspace"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/rpc"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
 )
 
 const protocolVersion = "2024-11-05"

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/storage"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/storage"
 )
 
 // Processes and OpenRunning read invocation state while the waiter mutates it.

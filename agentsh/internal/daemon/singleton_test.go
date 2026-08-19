@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	agentrpc "github.com/avishai-ish-shalom/sweatshop/agentsh/internal/rpc"
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/workspace"
+	agentrpc "github.com/Fewbytes/sweatshop/agentsh/internal/rpc"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
 )
 
 // startServing launches a daemon and waits until it answers health.

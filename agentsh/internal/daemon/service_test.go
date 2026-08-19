@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/executor"
-	agentrpc "github.com/avishai-ish-shalom/sweatshop/agentsh/internal/rpc"
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/workspace"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/executor"
+	agentrpc "github.com/Fewbytes/sweatshop/agentsh/internal/rpc"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
 )
 
 func TestBashServiceLifecycleOverRPC(t *testing.T) {

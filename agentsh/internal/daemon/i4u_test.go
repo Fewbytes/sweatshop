@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	agentrpc "github.com/avishai-ish-shalom/sweatshop/agentsh/internal/rpc"
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/storage"
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/workspace"
+	agentrpc "github.com/Fewbytes/sweatshop/agentsh/internal/rpc"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/storage"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
 )
 
 func waitForFile(t *testing.T, path string) {

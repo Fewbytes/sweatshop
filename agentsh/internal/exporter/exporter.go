@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/storage"
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/workspace"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/storage"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
 	parquet "github.com/parquet-go/parquet-go"
 )
 

@@ -9,10 +9,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/config"
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/daemon"
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/mcp"
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/workspace"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/config"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/daemon"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/mcp"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
 )
 
 func main() {

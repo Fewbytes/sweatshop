@@ -6,7 +6,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/storage"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/storage"
 )
 
 // A fresh session's first command must not report the inherited environment as

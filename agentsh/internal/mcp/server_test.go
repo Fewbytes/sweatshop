@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/workspace"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
 )
 
 func TestMCPInitializeAndToolList(t *testing.T) {

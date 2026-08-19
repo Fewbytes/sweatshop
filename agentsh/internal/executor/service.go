@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/service"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/service"
 )
 
 type ServiceState string

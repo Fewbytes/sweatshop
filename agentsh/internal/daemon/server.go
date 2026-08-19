@@ -14,14 +14,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/analyzer"
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/config"
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/executor"
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/output"
-	agentrpc "github.com/avishai-ish-shalom/sweatshop/agentsh/internal/rpc"
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/service"
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/storage"
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/workspace"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/analyzer"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/config"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/executor"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/output"
+	agentrpc "github.com/Fewbytes/sweatshop/agentsh/internal/rpc"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/service"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/storage"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
 )
 
 type Server struct {

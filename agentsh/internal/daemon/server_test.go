@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/output"
-	agentrpc "github.com/avishai-ish-shalom/sweatshop/agentsh/internal/rpc"
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/storage"
-	"github.com/avishai-ish-shalom/sweatshop/agentsh/internal/workspace"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/output"
+	agentrpc "github.com/Fewbytes/sweatshop/agentsh/internal/rpc"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/storage"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
 )
 
 func TestHealthAndShutdown(t *testing.T) {
