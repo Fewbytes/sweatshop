@@ -20,16 +20,31 @@ locate_agentshd() {
 binary="$(locate_agentshd)"
 
 if [ -z "$binary" ] || [ ! -x "$binary" ]; then
+	# This hook is read-only by design (see the file comment) — it reports,
+	# it doesn't install. There are two install paths with different
+	# tradeoffs (no-Go-toolchain-needed prebuilt vs. build-from-source), so
+	# the choice belongs to the human, not a default this script picks.
+	# ASSISTANT: ask the user (e.g. via AskUserQuestion) which of the two
+	# options below they want before running either one automatically.
 	cat <<'EOF'
 [agentsh] agentshd binary not found on PATH (or via AGENTSHD_PATH).
-  The agentsh MCP tools will not work until it is installed.
-  Install it with:
-    just install               # from the sweatshop repo root
-  or:
-    go install github.com/Fewbytes/sweatshop/agentsh/cmd/agentsh@latest
-    go install github.com/Fewbytes/sweatshop/agentsh/cmd/agentshd@latest
-  Then ensure the install directory is on PATH, or set AGENTSHD_PATH to
-  point at the agentshd binary directly.
+  The agentsh MCP tools will not work until it is installed. Two ways to
+  install — ask the user which they prefer before running one:
+
+  1. Prebuilt release (no Go toolchain needed):
+       curl -fsSL https://raw.githubusercontent.com/Fewbytes/sweatshop/master/scripts/install-agentsh.sh | bash
+     or, from a checkout of the repo:
+       just install-release
+
+  2. Build from source (needs a Go toolchain and a C compiler — the
+     storage layer uses CGO):
+       just install               # from the sweatshop repo root
+     or:
+       go install github.com/Fewbytes/sweatshop/agentsh/cmd/agentsh@latest
+       go install github.com/Fewbytes/sweatshop/agentsh/cmd/agentshd@latest
+
+  Either way, ensure the install directory is on PATH afterward, or set
+  AGENTSHD_PATH to point at the agentshd binary directly.
   Run `agentsh doctor` for a full diagnostic once installed.
 EOF
 	# Guardrail: a project that denies Bash on the assumption agentsh

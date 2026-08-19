@@ -25,12 +25,18 @@ lint:
     cd {{agentsh_dir}} && test -z "$(gofmt -l .)" || (echo "gofmt needs to run on:" && gofmt -l . && exit 1)
     cd {{agentsh_dir}} && go mod tidy && git diff --exit-code go.mod go.sum
 
-# Build agentsh and agentshd and install them to a directory on PATH
+# Build agentsh and agentshd from source and install them to a directory on
+# PATH. Requires a Go toolchain (and a C compiler — go-libsql needs CGO).
 install dest=(env('HOME') / ".local/bin"):
     mkdir -p {{dest}}
     cd {{agentsh_dir}} && go build -ldflags '{{ldflags}}' -o {{dest}}/agentsh ./cmd/agentsh
     cd {{agentsh_dir}} && go build -ldflags '{{ldflags}}' -o {{dest}}/agentshd ./cmd/agentshd
     @echo "Installed agentsh and agentshd to {{dest}} — make sure it's on PATH"
+
+# Download the latest prebuilt agentsh/agentshd release for this platform —
+# no Go toolchain needed. See scripts/install-agentsh.sh.
+install-release dest=(env('HOME') / ".local/bin"):
+    bash scripts/install-agentsh.sh --dest {{dest}}
 
 # Validate the plugin marketplace manifest and each plugin's package layout
 validate-marketplace:
