@@ -51,7 +51,18 @@ degraded or crashing obscurely.
 Each tagged release (`vX.Y.Z`) publishes `agentsh_<tag>_<os>_<arch>.tar.gz`
 archives (containing both binaries) plus a `.sha256` checksum, for each
 platform in the table above, on the
-[GitHub Releases page](https://github.com/Fewbytes/sweatshop/releases).
+[GitHub Releases page](https://github.com/Fewbytes/sweatshop/releases). No Go
+toolchain needed.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Fewbytes/sweatshop/master/scripts/install-agentsh.sh | bash
+```
+
+`scripts/install-agentsh.sh` detects your OS/arch, downloads the matching
+archive from the latest release (or `AGENTSH_VERSION=vX.Y.Z` for a specific
+one), verifies its checksum, and installs both binaries to
+`AGENTSH_INSTALL_DIR` (default `~/.local/bin`). From a checkout of the repo,
+`just install-release [dest]` does the same thing. Or by hand:
 
 ```bash
 curl -LO https://github.com/Fewbytes/sweatshop/releases/download/<tag>/agentsh_<tag>_<os>_<arch>.tar.gz
