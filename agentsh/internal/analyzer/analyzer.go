@@ -19,9 +19,10 @@ const DefaultMaxAnalysisBytes = 64 * 1024 * 1024 // 64MB
 const maxLineBytes = 1 << 20 // 1MB
 
 // AnalyzeStream processes the raw text of a log stream (stdout or stderr) and returns
-// a complete structured LogAnalysis containing Drain-clustered templates, collapsed
-// stack traces, and a level histogram. It reads content already resident in memory;
-// for reading a stream from disk without buffering it all upfront, use AnalyzeReader.
+// a complete structured LogAnalysis containing masked-and-hash-clustered templates
+// (see masking.go — not the Drain algorithm), collapsed stack traces, and a level
+// histogram. It reads content already resident in memory; for reading a stream from
+// disk without buffering it all upfront, use AnalyzeReader.
 func AnalyzeStream(invocationID, stream, content string) *LogAnalysis {
 	if content == "" {
 		return emptyAnalysis(invocationID, stream)
