@@ -9,15 +9,11 @@ import (
 	"time"
 
 	"github.com/Fewbytes/sweatshop/agentsh/internal/rpc"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/version"
 	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
 )
 
 const protocolVersion = "2024-11-05"
-
-// Version is reported to MCP clients as the server version. It is declared here
-// rather than tracking plugin.json; nothing currently verifies the two agree
-// (see the version-coupling item in the bootstrap issue).
-const Version = "0.1.0"
 
 // maxMessageBytes bounds a single JSON-RPC line. The default scanner limit of
 // 64KB is far too small: any tool call carrying a large stdin payload exceeds
@@ -109,7 +105,7 @@ func (s *Server) handle(ctx context.Context, request message) result {
 		return result{JSONRPC: "2.0", ID: request.ID, Result: map[string]any{
 			"protocolVersion": protocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]string{"name": "agentsh", "version": Version},
+			"serverInfo":      map[string]string{"name": "agentsh", "version": version.Version},
 		}}
 	case "tools/list":
 		return result{JSONRPC: "2.0", ID: request.ID, Result: map[string]any{"tools": toolDefinitions()}}

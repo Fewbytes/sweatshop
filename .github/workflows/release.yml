@@ -1,0 +1,75 @@
+name: Release
+
+# Triggered by a version tag (v0.1.0 etc). Builds agentsh/agentshd natively
+# on one runner per supported platform and attaches an archive + checksum to
+# the GitHub Release for that tag.
+#
+# Why not cross-compile from one runner: agentsh's storage layer depends on
+# github.com/tursodatabase/go-libsql, which requires CGO and only ships a
+# prebuilt static lib for linux_amd64, linux_arm64, and darwin_arm64 — no
+# darwin_amd64, and cross-linking a CGO binary for another OS/arch needs a
+# matching cross toolchain we don't want to maintain. One native runner per
+# target sidesteps all of that; see cmd/agentshd/main.go's platformSupported
+# for the same matrix enforced at runtime.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - os: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agentsh/go.mod
+
+      - name: build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 1
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          commit="$(git rev-parse --short HEAD)"
+          pkg="github.com/Fewbytes/sweatshop/agentsh/internal/version"
+          ldflags="-s -w -X ${pkg}.Version=${version} -X ${pkg}.Commit=${commit}"
+          mkdir -p dist
+          cd agentsh
+          go build -ldflags "$ldflags" -o ../dist/agentsh  ./cmd/agentsh
+          go build -ldflags "$ldflags" -o ../dist/agentshd ./cmd/agentshd
+
+      - name: package
+        run: |
+          set -euo pipefail
+          name="agentsh_${GITHUB_REF_NAME}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          mkdir -p "$name"
+          cp dist/agentsh dist/agentshd packages/agentsh/README.md "$name/"
+          tar -czf "${name}.tar.gz" "$name"
+          shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            agentsh_*.tar.gz
+            agentsh_*.tar.gz.sha256
+          generate_release_notes: true

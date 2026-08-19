@@ -4,7 +4,7 @@
   "private": true,
   "description": "Claude Code and pi.dev adapters for the agentsh runtime",
   "type": "module",
-  "files": [".claude-plugin", ".mcp.json", "pi", "skills", "README.md"],
+  "files": [".claude-plugin", ".mcp.json", "hooks", "pi", "skills", "README.md"],
   "pi": {
     "extensions": ["./pi/extensions/agentsh.ts"],
     "skills": ["./skills/agentsh"]
