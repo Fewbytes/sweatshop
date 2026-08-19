@@ -54,3 +54,4 @@ sweatshop/
 1. **Issue Tracking**: Run `bd ready` or `bd show` to inspect work items.
 2. **Claude Code**: Ready out-of-the-box with `.claude/settings.json` and `CLAUDE.md`.
 3. **pi.dev**: Load skills and extensions via standard pi directory layout or package configuration.
+4. **Build agentsh**: `just build` (or `just install` to put it on `PATH`) — see the root `justfile` (`just --list`) and [`packages/agentsh/README.md`](packages/agentsh/README.md).

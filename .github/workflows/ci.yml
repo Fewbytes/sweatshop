@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agentsh/go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: extractions/setup-just@v2
+
+      - name: lint (go vet, gofmt, go mod tidy)
+        run: just lint
+
+      - name: test
+        run: just test
+
+      - name: build
+        run: just build
+
+      - name: validate marketplace
+        run: just validate-marketplace

@@ -60,8 +60,22 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 
 ## Build & Test
 
+A root `justfile` wraps the common recipes (`just --list` for the full set):
+
 ```bash
-# agentsh (Go)
+just build               # builds bin/agentsh and bin/agentshd
+just test                # go test ./... in agentsh
+just lint                # go vet, gofmt, go mod tidy check
+just install [dest]      # build + install to dest (default ~/.local/bin)
+just validate-marketplace  # validates .claude-plugin/marketplace.json
+just ci                  # everything CI runs
+```
+
+Equivalent by hand:
+
+```bash
+# agentsh (Go) — note both cmd/agentsh (CLI) and cmd/agentshd (daemon) are
+# needed for a working install; `go build ./...` alone doesn't install either.
 cd agentsh && go build ./... && go test ./...
 ```
 
