@@ -1,33 +1,56 @@
 # agentsh package
 
 The first Sweatshop marketplace package. It provides the agentsh supervised
-execution runtime through Claude Code MCP tools and a pi.dev extension.
+execution runtime through Claude Code MCP tools and a pi.dev extension. Both
+adapters are thin wrappers around the same two binaries, `agentsh` (client)
+and `agentshd` (daemon) — the plugin/extension install step below only
+brings in the MCP wiring and skill files, **not** the binaries. You need
+both steps.
 
-## Claude Code
+## Quick start: Claude Code
 
-Add the Sweatshop marketplace, then install `agentsh`:
+1. Add the marketplace and install the plugin:
 
-```text
-/plugin marketplace add https://github.com/Fewbytes/sweatshop
-/plugin install agentsh@sweatshop
-```
+   ```text
+   /plugin marketplace add https://github.com/Fewbytes/sweatshop
+   /plugin install agentsh@sweatshop
+   ```
 
-## pi.dev
+2. Install the `agentsh`/`agentshd` binaries — no Go toolchain needed:
 
-For local development:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/Fewbytes/sweatshop/master/scripts/install-agentsh.sh | bash
+   ```
 
-```bash
-pi install ./packages/agentsh
-```
+   Make sure the install directory (`~/.local/bin` by default) is on `PATH`,
+   then start (or restart) a Claude Code session. A SessionStart hook checks
+   for `agentshd` on every session start and prints a visible, actionable
+   message if it's missing or won't run — you should never be left wondering
+   why the agentsh tools didn't show up. Run `agentsh doctor` at any time for
+   the full diagnostic (binary versions, socket, daemon reachability,
+   database, platform capabilities).
 
-The package metadata declares the pi extension and skill. The `agentsh` and
-`agentshd` binaries must be installed separately or available on `PATH`.
+   Prefer to build from source instead? See
+   [Building and installing from source](#building-and-installing-from-source)
+   below.
 
-A SessionStart hook checks for `agentshd` at the start of every session and
-prints a visible, actionable message if it's missing or won't run — you
-should never be left wondering why the agentsh tools didn't show up. Run
-`agentsh doctor` at any time for the full diagnostic (binary versions,
-socket, daemon reachability, database, platform capabilities).
+## Quick start: pi.dev
+
+1. Install the extension (for local development, from a checkout of this repo):
+
+   ```bash
+   pi install ./packages/agentsh
+   ```
+
+2. Install the `agentsh`/`agentshd` binaries, same as above:
+
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/Fewbytes/sweatshop/master/scripts/install-agentsh.sh | bash
+   ```
+
+   The package metadata declares the pi extension and skill; pi.dev has no
+   SessionStart-style bootstrap hook, so run `agentsh doctor` yourself after
+   installing to confirm the daemon is reachable.
 
 ## Supported platforms
 
