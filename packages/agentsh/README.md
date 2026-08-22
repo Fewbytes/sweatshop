@@ -99,7 +99,15 @@ Requires a Go toolchain and a C compiler (`go-libsql` needs CGO — this is
 just a native build, so it's on by default on any machine with a compiler
 installed).
 
-No checkout needed:
+No checkout needed — one command installs both:
+
+```bash
+go install github.com/Fewbytes/sweatshop/agentsh/cmd/...@latest
+```
+
+(this also installs `agentsh-analytics`, a separate offline log-analytics
+tool that ships in the same module; harmless if you don't use it. To skip
+it, install `agentsh` and `agentshd` individually instead:)
 
 ```bash
 go install github.com/Fewbytes/sweatshop/agentsh/cmd/agentsh@latest
