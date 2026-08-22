@@ -95,8 +95,18 @@ mv agentsh_<tag>_<os>_<arch>/{agentsh,agentshd} ~/.local/bin/
 
 ## Building and installing from source
 
-If you have a Go toolchain (and, for macOS/arm64 or Linux, a C compiler —
-`go-libsql` needs CGO), build from the repository root with
+Requires a Go toolchain and a C compiler (`go-libsql` needs CGO — this is
+just a native build, so it's on by default on any machine with a compiler
+installed).
+
+No checkout needed:
+
+```bash
+go install github.com/Fewbytes/sweatshop/agentsh/cmd/agentsh@latest
+go install github.com/Fewbytes/sweatshop/agentsh/cmd/agentshd@latest
+```
+
+Or, from a checkout of the repository, with
 [`just`](https://github.com/casey/just):
 
 ```bash
