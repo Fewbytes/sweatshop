@@ -14,9 +14,13 @@ import (
 type fakeRunner struct {
 	stdout, stderr string
 	exitCode       int
+	gotArgs        *[]string // optional: when non-nil, Run records its args here
 }
 
-func (f fakeRunner) Run(context.Context, string, []string, string) (string, string, int, string, error) {
+func (f fakeRunner) Run(_ context.Context, _ string, args []string, _ string) (string, string, int, string, error) {
+	if f.gotArgs != nil {
+		*f.gotArgs = args
+	}
 	return f.stdout, f.stderr, f.exitCode, "", nil
 }
 
