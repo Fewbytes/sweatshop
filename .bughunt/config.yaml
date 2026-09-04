@@ -1,0 +1,10 @@
+# bughunt configuration. Every field is optional.
+#
+# detectors:      set a detector to false to disable it; unlisted means enabled
+# severity_floor: low | medium | high — drops hits below this rank
+# exclude:        glob patterns matched against repo-relative paths
+
+detectors: {}
+severity_floor: low
+exclude:
+  - vendor/**

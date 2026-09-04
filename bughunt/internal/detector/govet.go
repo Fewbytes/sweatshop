@@ -14,7 +14,7 @@ import (
 
 // diagnosticLine matches the "file:line:col: message" form every Go analysis
 // tool in this package emits.
-var diagnosticLine = regexp.MustCompile(`^(.+?):(\d+):(\d+): (.+)$`)
+var diagnosticLine = regexp.MustCompile(`^(.+?):(\d+):(\d+):[ \t]+(.+)$`)
 
 // NewGoVet adapts `go vet`, which writes diagnostics to stderr.
 func NewGoVet(run Runner, sym symbol.Resolver) Detector {
