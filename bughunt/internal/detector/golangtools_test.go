@@ -2,6 +2,7 @@ package detector
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/Fewbytes/sweatshop/bughunt/internal/symbol"
@@ -47,6 +48,32 @@ func TestErrcheckParsesStdout(t *testing.T) {
 	}
 	if len(hits) != 1 || hits[0].RuleID != "errcheck/unchecked" {
 		t.Fatalf("hits = %+v, want one errcheck/unchecked", hits)
+	}
+}
+
+// errcheck's real output separates the column from the message with a tab,
+// not a space, e.g. "cmd/agentsh/main.go:508:17:\tdefer log.Close()".
+func TestErrcheckParsesTabSeparatedStdout(t *testing.T) {
+	out := "cmd/agentsh/main.go:508:17:\tdefer log.Close()\n"
+	hits, err := NewErrcheck(fakeRunner{stdout: out, exitCode: 1}, symbol.NewGo()).
+		Run(context.Background(), t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("got %d hits, want 1", len(hits))
+	}
+	if hits[0].File != "cmd/agentsh/main.go" {
+		t.Fatalf("File = %q, want cmd/agentsh/main.go", hits[0].File)
+	}
+	if hits[0].Line != 508 {
+		t.Fatalf("Line = %d, want 508", hits[0].Line)
+	}
+	if hits[0].RuleID != "errcheck/unchecked" {
+		t.Fatalf("RuleID = %q, want errcheck/unchecked", hits[0].RuleID)
+	}
+	if strings.TrimSpace(hits[0].Message) != hits[0].Message {
+		t.Fatalf("Message = %q, has leading/trailing whitespace", hits[0].Message)
 	}
 }
 
