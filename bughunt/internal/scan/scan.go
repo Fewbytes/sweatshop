@@ -79,6 +79,11 @@ func Run(ctx context.Context, s *store.Store, reg *detector.Registry,
 	}
 
 	floor := finding.Severity(cfg.SeverityFloor)
+	// One fingerprint is recorded at most once per run. Detectors legitimately
+	// report the same defect twice — two identical `defer rows.Close()` lines in
+	// one function share a symbol and normalized match text — and recording both
+	// would bump seen_count twice for a single sighting and overstate the counts.
+	seen := map[string]bool{}
 	for _, d := range available {
 		hits, err := d.Run(ctx, opts.Dir, opts.Paths)
 		if err != nil {
@@ -88,6 +93,11 @@ func Run(ctx context.Context, s *store.Store, reg *detector.Registry,
 			if !h.Severity.AtLeast(floor) || cfg.Excluded(h.File) {
 				continue
 			}
+			fp := finding.Fingerprint(h)
+			if seen[fp] {
+				continue
+			}
+			seen[fp] = true
 			rec, err := record(ctx, s, runID, h, opts)
 			if err != nil {
 				return Result{}, err
