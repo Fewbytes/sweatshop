@@ -195,6 +195,52 @@ func TestRunNormalizesAbsoluteDetectorPaths(t *testing.T) {
 	}
 }
 
+// The CLI passes Dir as ".", not an absolute path. Joining a relative Dir with
+// a relative detector path leaves the result relative, so relating it to an
+// absolute repository root fails and the path silently stays unnormalized —
+// which is exactly how this bug survived its first round of tests, all of which
+// used absolute temp directories.
+func TestRunNormalizesWhenDirIsRelative(t *testing.T) {
+	ctx := context.Background()
+	s := openStore(t)
+	root := initRepo(t)
+	sub := filepath.Join(root, "agentsh")
+	if err := os.MkdirAll(filepath.Join(sub, "cmd"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run with the process working directory inside the subdirectory and Dir
+	// given as ".", the way cmd/bughunt invokes it.
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(sub); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(prev) })
+
+	h := hit("errcheck/unchecked", "Alpha", "conn.Close()", 10, finding.SeverityHigh)
+	h.File = "cmd/main.go"
+	reg := detector.NewRegistry(stubDetector{name: "errcheck", available: true,
+		hits: []finding.Hit{h}})
+
+	res, err := Run(ctx, s, reg, config.Default(), Options{
+		Dir:          ".",
+		DiffBase:     "HEAD",
+		ChangedLines: map[string][]int{"agentsh/cmd/main.go": {10}},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := res.Findings[0].Hit.File; got != "agentsh/cmd/main.go" {
+		t.Fatalf("File = %q, want agentsh/cmd/main.go", got)
+	}
+	if res.GatingCount != 1 {
+		t.Fatalf("GatingCount = %d, want 1", res.GatingCount)
+	}
+}
+
 // bughunt must run outside a git repository. Diff mode is unavailable there,
 // but scanning must not error, and paths stay relative to the scan directory.
 func TestRunWithoutGitRepository(t *testing.T) {
