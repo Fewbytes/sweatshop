@@ -31,3 +31,43 @@ jobs:
 
       - name: validate marketplace
         run: just validate-marketplace
+
+  bughunt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the merge base for --diff resolves.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.9'
+
+      - uses: extractions/setup-just@v2
+
+      - name: install detectors
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          go install github.com/kisielk/errcheck@latest
+          go install github.com/gordonklaus/ineffassign@latest
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: build
+        run: just build
+
+      # bughunt scan only works from inside a Go module directory — the repo
+      # root is not one (the modules are agentsh/ and bughunt/), and scanning
+      # there silently reports zero findings and exits 0 (see
+      # design-docs/bughunt-dogfood-001.md, Defect 1). Run from inside
+      # agentsh/ so the gate actually checks something.
+      - name: bughunt init
+        working-directory: agentsh
+        run: ../bin/bughunt init
+
+      - name: bughunt scan changed lines
+        working-directory: agentsh
+        env:
+          BASE_REF: ${{ github.base_ref || 'master' }}
+        run: ../bin/bughunt scan --diff "origin/$BASE_REF"
