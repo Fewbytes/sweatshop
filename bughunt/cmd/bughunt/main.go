@@ -2,10 +2,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 
+	"github.com/Fewbytes/sweatshop/bughunt/internal/cli"
 	"github.com/Fewbytes/sweatshop/bughunt/internal/version"
 )
 
@@ -24,6 +26,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "version":
 		fmt.Fprintf(stdout, "bughunt %s (%s)\n", version.Version, version.Commit)
 		return 0
+	case "init":
+		if err := cli.Init(".", stdout); err != nil {
+			fmt.Fprintf(stderr, "init: %v\n", err)
+			return 3
+		}
+		return 0
+	case "scan":
+		code, err := cli.Scan(context.Background(), ".", args[1:], stdout, stderr)
+		if err != nil {
+			fmt.Fprintf(stderr, "scan: %v\n", err)
+		}
+		return code
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n%s\n", args[0], usage)
 		return 2
@@ -33,4 +47,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 const usage = `usage: bughunt <command> [flags]
 
 commands:
-  version   print version and exit`
+  init                 create .bughunt/ and report detector availability
+  scan [--diff <rev>]  run deterministic detectors; exit 1 on gating findings
+  version              print version and exit`
