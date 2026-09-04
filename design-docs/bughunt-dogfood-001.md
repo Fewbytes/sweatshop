@@ -163,7 +163,7 @@ lines, none match the diagnostic pattern, and bughunt reports staticcheck as a
 healthy detector that found nothing. Same class as Defect 1, different cause.
 A version-incompatible detector should be loudly unavailable, not quietly empty.
 
-### Defect 4 — gosec's absolute paths break excludes and diff mode. OPEN.
+### Defect 4 — gosec's absolute paths break excludes and diff mode. FIXED.
 
 gosec reports absolute paths while errcheck reports repo-relative ones:
 
@@ -188,6 +188,37 @@ fixture with the path shape its author assumed.
 **Fix**: normalize `Hit.File` to a repo-relative path once, centrally, before
 excludes, diff matching, and fingerprinting. Needs a test per adapter against
 real tool output.
+
+Fixed after a whole-branch review found the problem was worse than described
+here. It is not gosec-specific: `git diff` reports paths from the repository
+root while the Go line tools report them relative to the scan directory, so
+**no** detector could gate in `--diff` mode whenever bughunt ran outside the
+repository root — which is the only way it runs in this monorepo, and exactly
+what the CI job does. The CI gate was structurally incapable of failing.
+
+Normalization now happens once in `scan.Run` before excludes, diff matching,
+and fingerprinting, with a fallback to scan-directory-relative paths outside a
+git repository. Two further defects surfaced while fixing it, both of the same
+family as Defect 2 — a parser encoding an assumption about external output that
+its own fixture also encoded:
+
+- `gitinfo` hard-coded git's `b/` diff prefix. With `diff.mnemonicprefix = true`
+  set in a user's config, git emits `w/`, `ChangedLines` returned an empty map,
+  and `--diff` gated on nothing with no error.
+- gosec's `MatchText` was its `code` field — a three-line context window with
+  `NNN: ` line numbers baked in. Those digits entered the fingerprint, so any
+  edit near a finding changed its identity and resurrected triaged findings,
+  violating the spec's "never the line number" rule for 38% of findings.
+
+The first attempt at the normalization fix reproduced this family a third time:
+it was tested only with absolute temp directories, while the CLI passes `Dir`
+as `"."`, so `filepath.Rel` failed and paths silently stayed unnormalized. The
+tests passed; the real binary did not work. It was caught by running the built
+binary against this repository, not by the suite.
+
+Verified end to end afterwards: touching a line that carries a finding and
+running `bughunt scan --diff HEAD` from inside `agentsh/` now exits 1 and names
+that finding. Before the fix it reported `0 gating` regardless of what changed.
 
 ## Bug classes no detector caught
 
@@ -222,8 +253,8 @@ caught all three.
 
 **Would a developer act on these findings, or disable the gate?**
 
-Act on them — but only after Defects 1 and 4 are fixed, and with the test-file
-split for errcheck.
+Act on them — but only after Defect 1 is fixed, and with the test-file split
+for errcheck. (Defect 4 has since been fixed; see its section above.)
 
 The reasoning: the G115 cluster in the index parser is a real robustness gap on
 file-format parsing; the errcheck findings are deviations from the codebase's
