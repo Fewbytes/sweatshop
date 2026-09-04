@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# bughunt pre-commit gate. Deterministic detectors only — never `hunt`, because
+# an LLM in a pre-commit hook is how the hook gets deleted.
+set -euo pipefail
+
+if ! command -v bughunt >/dev/null 2>&1; then
+  echo "bughunt not on PATH, skipping scan" >&2
+  exit 0
+fi
+
+if ! bughunt scan --diff HEAD; then
+  echo >&2
+  echo "bughunt found new issues on changed lines." >&2
+  echo "Triage with: bughunt triage <fingerprint> --false-positive --reason '...'" >&2
+  echo "Bypass once with: git commit --no-verify" >&2
+  exit 1
+fi

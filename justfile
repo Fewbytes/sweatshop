@@ -47,6 +47,35 @@ install dest=(env('HOME') / ".local/bin"):
 install-release dest=(env('HOME') / ".local/bin"):
     bash scripts/install-agentsh.sh --dest {{dest}}
 
+# Install the bughunt pre-commit gate into this repository's effective hooks
+# directory (respects core.hooksPath; does not overwrite an existing hook —
+# e.g. the one beads installs).
+bughunt-hook:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repo_root="$(git rev-parse --show-toplevel)"
+    hooks_path="$(git config --get core.hooksPath || true)"
+    if [ -z "$hooks_path" ]; then
+        hooks_path=".git/hooks"
+    fi
+    case "$hooks_path" in
+        /*) ;;
+        *) hooks_path="$repo_root/$hooks_path" ;;
+    esac
+    target="$hooks_path/pre-commit"
+    if [ -e "$target" ]; then
+        echo "A pre-commit hook already exists at $target — not overwriting it."
+        echo "Add the bughunt gate to it by pasting this in:"
+        echo
+        echo "# bughunt gate"
+        echo "command -v bughunt >/dev/null 2>&1 && bughunt scan --diff HEAD"
+        exit 0
+    fi
+    mkdir -p "$hooks_path"
+    cp "{{bughunt_dir}}/scripts/pre-commit" "$target"
+    chmod +x "$target"
+    echo "installed $target — bypass a single commit with --no-verify"
+
 # Validate the plugin marketplace manifest and each plugin's package layout
 validate-marketplace:
     node scripts/validate-marketplace.mjs
