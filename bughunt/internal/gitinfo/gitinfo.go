@@ -26,7 +26,13 @@ func HeadSHA(dir string) (string, error) {
 // repo-relative path. --unified=0 keeps the hunks tight so unchanged context
 // does not widen the gate.
 func ChangedLines(dir, base string) (map[string][]int, error) {
-	cmd := exec.Command("git", "diff", "--unified=0", base)
+	// Force deterministic prefixes regardless of the user's diff.mnemonicprefix,
+	// diff.noprefix, or diff.dstPrefix config: any of those change what
+	// "+++ " lines look like and would silently break newFileLine below.
+	cmd := exec.Command("git",
+		"-c", "diff.mnemonicPrefix=false",
+		"-c", "diff.noprefix=false",
+		"diff", "--no-ext-diff", "--unified=0", base)
 	cmd.Dir = dir
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -37,7 +43,11 @@ func ChangedLines(dir, base string) (map[string][]int, error) {
 }
 
 var (
-	newFileLine = regexp.MustCompile(`^\+\+\+ b/(.+)$`)
+	// The prefix is normally "b/" but diff.mnemonicprefix (i/, w/, c/, o/),
+	// diff.noprefix, or diff.dstPrefix can change or remove it even though
+	// ChangedLines forces the standard config; tolerate any single-letter
+	// prefix (or none) rather than hard-coding "b/".
+	newFileLine = regexp.MustCompile(`^\+\+\+ (?:[a-zA-Z]/)?(.+)$`)
 	hunkHeader  = regexp.MustCompile(`^@@ -\S+ \+(\d+)(?:,(\d+))? @@`)
 )
 
@@ -51,12 +61,12 @@ func ParseUnifiedDiff(diff string) map[string][]int {
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if m := newFileLine.FindStringSubmatch(line); m != nil {
-			current = m[1]
-			continue
-		}
 		if strings.HasPrefix(line, "+++ /dev/null") {
 			current = ""
+			continue
+		}
+		if m := newFileLine.FindStringSubmatch(line); m != nil {
+			current = m[1]
 			continue
 		}
 		m := hunkHeader.FindStringSubmatch(line)
