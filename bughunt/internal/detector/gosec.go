@@ -65,7 +65,7 @@ func (g *gosec) Run(ctx context.Context, dir string, paths []string) ([]finding.
 			Symbol:    symbol.Resolve(g.sym, issue.File, line),
 			Message:   issue.Details,
 			Severity:  gosecSeverity(issue.Severity),
-			MatchText: strings.TrimSpace(issue.Code),
+			MatchText: sourceLine(issue.File, line),
 			RawRef:    rawRef,
 		})
 	}
