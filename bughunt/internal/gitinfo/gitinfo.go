@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,6 +21,28 @@ func HeadSHA(dir string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// RepoRoot returns the absolute path of the repository containing dir.
+//
+// Detector output and git output disagree about what paths are relative to:
+// git reports paths from the repository root no matter where it runs, most Go
+// tools report them from the working directory, and gosec reports them
+// absolute. Normalizing everything against this root is what lets the two be
+// compared at all. Symlinks are resolved because git resolves them, and macOS
+// temp directories are symlinks.
+func RepoRoot(dir string) (string, error) {
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	root := strings.TrimSpace(string(out))
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		return resolved, nil
+	}
+	return root, nil
 }
 
 // ChangedLines returns the lines added or modified relative to base, keyed by

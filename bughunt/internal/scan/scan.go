@@ -8,11 +8,14 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Fewbytes/sweatshop/bughunt/internal/config"
 	"github.com/Fewbytes/sweatshop/bughunt/internal/detector"
 	"github.com/Fewbytes/sweatshop/bughunt/internal/finding"
+	"github.com/Fewbytes/sweatshop/bughunt/internal/gitinfo"
 	"github.com/Fewbytes/sweatshop/bughunt/internal/store"
 )
 
@@ -79,6 +82,9 @@ func Run(ctx context.Context, s *store.Store, reg *detector.Registry,
 	}
 
 	floor := finding.Severity(cfg.SeverityFloor)
+	// Resolved once per run, not per hit. Empty when Dir is not inside a git
+	// repository, which is a supported way to run bughunt.
+	repoRoot := resolveRepoRoot(opts.Dir)
 	// One fingerprint is recorded at most once per run. Detectors legitimately
 	// report the same defect twice — two identical `defer rows.Close()` lines in
 	// one function share a symbol and normalized match text — and recording both
@@ -90,6 +96,10 @@ func Run(ctx context.Context, s *store.Store, reg *detector.Registry,
 			return Result{}, fmt.Errorf("detector %s: %w", d.Name(), err)
 		}
 		for _, h := range hits {
+			// Normalize before anything reads File. Excludes, diff matching, and
+			// the fingerprint's fallback anchor all compare paths, and until this
+			// runs they are comparing paths measured from different roots.
+			h.File = normalizePath(h.File, opts.Dir, repoRoot)
 			if !h.Severity.AtLeast(floor) || cfg.Excluded(h.File) {
 				continue
 			}
@@ -152,6 +162,54 @@ func record(ctx context.Context, s *store.Store, runID string,
 		Status:      status,
 		Gates:       status.Gates() && inDiff(h, opts),
 	}, nil
+}
+
+// resolveRepoRoot returns the repository root containing dir, or "" when dir is
+// not inside a repository. A missing repository is not an error: bughunt has to
+// run outside one, it simply cannot offer diff mode there.
+func resolveRepoRoot(dir string) string {
+	root, err := gitinfo.RepoRoot(dir)
+	if err != nil {
+		return ""
+	}
+	return root
+}
+
+// normalizePath rewrites a detector's path to be relative to the repository
+// root, which is the frame git reports changed files in.
+//
+// Detectors disagree: the Go line tools report paths relative to the directory
+// they ran in, gosec reports them absolute. Left alone, a hit from a scan run
+// inside agentsh/ reads "cmd/main.go" while git calls the same file
+// "agentsh/cmd/main.go", so diff matching never fires and the gate silently
+// passes. Excludes miss for the same reason.
+//
+// Outside a repository, paths are made relative to dir instead, which keeps
+// them stable and machine-independent even though diff mode is unavailable.
+func normalizePath(path, dir, repoRoot string) string {
+	abs := path
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(dir, path)
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+
+	base := repoRoot
+	if base == "" {
+		base = dir
+		if resolved, err := filepath.EvalSymlinks(base); err == nil {
+			base = resolved
+		}
+	}
+
+	rel, err := filepath.Rel(base, abs)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		// Outside the base entirely — keep what the detector said rather than
+		// inventing a path that escapes the tree.
+		return path
+	}
+	return filepath.ToSlash(rel)
 }
 
 // inDiff reports whether a hit is inside the changed lines. In full mode every

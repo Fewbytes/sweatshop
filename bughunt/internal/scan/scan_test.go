@@ -2,6 +2,8 @@ package scan
 
 import (
 	"context"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -92,6 +94,128 @@ func TestRunDedupsIdenticalFingerprintsWithinARun(t *testing.T) {
 	}
 	if stored.SeenCount != 1 {
 		t.Fatalf("SeenCount = %d, want 1 — one run is one sighting", stored.SeenCount)
+	}
+}
+
+// initRepo builds a real git repository with one commit and returns its
+// resolved root. Resolved because git resolves symlinks and macOS temp
+// directories are symlinks, so an unresolved path would never compare equal.
+func initRepo(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	for _, args := range [][]string{
+		{"init"},
+		{"config", "user.email", "test@example.com"},
+		{"config", "user.name", "test"},
+		// Neutralize ambient user config: a global commit.gpgsign has no key for
+		// this throwaway identity, and a global hooksPath would run the user's
+		// hooks against a temp repository.
+		{"config", "commit.gpgsign", "false"},
+		{"config", "core.hooksPath", "/dev/null"},
+		{"commit", "--allow-empty", "-m", "seed"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved
+}
+
+// A scan run from a subdirectory reports paths relative to that subdirectory,
+// while git reports them from the repository root. Without normalization the
+// two never match, nothing gates, and the commit gate passes silently.
+func TestRunGatesWhenScanRunsFromSubdirectory(t *testing.T) {
+	ctx := context.Background()
+	s := openStore(t)
+	root := initRepo(t)
+	sub := filepath.Join(root, "agentsh")
+	if err := os.MkdirAll(filepath.Join(sub, "cmd"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	h := hit("errcheck/unchecked", "Alpha", "conn.Close()", 10, finding.SeverityHigh)
+	h.File = "cmd/main.go" // as a Go tool reports it, relative to the scan dir
+	reg := detector.NewRegistry(stubDetector{name: "errcheck", available: true,
+		hits: []finding.Hit{h}})
+
+	res, err := Run(ctx, s, reg, config.Default(), Options{
+		Dir:          sub,
+		DiffBase:     "HEAD",
+		ChangedLines: map[string][]int{"agentsh/cmd/main.go": {10}},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(res.Findings) != 1 {
+		t.Fatalf("got %d findings, want 1", len(res.Findings))
+	}
+	if got := res.Findings[0].Hit.File; got != "agentsh/cmd/main.go" {
+		t.Fatalf("File = %q, want agentsh/cmd/main.go", got)
+	}
+	if res.GatingCount != 1 {
+		t.Fatalf("GatingCount = %d, want 1 — the finding is on a changed line", res.GatingCount)
+	}
+}
+
+// gosec reports absolute paths. They must normalize to the same repo-relative
+// form as every other detector, or excludes and diff matching both miss them.
+func TestRunNormalizesAbsoluteDetectorPaths(t *testing.T) {
+	ctx := context.Background()
+	s := openStore(t)
+	root := initRepo(t)
+	sub := filepath.Join(root, "agentsh")
+	if err := os.MkdirAll(filepath.Join(sub, "cmd"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	h := hit("gosec/G104", "Alpha", "store.Close()", 10, finding.SeverityHigh)
+	h.File = filepath.Join(sub, "cmd", "main.go") // as gosec reports it
+	reg := detector.NewRegistry(stubDetector{name: "gosec", available: true,
+		hits: []finding.Hit{h}})
+
+	res, err := Run(ctx, s, reg, config.Default(), Options{
+		Dir:          sub,
+		DiffBase:     "HEAD",
+		ChangedLines: map[string][]int{"agentsh/cmd/main.go": {10}},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := res.Findings[0].Hit.File; got != "agentsh/cmd/main.go" {
+		t.Fatalf("File = %q, want agentsh/cmd/main.go", got)
+	}
+	if res.GatingCount != 1 {
+		t.Fatalf("GatingCount = %d, want 1", res.GatingCount)
+	}
+}
+
+// bughunt must run outside a git repository. Diff mode is unavailable there,
+// but scanning must not error, and paths stay relative to the scan directory.
+func TestRunWithoutGitRepository(t *testing.T) {
+	ctx := context.Background()
+	s := openStore(t)
+	dir := t.TempDir()
+
+	h := hit("govet/printf", "Alpha", "x", 3, finding.SeverityHigh)
+	h.File = "pkg/a.go"
+	reg := detector.NewRegistry(stubDetector{name: "govet", available: true,
+		hits: []finding.Hit{h}})
+
+	res, err := Run(ctx, s, reg, config.Default(), Options{Dir: dir})
+	if err != nil {
+		t.Fatalf("Run outside a repository must not error: %v", err)
+	}
+	if len(res.Findings) != 1 {
+		t.Fatalf("got %d findings, want 1", len(res.Findings))
+	}
+	if got := res.Findings[0].Hit.File; got != "pkg/a.go" {
+		t.Fatalf("File = %q, want pkg/a.go — relative to the scan dir", got)
 	}
 }
 
