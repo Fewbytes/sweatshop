@@ -27,6 +27,27 @@ func TestStaticcheckExtractsCheckIDFromSuffix(t *testing.T) {
 	}
 }
 
+// The U family (unused code) is one of staticcheck's most common checks. Before
+// it was added to the suffix pattern these findings collapsed to the generic id,
+// so per-rule false-positive accounting could not distinguish them.
+func TestStaticcheckExtractsUFamilyCheckID(t *testing.T) {
+	out := "/tmp/x/a.go:8:6: func unusedHelper is unused (U1000)\n"
+	hits, err := NewStaticcheck(fakeRunner{stdout: out, exitCode: 1}, symbol.NewGo()).
+		Run(context.Background(), t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("got %d hits, want 1", len(hits))
+	}
+	if hits[0].RuleID != "staticcheck/U1000" {
+		t.Fatalf("RuleID = %q, want staticcheck/U1000", hits[0].RuleID)
+	}
+	if hits[0].Message != "func unusedHelper is unused" {
+		t.Fatalf("Message = %q, want the message without the check suffix", hits[0].Message)
+	}
+}
+
 func TestStaticcheckWithoutCheckIDFallsBack(t *testing.T) {
 	out := "/tmp/x/a.go:12:3: something happened\n"
 	hits, err := NewStaticcheck(fakeRunner{stdout: out}, symbol.NewGo()).

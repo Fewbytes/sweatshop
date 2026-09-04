@@ -40,7 +40,10 @@ func targets(paths []string) []string {
 }
 
 // staticcheckSuffix captures the check id staticcheck appends, e.g. "(SA4006)".
-var staticcheckSuffix = regexp.MustCompile(`\s*\((S[A-Z]?\d{4}|ST\d{4}|QF\d{4})\)$`)
+// The U family (unused code) is included: without it those findings collapse to
+// the generic id, which defeats per-rule accounting for one of the most common
+// checks staticcheck reports.
+var staticcheckSuffix = regexp.MustCompile(`\s*\((S[A-Z]?\d{4}|ST\d{4}|QF\d{4}|U\d{4})\)$`)
 
 // NewStaticcheck adapts staticcheck.
 func NewStaticcheck(run Runner, sym symbol.Resolver) Detector {
