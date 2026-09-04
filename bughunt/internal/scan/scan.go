@@ -191,6 +191,12 @@ func normalizePath(path, dir, repoRoot string) string {
 	if !filepath.IsAbs(abs) {
 		abs = filepath.Join(dir, path)
 	}
+	// Dir is routinely "." — the CLI passes the working directory that way — so
+	// joining is not enough to make this absolute, and filepath.Rel against an
+	// absolute root would fail and silently leave the path unnormalized.
+	if a, err := filepath.Abs(abs); err == nil {
+		abs = a
+	}
 	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
 		abs = resolved
 	}
