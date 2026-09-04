@@ -62,6 +62,39 @@ func TestRunRecordsFindingsAndGates(t *testing.T) {
 	}
 }
 
+// Detectors legitimately report the same defect more than once in a single run:
+// two identical `defer rows.Close()` lines inside one function share a rule id,
+// an enclosing symbol, and normalized match text, so they share a fingerprint.
+// Recording both would bump seen_count twice for one sighting and overstate the
+// counts the gate reports.
+func TestRunDedupsIdenticalFingerprintsWithinARun(t *testing.T) {
+	ctx := context.Background()
+	s := openStore(t)
+	dup := hit("errcheck/unchecked", "Alpha", "defer rows.Close()", 12, finding.SeverityMedium)
+	other := dup
+	other.Line = 19 // different line, same fingerprint — line is not part of identity
+	reg := detector.NewRegistry(stubDetector{name: "errcheck", available: true,
+		hits: []finding.Hit{dup, other}})
+
+	res, err := Run(ctx, s, reg, config.Default(), Options{Dir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(res.Findings) != 1 {
+		t.Fatalf("got %d findings, want 1 — the two hits share a fingerprint", len(res.Findings))
+	}
+	if res.GatingCount != 1 {
+		t.Fatalf("GatingCount = %d, want 1", res.GatingCount)
+	}
+	stored, ok, err := s.GetFinding(ctx, res.Findings[0].Fingerprint)
+	if err != nil || !ok {
+		t.Fatalf("GetFinding: %v ok=%v", err, ok)
+	}
+	if stored.SeenCount != 1 {
+		t.Fatalf("SeenCount = %d, want 1 — one run is one sighting", stored.SeenCount)
+	}
+}
+
 func TestRunDoesNotGateOnSuppressedFinding(t *testing.T) {
 	ctx := context.Background()
 	s := openStore(t)
