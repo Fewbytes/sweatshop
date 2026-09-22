@@ -4,6 +4,14 @@
 *.db
 .beads-credential-key
 .beads/proxieddb/
+.beads.gate.lock
 
 # agentsh workspace runtime
 .agentsh/
+
+# Claude Code ctags index
+.claude/tags
+
+# pi-lens
+.lsp/
+.pi-lens.json
