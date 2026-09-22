@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -182,8 +183,14 @@ func (s *Server) listen() (net.Listener, error) {
 
 func (s *Server) handle(conn net.Conn, serverCtx context.Context) {
 	defer conn.Close()
+	br := bufio.NewReader(io.LimitReader(conn, 1<<20))
+	line, err := br.ReadBytes('\n')
+	if err != nil && len(line) == 0 {
+		_ = json.NewEncoder(conn).Encode(agentrpc.Failure("", "invalid_request", err.Error()))
+		return
+	}
 	var request agentrpc.Request
-	if err := json.NewDecoder(io.LimitReader(conn, 1<<20)).Decode(&request); err != nil {
+	if err := json.Unmarshal(line, &request); err != nil {
 		_ = json.NewEncoder(conn).Encode(agentrpc.Failure("", "invalid_request", err.Error()))
 		return
 	}
@@ -193,17 +200,17 @@ func (s *Server) handle(conn net.Conn, serverCtx context.Context) {
 	}
 
 	// ctx ends when the server shuts down or this client disconnects,
-	// whichever comes first. The request body is already fully decoded
-	// above, so it's safe to have a goroutine read from conn concurrently:
-	// any further read only ever observes EOF/error when the peer goes
-	// away (net.Conn allows concurrent Read/Write from different
-	// goroutines). executor.Execute treats a background invocation
-	// independently of this ctx, so disconnecting doesn't kill it.
+	// whichever comes first. The request line is already fully decoded
+	// above, so reading further from br only ever observes EOF/error
+	// when the peer closes the connection (net.Conn allows concurrent
+	// Read/Write from different goroutines). executor.Execute treats a
+	// background invocation independently of this ctx, so disconnecting
+	// doesn't kill it.
 	ctx, cancel := context.WithCancel(serverCtx)
 	defer cancel()
 	go func() {
 		var probe [1]byte
-		_, _ = conn.Read(probe[:])
+		_, _ = br.Read(probe[:])
 		cancel()
 	}()
 
