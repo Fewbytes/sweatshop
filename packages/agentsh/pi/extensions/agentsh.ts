@@ -3,7 +3,6 @@ import { Type } from "typebox";
 import { createConnection, type Socket } from "node:net";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 const exec = promisify(execFile);
@@ -14,9 +13,22 @@ function socketPath(cwd: string): string {
   return join(cwd, ".agentsh", "agentshd.sock");
 }
 
-async function ensureDaemon(cwd: string): Promise<void> {
+// ctx.cwd drifts with `cd` (agentsh persists cwd across calls) and with session
+// replacement, but agentshd's socket lives in the workspace the daemon was
+// started with — the project root. Resolve the git repo root so every call in
+// the same repo hits the same socket regardless of the current subdirectory.
+async function workspaceRoot(cwd: string): Promise<string> {
+  try {
+    const { stdout } = await exec("git", ["-C", cwd, "rev-parse", "--show-toplevel"]);
+    const root = stdout.trim();
+    if (root) return root;
+  } catch { /* not a git repo — fall back to the cwd itself */ }
+  return cwd;
+}
+
+async function ensureDaemon(workspace: string): Promise<void> {
   const binary = process.env.AGENTSH_PATH ?? "agentsh";
-  try { await exec(binary, ["--workspace", cwd, "health"], { timeout: 7000 }); } catch (error) {
+  try { await exec(binary, ["--workspace", workspace, "health"], { timeout: 7000 }); } catch (error) {
     throw new Error(`agentsh daemon unavailable: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
@@ -35,8 +47,9 @@ function callTimeout(op: string, params: unknown): number {
 }
 
 async function call(cwd: string, op: string, params: unknown): Promise<unknown> {
-  await ensureDaemon(cwd);
-  const socket = socketPath(cwd);
+  const workspace = await workspaceRoot(cwd);
+  await ensureDaemon(workspace);
+  const socket = socketPath(workspace);
   return new Promise((resolve, reject) => {
     let data = "";
     const connection: Socket = createConnection(socket);
