@@ -1,3 +1,3 @@
 module github.com/Fewbytes/sweatshop/depmaint
 
-go 1.22
+go 1.24.9
