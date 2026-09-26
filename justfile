@@ -2,13 +2,16 @@
 
 agentsh_dir := "agentsh"
 bughunt_dir := "bughunt"
+depmaint_dir := "depmaint"
 bin_dir := "bin"
 version_pkg := "github.com/Fewbytes/sweatshop/agentsh/internal/version"
 bughunt_version_pkg := "github.com/Fewbytes/sweatshop/bughunt/internal/version"
+depmaint_version_pkg := "github.com/Fewbytes/sweatshop/depmaint/internal/version"
 version := `git -C . describe --tags --always --dirty 2>/dev/null || echo dev`
 commit := `git -C . rev-parse --short HEAD 2>/dev/null || echo none`
 ldflags := "-X " + version_pkg + ".Version=" + version + " -X " + version_pkg + ".Commit=" + commit
 bughunt_ldflags := "-X " + bughunt_version_pkg + ".Version=" + version + " -X " + bughunt_version_pkg + ".Commit=" + commit
+depmaint_ldflags := "-X " + depmaint_version_pkg + ".Version=" + version + " -X " + depmaint_version_pkg + ".Commit=" + commit
 
 # Build agentsh and agentshd into ./bin
 build:
@@ -16,11 +19,13 @@ build:
     cd {{agentsh_dir}} && go build -ldflags '{{ldflags}}' -o ../{{bin_dir}}/agentsh ./cmd/agentsh
     cd {{agentsh_dir}} && go build -ldflags '{{ldflags}}' -o ../{{bin_dir}}/agentshd ./cmd/agentshd
     cd {{bughunt_dir}} && go build -ldflags '{{bughunt_ldflags}}' -o ../{{bin_dir}}/bughunt ./cmd/bughunt
+    cd {{depmaint_dir}} && go build -ldflags '{{depmaint_ldflags}}' -o ../{{bin_dir}}/depmaint ./cmd/depmaint
 
 # Run the agentsh Go test suite
 test:
     cd {{agentsh_dir}} && go test ./...
     cd {{bughunt_dir}} && go test ./...
+    cd {{depmaint_dir}} && go test ./...
 
 # go vet, gofmt, and go.mod tidy — all must be clean, none of them modify anything
 # further once satisfied (go mod tidy does update go.mod/go.sum in place, so
@@ -32,6 +37,9 @@ lint:
     cd {{bughunt_dir}} && go vet ./...
     cd {{bughunt_dir}} && test -z "$(gofmt -l .)" || (echo "gofmt needs to run on:" && gofmt -l . && exit 1)
     cd {{bughunt_dir}} && go mod tidy && git diff --exit-code -- go.mod go.sum
+    cd {{depmaint_dir}} && go vet ./...
+    cd {{depmaint_dir}} && test -z "$(gofmt -l .)" || (echo "gofmt needs to run on:" && gofmt -l . && exit 1)
+    cd {{depmaint_dir}} && go mod tidy && git diff --exit-code -- go.mod go.sum
 
 # Build agentsh and agentshd from source and install them to a directory on
 # PATH. Requires a Go toolchain (and a C compiler — go-libsql needs CGO).
@@ -40,6 +48,7 @@ install dest=(env('HOME') / ".local/bin"):
     cd {{agentsh_dir}} && go build -ldflags '{{ldflags}}' -o {{dest}}/agentsh ./cmd/agentsh
     cd {{agentsh_dir}} && go build -ldflags '{{ldflags}}' -o {{dest}}/agentshd ./cmd/agentshd
     cd {{bughunt_dir}} && go build -ldflags '{{bughunt_ldflags}}' -o {{dest}}/bughunt ./cmd/bughunt
+    cd {{depmaint_dir}} && go build -ldflags '{{depmaint_ldflags}}' -o {{dest}}/depmaint ./cmd/depmaint
     @echo "Installed agentsh and agentshd to {{dest}} — make sure it's on PATH"
 
 # Download the latest prebuilt agentsh/agentshd release for this platform —

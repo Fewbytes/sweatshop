@@ -4,8 +4,8 @@ import "testing"
 
 type fakeExpander struct{ name string }
 
-func (f fakeExpander) Name() string      { return f.name }
-func (f fakeExpander) Available() bool   { return true }
+func (f fakeExpander) Name() string    { return f.name }
+func (f fakeExpander) Available() bool { return true }
 func (f fakeExpander) Expand(string) ([]Node, []Edge, error) {
 	return nil, nil, nil
 }
