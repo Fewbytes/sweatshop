@@ -2,10 +2,13 @@
 package main
 
 import (
+	"context"
+	"flag"
 	"fmt"
 	"io"
 	"os"
 
+	"github.com/Fewbytes/sweatshop/depmaint/internal/cli"
 	"github.com/Fewbytes/sweatshop/depmaint/internal/version"
 )
 
@@ -23,6 +26,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "version":
 		fmt.Fprintf(stdout, "depmaint %s (%s)\n", version.Version, version.Commit)
+		return 0
+	case "init":
+		if err := cli.Init(".", stdout); err != nil {
+			fmt.Fprintf(stderr, "init: %v\n", err)
+			return 3
+		}
+		return 0
+	case "graph":
+		fs := flag.NewFlagSet("graph", flag.ContinueOnError)
+		refresh := fs.Bool("refresh", false, "re-expand even if a cached snapshot exists")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		if err := cli.Graph(context.Background(), ".", *refresh, stdout); err != nil {
+			fmt.Fprintf(stderr, "graph: %v\n", err)
+			return 3
+		}
 		return 0
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n%s\n", args[0], usage)
