@@ -99,3 +99,59 @@ func TestExpandBuildsEdgeFromRootPackage(t *testing.T) {
 		t.Fatalf("expected an edge from the root project to python:idna@3.20, got %v", edges)
 	}
 }
+
+func TestExpandFlagsLocalDirectorySourceAsInternal(t *testing.T) {
+	nodes, edges, err := (Expander{}).Expand("testdata/fixtures/root")
+	if err != nil {
+		t.Fatalf("Expand: %v", err)
+	}
+
+	var sawNode bool
+	for _, n := range nodes {
+		if n.Key == "python:localdep@0.1.0" {
+			sawNode = true
+		}
+	}
+	if !sawNode {
+		t.Fatalf("expected a node for the locally-sourced package, got %v", nodes)
+	}
+
+	var sawInternalEdge bool
+	for _, e := range edges {
+		if e.To == "python:localdep@0.1.0" {
+			if !e.Internal {
+				t.Errorf("edge to locally-sourced package has Internal=false, want true: %+v", e)
+			}
+			sawInternalEdge = true
+		}
+	}
+	if !sawInternalEdge {
+		t.Fatalf("expected an edge to python:localdep@0.1.0, got %v", edges)
+	}
+
+	// A registry-sourced package must never be flagged internal.
+	for _, e := range edges {
+		if e.To == "python:idna@3.20" && e.Internal {
+			t.Error("edge to a registry-sourced package must not be flagged internal")
+		}
+	}
+}
+
+func TestIsLocalSource(t *testing.T) {
+	cases := []struct {
+		name   string
+		source map[string]string
+		want   bool
+	}{
+		{"registry", map[string]string{"registry": "https://pypi.org/simple"}, false},
+		{"git", map[string]string{"git": "https://example.com/x.git"}, false},
+		{"directory", map[string]string{"directory": "../dep"}, true},
+		{"editable", map[string]string{"editable": "."}, true},
+		{"virtual", map[string]string{"virtual": "."}, true},
+	}
+	for _, c := range cases {
+		if got := isLocalSource(c.source); got != c.want {
+			t.Errorf("isLocalSource(%s) = %v, want %v", c.name, got, c.want)
+		}
+	}
+}

@@ -83,6 +83,23 @@ func isMainPackage(p lockPackage) bool {
 	return p.Source["editable"] == "." || p.Source["virtual"] == "."
 }
 
+// isLocalSource reports whether a uv.lock package's source table indicates
+// a repo-local package rather than one fetched from a registry or VCS.
+// Confirmed empirically for "directory" (a non-editable local path
+// reference, e.g. via `[tool.uv.sources] x = { path = "../x" }`) and
+// "editable"/"virtual" (both used for locally-developed projects, including
+// the root project's own entry). "path" is assumed to be a fourth local
+// variant by symmetry with "directory" but was not empirically confirmed
+// during planning — flag this in review if it turns out to be wrong.
+func isLocalSource(source map[string]string) bool {
+	for _, key := range []string{"directory", "editable", "virtual", "path"} {
+		if _, ok := source[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // MainModulePath returns root's own package name (from its uv.lock entry
 // whose source is editable/virtual at "."), used by callers that need to
 // identify this root's own identity separately from its dependencies (e.g.
@@ -127,12 +144,14 @@ func expand(root string) ([]expander.Node, []expander.Edge, error) {
 	// case — only a name that itself forked across resolution markers needs
 	// an explicit version in its dependents' entries).
 	resolved := make(map[string]string, len(lf.Package))
+	sourceByName := make(map[string]map[string]string, len(lf.Package))
 	var nodes []expander.Node
 	for _, p := range lf.Package {
 		if isMainPackage(p) {
 			continue
 		}
 		resolved[p.Name] = p.Version
+		sourceByName[p.Name] = p.Source
 		nodes = append(nodes, expander.Node{
 			Key:    "python:" + p.Name + "@" + p.Version,
 			Kind:   "package",
@@ -156,6 +175,7 @@ func expand(root string) ([]expander.Node, []expander.Edge, error) {
 				From:     fromKey,
 				To:       "python:" + d.Name + "@" + toVersion,
 				Resolved: toVersion,
+				Internal: isLocalSource(sourceByName[d.Name]),
 			})
 		}
 	}
