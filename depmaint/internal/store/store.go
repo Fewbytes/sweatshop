@@ -12,7 +12,7 @@ import (
 	"github.com/Fewbytes/sweatshop/depmaint/internal/expander"
 	"github.com/Fewbytes/sweatshop/depmaint/internal/snapshot"
 
-	_ "modernc.org/sqlite"
+	_ "turso.tech/database/tursogo"
 )
 
 //go:embed schema.sql
@@ -23,7 +23,7 @@ type Store struct{ db *sql.DB }
 
 // Open connects to the database at dsn.
 func Open(dsn string) (*Store, error) {
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open("turso", dsn)
 	if err != nil {
 		return nil, err
 	}
