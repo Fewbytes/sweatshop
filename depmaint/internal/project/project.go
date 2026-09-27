@@ -64,6 +64,13 @@ func Derive(graphs []RootGraph) []Project {
 			if !e.Internal {
 				continue
 			}
+			// Check both endpoints, not just To: g.Edges is the FULL
+			// transitive graph (from `go mod graph`), not just g's direct
+			// requirements, so an internal edge deep in the graph can have
+			// either side land on another root's identity — e.g. root A
+			// transitively depends on something that itself requires root
+			// B locally, in which case B's identity may appear as From on
+			// an edge that isn't A's own direct requirement.
 			if otherRoot, ok := identity[bareKey(e.To)]; ok && otherRoot != g.Root {
 				union(g.Root, otherRoot)
 			}
