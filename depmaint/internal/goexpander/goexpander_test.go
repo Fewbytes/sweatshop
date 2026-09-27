@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -137,5 +138,36 @@ func TestMainModulePath(t *testing.T) {
 	}
 	if got != "example.com/mainmodtest" {
 		t.Errorf("MainModulePath = %q, want example.com/mainmodtest", got)
+	}
+}
+
+func TestExpandFlagsLocalReplaceAsInternal(t *testing.T) {
+	root := "testdata/fixtures/root"
+	nodes, edges, err := (Expander{}).Expand(root)
+	if err != nil {
+		t.Fatalf("Expand: %v", err)
+	}
+
+	var sawNode bool
+	for _, n := range nodes {
+		if strings.HasPrefix(n.Key, "go:example.com/localdep@") {
+			sawNode = true
+		}
+	}
+	if !sawNode {
+		t.Fatalf("expected a node for the locally-replaced module, got %v", nodes)
+	}
+
+	var sawInternalEdge bool
+	for _, e := range edges {
+		if strings.HasPrefix(e.To, "go:example.com/localdep@") {
+			if !e.Internal {
+				t.Errorf("edge to locally-replaced module has Internal=false, want true: %+v", e)
+			}
+			sawInternalEdge = true
+		}
+	}
+	if !sawInternalEdge {
+		t.Fatalf("expected an edge to the locally-replaced module, got %v", edges)
 	}
 }

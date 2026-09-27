@@ -120,6 +120,17 @@ func splitToken(tok string) (path, version string) {
 	return tok, ""
 }
 
+// isLocalPath reports whether a replace directive's target looks like a
+// filesystem path rather than a module path fetched from a proxy/registry —
+// i.e. it starts with "." or is absolute. Go's own rule (see `go help
+// goproxy`) is exactly this: a replacement path containing a "/" and
+// starting with "./" or "../", or an absolute path, is a filesystem
+// replacement; anything else is a module-path replacement (still an
+// external dependency, just pinned to a different version/fork).
+func isLocalPath(p string) bool {
+	return filepath.IsAbs(p) || strings.HasPrefix(p, "./") || strings.HasPrefix(p, "../")
+}
+
 // expand does the real work once we know root has a go.mod. Implemented in
 // Tasks 2-4.
 func expand(root string) ([]expander.Node, []expander.Edge, error) {
@@ -129,13 +140,19 @@ func expand(root string) ([]expander.Node, []expander.Edge, error) {
 	}
 
 	resolved := make(map[string]string, len(mods)) // module path -> final resolved version
+	internal := make(map[string]bool, len(mods))
 	var nodes []expander.Node
 	for _, m := range mods {
 		if m.Main {
 			continue
 		}
 		version := m.Version
-		if version == "" {
+		if m.Replace != nil && isLocalPath(m.Replace.Path) {
+			internal[m.Path] = true
+			if version == "" {
+				version = "(local)"
+			}
+		} else if version == "" {
 			version = "(replaced)"
 		}
 		resolved[m.Path] = version
@@ -171,6 +188,7 @@ func expand(root string) ([]expander.Node, []expander.Edge, error) {
 			To:          "go:" + toPath + "@" + toResolved,
 			Requirement: toVer,
 			Resolved:    toResolved,
+			Internal:    internal[toPath],
 		})
 	}
 	return nodes, edges, nil
