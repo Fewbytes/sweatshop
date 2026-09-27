@@ -21,8 +21,8 @@ func TestLoadMissingFileReturnsDefault(t *testing.T) {
 
 func TestLoadReadsFile(t *testing.T) {
 	dir := t.TempDir()
-	body := "severity_floor: high\nignore:\n  - left-pad\n"
-	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(body), 0o644); err != nil {
+	body := "severity_floor = \"high\"\nignore = [\"left-pad\"]\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	c, err := Load(dir)

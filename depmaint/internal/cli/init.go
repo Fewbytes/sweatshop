@@ -15,8 +15,8 @@ const defaultConfig = `# depmaint configuration. Every field is optional.
 # severity_floor: low | medium | high — drops advisories below this rank in audit
 # ignore:         package names or ecosystem prefixes excluded from audit/hygiene
 
-severity_floor: low
-ignore: []
+severity_floor = "low"
+ignore = []
 `
 
 // Init creates the .depmaint directory, cache database, and default config.

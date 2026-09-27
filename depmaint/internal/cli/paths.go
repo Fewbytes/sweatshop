@@ -5,7 +5,7 @@ import "path/filepath"
 // Layout is the set of paths depmaint reads and writes under a repo root.
 type Layout struct {
 	Dir    string // .depmaint
-	Config string // .depmaint/config.yaml
+	Config string // .depmaint/config.toml
 	DB     string // .depmaint/cache.db
 }
 
@@ -14,7 +14,7 @@ func Paths(root string) Layout {
 	dir := filepath.Join(root, ".depmaint")
 	return Layout{
 		Dir:    dir,
-		Config: filepath.Join(dir, "config.yaml"),
+		Config: filepath.Join(dir, "config.toml"),
 		DB:     filepath.Join(dir, "cache.db"),
 	}
 }

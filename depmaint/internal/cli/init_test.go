@@ -17,7 +17,7 @@ func TestInitCreatesLayout(t *testing.T) {
 		t.Errorf("%s is not a directory: %v", l.Dir, err)
 	}
 	if _, err := os.Stat(l.Config); err != nil {
-		t.Errorf("config.yaml not written: %v", err)
+		t.Errorf("config.toml not written: %v", err)
 	}
 	if _, err := os.Stat(l.DB); err != nil {
 		t.Errorf("cache.db not created: %v", err)
