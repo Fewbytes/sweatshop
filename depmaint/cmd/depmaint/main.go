@@ -12,6 +12,7 @@ import (
 	"github.com/Fewbytes/sweatshop/depmaint/internal/version"
 
 	_ "github.com/Fewbytes/sweatshop/depmaint/internal/goexpander"
+	_ "github.com/Fewbytes/sweatshop/depmaint/internal/pyexpander"
 )
 
 func main() {
