@@ -106,6 +106,28 @@ func TestExpandListsDirectDependency(t *testing.T) {
 	}
 }
 
+func TestExpandBuildsEdgeFromMainModule(t *testing.T) {
+	root := t.TempDir()
+	writeGoMod(t, root, "example.com/edgetest", "gopkg.in/yaml.v3 v3.0.1")
+
+	_, edges, err := (Expander{}).Expand(root)
+	if err != nil {
+		t.Fatalf("Expand: %v", err)
+	}
+	var found bool
+	for _, e := range edges {
+		if e.From == "go:example.com/edgetest@" && e.To == "go:gopkg.in/yaml.v3@v3.0.1" {
+			found = true
+			if e.Resolved != "v3.0.1" {
+				t.Errorf("Resolved = %q, want v3.0.1", e.Resolved)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected an edge from the main module to go:gopkg.in/yaml.v3@v3.0.1, got %v", edges)
+	}
+}
+
 func TestMainModulePath(t *testing.T) {
 	root := t.TempDir()
 	writeGoMod(t, root, "example.com/mainmodtest")
