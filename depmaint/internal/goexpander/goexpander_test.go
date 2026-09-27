@@ -171,3 +171,21 @@ func TestExpandFlagsLocalReplaceAsInternal(t *testing.T) {
 		t.Fatalf("expected an edge to the locally-replaced module, got %v", edges)
 	}
 }
+
+func TestIsLocalPath(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{"../dep", true},
+		{"./dep", true},
+		{"/abs/path/to/dep", true},
+		{"example.com/fork", false},
+		{"github.com/other/fork", false},
+	}
+	for _, c := range cases {
+		if got := isLocalPath(c.path); got != c.want {
+			t.Errorf("isLocalPath(%q) = %v, want %v", c.path, got, c.want)
+		}
+	}
+}
