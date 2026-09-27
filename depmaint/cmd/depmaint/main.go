@@ -10,6 +10,8 @@ import (
 
 	"github.com/Fewbytes/sweatshop/depmaint/internal/cli"
 	"github.com/Fewbytes/sweatshop/depmaint/internal/version"
+
+	_ "github.com/Fewbytes/sweatshop/depmaint/internal/goexpander"
 )
 
 func main() {
