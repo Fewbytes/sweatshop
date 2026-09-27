@@ -45,3 +45,38 @@ func TestExpandDetectsLockfilePresence(t *testing.T) {
 		t.Errorf("Expand(empty uv.lock) = %v, %v, want empty slices", nodes, edges)
 	}
 }
+
+func TestExpandListsPackagesFromFixtureLockfile(t *testing.T) {
+	nodes, _, err := (Expander{}).Expand("testdata/fixtures/root")
+	if err != nil {
+		t.Fatalf("Expand: %v", err)
+	}
+	var found bool
+	for _, n := range nodes {
+		if n.Key == "python:idna@3.20" {
+			found = true
+			if n.Kind != "package" {
+				t.Errorf("Kind = %q, want package", n.Kind)
+			}
+			if !n.Direct {
+				t.Error("Direct = false, want true — idna is a direct dependency of roottest")
+			}
+		}
+		if n.Key == "python:roottest@0.1.0" {
+			t.Error("the root project itself must not be emitted as a dependency node")
+		}
+	}
+	if !found {
+		t.Fatalf("expected node python:idna@3.20, got %v", nodes)
+	}
+}
+
+func TestMainModulePath(t *testing.T) {
+	got, err := MainModulePath("testdata/fixtures/root")
+	if err != nil {
+		t.Fatalf("MainModulePath: %v", err)
+	}
+	if got != "roottest" {
+		t.Errorf("MainModulePath = %q, want roottest", got)
+	}
+}
