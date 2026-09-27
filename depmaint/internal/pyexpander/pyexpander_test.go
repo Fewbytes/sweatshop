@@ -80,3 +80,22 @@ func TestMainModulePath(t *testing.T) {
 		t.Errorf("MainModulePath = %q, want roottest", got)
 	}
 }
+
+func TestExpandBuildsEdgeFromRootPackage(t *testing.T) {
+	_, edges, err := (Expander{}).Expand("testdata/fixtures/root")
+	if err != nil {
+		t.Fatalf("Expand: %v", err)
+	}
+	var found bool
+	for _, e := range edges {
+		if e.From == "python:roottest@0.1.0" && e.To == "python:idna@3.20" {
+			found = true
+			if e.Resolved != "3.20" {
+				t.Errorf("Resolved = %q, want 3.20", e.Resolved)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected an edge from the root project to python:idna@3.20, got %v", edges)
+	}
+}

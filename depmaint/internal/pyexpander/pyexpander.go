@@ -107,27 +107,57 @@ func expand(root string) ([]expander.Node, []expander.Edge, error) {
 		return nil, nil, err
 	}
 
-	var mainDeps map[string]bool
+	var mainPkg lockPackage
+	var haveMain bool
 	for _, p := range lf.Package {
 		if isMainPackage(p) {
-			mainDeps = make(map[string]bool, len(p.Dependencies))
-			for _, d := range p.Dependencies {
-				mainDeps[d.Name] = true
-			}
+			mainPkg, haveMain = p, true
 			break
 		}
 	}
+	mainDeps := make(map[string]bool)
+	if haveMain {
+		for _, d := range mainPkg.Dependencies {
+			mainDeps[d.Name] = true
+		}
+	}
 
+	// resolved maps a bare name to a resolved version, for dependency
+	// entries that don't carry an explicit version themselves (the common
+	// case — only a name that itself forked across resolution markers needs
+	// an explicit version in its dependents' entries).
+	resolved := make(map[string]string, len(lf.Package))
 	var nodes []expander.Node
 	for _, p := range lf.Package {
 		if isMainPackage(p) {
 			continue
 		}
+		resolved[p.Name] = p.Version
 		nodes = append(nodes, expander.Node{
 			Key:    "python:" + p.Name + "@" + p.Version,
 			Kind:   "package",
 			Direct: mainDeps[p.Name],
 		})
 	}
-	return nodes, nil, nil
+
+	resolveVersion := func(d lockDependency) string {
+		if d.Version != "" {
+			return d.Version
+		}
+		return resolved[d.Name]
+	}
+
+	var edges []expander.Edge
+	for _, p := range lf.Package {
+		fromKey := "python:" + p.Name + "@" + p.Version
+		for _, d := range p.Dependencies {
+			toVersion := resolveVersion(d)
+			edges = append(edges, expander.Edge{
+				From:     fromKey,
+				To:       "python:" + d.Name + "@" + toVersion,
+				Resolved: toVersion,
+			})
+		}
+	}
+	return nodes, edges, nil
 }
