@@ -1,0 +1,15 @@
+[project]
+name = "roottest"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = [
+    "localdep",
+    "idna>=3.4",
+]
+
+[tool.uv.sources]
+localdep = { path = "../dep" }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

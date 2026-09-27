@@ -1,0 +1,28 @@
+version = 1
+revision = 3
+requires-python = ">=3.9"
+
+[[package]]
+name = "idna"
+version = "3.20"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "localdep"
+version = "0.1.0"
+source = { directory = "../dep" }
+
+[[package]]
+name = "roottest"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "idna" },
+    { name = "localdep" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "idna", specifier = ">=3.4" },
+    { name = "localdep", directory = "../dep" },
+]
