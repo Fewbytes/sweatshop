@@ -38,6 +38,8 @@ type Trust struct {
 type TrustedKey struct {
 	Name      string `toml:"name"`
 	PublicKey string `toml:"public_key"`
+	// Roles limits which roles this key may attest as. Empty means any role.
+	Roles []string `toml:"roles"`
 }
 
 type Checks struct {
@@ -137,6 +139,13 @@ func (c Constitution) validate() error {
 	if _, err := c.TrustedKeys(); err != nil {
 		return err
 	}
+	for _, k := range c.Trust.Keys {
+		for _, role := range k.Roles {
+			if !slices.Contains(Roles, role) {
+				return fmt.Errorf("trust key %q: unknown role %q", k.Name, role)
+			}
+		}
+	}
 	for _, g := range c.Guards.Paths {
 		if g.Pattern == "" || len(g.Roles) == 0 {
 			return errors.New("every path guard needs a pattern and at least one role")
@@ -167,6 +176,20 @@ func (c Constitution) TrustedKeys() (map[string]ed25519.PublicKey, error) {
 		keys[attest.KeyID(pub)] = pub
 	}
 	return keys, nil
+}
+
+// KeyRoles maps key ID to the roles that key may attest as. A key with an
+// empty list may attest as any role.
+func (c Constitution) KeyRoles() (map[string][]string, error) {
+	roles := make(map[string][]string, len(c.Trust.Keys))
+	for _, k := range c.Trust.Keys {
+		pub, err := attest.ParsePublicKey(k.PublicKey)
+		if err != nil {
+			return nil, fmt.Errorf("trust key %q: %w", k.Name, err)
+		}
+		roles[attest.KeyID(pub)] = k.Roles
+	}
+	return roles, nil
 }
 
 // AllowedRoles returns the roles permitted to change p, and whether any path

@@ -60,6 +60,22 @@ func TestParseValid(t *testing.T) {
 	}
 }
 
+func TestKeyRoles(t *testing.T) {
+	pub, encoded := publicKey(t)
+	doc := strings.Replace(valid(encoded), "public_key = "+fmt.Sprintf("%q", encoded), "public_key = "+fmt.Sprintf("%q", encoded)+"\nroles = [\"maker\"]", 1)
+	c, err := Parse([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	roles, err := c.KeyRoles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := roles[attest.KeyID(pub)]; len(got) != 1 || got[0] != "maker" {
+		t.Fatalf("KeyRoles = %v", roles)
+	}
+}
+
 func TestLoadDigestTracksContent(t *testing.T) {
 	_, encoded := publicKey(t)
 	dir := t.TempDir()
@@ -102,6 +118,7 @@ func TestParseRejects(t *testing.T) {
 		"check without command":    base + "\n[[checks.required]]\nname = \"lint\"\n",
 		"bad public key":           strings.Replace(base, encoded, "AAAA", 1),
 		"unknown role":             strings.Replace(base, `roles = ["gemba"]`, `roles = ["boss"]`, 1),
+		"unknown key role":         strings.Replace(base, "public_key = "+fmt.Sprintf("%q", encoded), "public_key = "+fmt.Sprintf("%q", encoded)+"\nroles = [\"boss\"]", 1),
 		"malformed guard pattern":  strings.Replace(base, `pattern = "acceptance/**"`, `pattern = "acceptance/[x"`, 1),
 	}
 	for name, doc := range cases {

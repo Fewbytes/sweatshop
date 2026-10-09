@@ -41,6 +41,9 @@ const (
 	ReasonBaseMoved     Reason = "base_moved"
 	ReasonRoleForbidden Reason = "role_forbidden"
 	ReasonBadCandidate  Reason = "bad_candidate"
+
+	ReasonRoleNotPermitted Reason = "role_not_permitted"
+	ReasonNoBase           Reason = "no_base"
 )
 
 type Result struct {
@@ -84,9 +87,16 @@ func (g Guard) Merge(ctx context.Context, commit string, env attest.Envelope) (R
 	if err != nil {
 		return Result{}, err
 	}
-	statement, _, err := attest.VerifyStatement(env, trusted)
+	keyRoles, err := g.Constitution.KeyRoles()
+	if err != nil {
+		return Result{}, err
+	}
+	statement, keyID, err := attest.VerifyStatement(env, trusted)
 	if err != nil {
 		return reject(ReasonUntrusted, err.Error())
+	}
+	if allowed := keyRoles[keyID]; len(allowed) > 0 && !slices.Contains(allowed, statement.Predicate.Role) {
+		return reject(ReasonRoleNotPermitted, fmt.Sprintf("the verifying key may only attest as %v, not %s", allowed, statement.Predicate.Role))
 	}
 	attestedTree, err := statement.Tree()
 	if err != nil {
@@ -119,6 +129,13 @@ func (g Guard) Merge(ctx context.Context, commit string, env attest.Envelope) (R
 		return reject(ReasonLineStopped, "the andon cord is pulled")
 	}
 
+	exists, err := g.Repo.RefExists(ctx, g.Ref)
+	if err != nil {
+		return Result{}, err
+	}
+	if !exists {
+		return reject(ReasonNoBase, g.Ref+" does not exist; seed it before installing the guard's hook")
+	}
 	base, err := g.Repo.Ref(ctx, g.Ref)
 	if err != nil {
 		return Result{}, fmt.Errorf("read %s: %w", g.Ref, err)
