@@ -166,6 +166,13 @@ func Init(ctx context.Context, opts InitOptions) (Line, error) {
 	}
 	fmt.Fprintf(&cons, "\n[runner]\nkind = \"container\"\nengine = %q\nimage = %q\n", opts.Engine, opts.Image)
 	fmt.Fprintf(&cons, "\n[[checks.required]]\nname = \"ci\"\ncommand = %q\n", opts.Check)
+	// The required check is defined by the candidate itself (justfile, and the
+	// station image it runs in). Gate those paths so a maker cannot weaken
+	// the check in the same commit it is judged by. M1 has no gemba station,
+	// so in practice only the owner changes them, directly on the host.
+	// Tests themselves stay agent-editable until acceptance paths exist.
+	cons.WriteString("\n[[guards.paths]]\npattern = \"justfile\"\nroles = [\"gemba\"]\n")
+	cons.WriteString("\n[[guards.paths]]\npattern = \"station/**\"\nroles = [\"gemba\"]\n")
 	if err := os.WriteFile(l.Constitution, []byte(cons.String()), 0o644); err != nil {
 		return Line{}, err
 	}

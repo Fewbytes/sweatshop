@@ -185,11 +185,15 @@ against the puller's track record. Evidence plus consequence; no identity gate.
   the station API (loopback HTTP, bearer token per station) from their
   containers; candidates arrive as git bundles, never as the agent's repository.
   Agent commands are not witnessed yet; trust rests on the witness's clean-room
-  check run. agentshd's `line_attest`/`line_merge` are the trust-`none` dev path.
+  check run. That run executes the candidate's own check definition (`justfile`,
+  station image); the constitution gates `justfile` and `station/**` to role
+  gemba (owner-only in M1), but the tests themselves stay agent-editable until
+  acceptance paths and a gemba station exist. agentshd's
+  `line_attest`/`line_merge` are the trust-`none` dev path.
 
 Crypto is used only where trust crosses a boundary at rest (attestations,
-commits). Agent → witness uses a local socket; witness → toolchains uses each
-toolchain's own transport auth.
+commits). Agent → witness uses the station API (loopback HTTP, one bearer token
+per station); witness → toolchains uses each toolchain's own transport auth.
 
 ## Constitution
 
