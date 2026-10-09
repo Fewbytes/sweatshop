@@ -73,9 +73,8 @@ constitution store, heijunka publisher, watchers, worker scheduler.
                                               ├ checks ⊇ constitution's required set
                                               ├ line not stopped (in scope)
                                               └ ref still at expected base
-                                                   │ base moved → rebase;
-                                                   │ re-attest only if rebase touched
-                                                   │ the dependency closure
+                                                   │ base moved → rebase,
+                                                   │ re-run checks, re-attest
                                                    ▼
                                      master ──▶ watchers: post-merge suites, deploy,
                                                 telemetry, scans
@@ -308,7 +307,7 @@ Dogfood on the sweatshop repository.
   role-gated path touched by the wrong role.
 - **Slice end-to-end:** a scenario harness driving scripted fake agents (no
   LLM): claim → attest → merge → break master → andon → fix → clear, plus a
-  lost CAS race with and without dependency-closure overlap. LLM agents join
+  lost CAS race (rebase, re-attest, retry). LLM agents join
   only once the harness is green.
 
 ## Build order
