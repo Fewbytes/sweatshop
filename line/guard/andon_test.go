@@ -3,6 +3,9 @@ package guard
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
@@ -201,6 +204,66 @@ func TestClearRejectsStaleEvidence(t *testing.T) {
 	f.expectReason(f.clear(f.passing(m1)), ReasonStaleEvidence)
 	if !f.stopRefExists() {
 		t.Fatal("stop ref cleared by stale evidence")
+	}
+}
+
+// The merge attestation of the failing master is a passing run of that same
+// commit; replaying it must not clear the line without a fix.
+func TestClearRejectsReplayOfPulledCommit(t *testing.T) {
+	f := newFixture(t)
+	m := f.master()
+	id := f.pull(f.failing(m)).Event
+	r := f.clear(f.passing(m))
+	f.expectReason(r, ReasonStaleEvidence)
+	if r.Detail != "clearing needs a passing run on a master newer than the failing commit" || !f.stopRefExists() {
+		t.Fatalf("result = %+v", r)
+	}
+	fix := f.commitMsg("src/a.go", "package a", "fix\n\nAndon-Event: "+id)
+	if r := f.merge(fix, f.passing(fix)); r.Status != Merged {
+		t.Fatalf("fix: %+v", r)
+	}
+	if r := f.clear(f.passing(fix)); r.Status != Cleared {
+		t.Fatalf("clear = %+v", r)
+	}
+}
+
+func TestPullRecordsAttestationDigest(t *testing.T) {
+	f := newFixture(t)
+	env := f.failing(f.master())
+	f.pull(env)
+	_, event, err := f.guard.Stopped(f.ctx)
+	if err != nil || event == nil {
+		t.Fatalf("stopped: %+v %v", event, err)
+	}
+	payload, err := base64.StdEncoding.DecodeString(env.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(payload)
+	if want := "sha256:" + hex.EncodeToString(sum[:]); event.Attestation != want {
+		t.Fatalf("attestation = %q, want %q", event.Attestation, want)
+	}
+}
+
+func TestTaggedFixStillNeedsPassingChecks(t *testing.T) {
+	f := newFixture(t)
+	id := f.pull(f.failing(f.master())).Event
+	before := f.master()
+	fix := f.commitMsg("src/a.go", "package a", "fix\n\nAndon-Event: "+id)
+	if r := f.merge(fix, f.failing(fix)); r.Status != Rejected || r.Reason != ReasonChecksFailed {
+		t.Fatalf("fix: %+v", r)
+	}
+	if f.master() != before {
+		t.Fatal("master moved on a failing fix")
+	}
+}
+
+func TestPullHonoursKeyRoles(t *testing.T) {
+	f := newFixture(t)
+	f.guard.Constitution.Trust.Keys[0].Roles = []string{"gemba"}
+	f.expectReason(f.pull(f.failing(f.master())), ReasonRoleNotPermitted)
+	if f.stopRefExists() {
+		t.Fatal("stop ref written despite role binding")
 	}
 }
 

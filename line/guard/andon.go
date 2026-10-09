@@ -2,6 +2,9 @@ package guard
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,6 +41,9 @@ type AndonEvent struct {
 	KeyID        string    `json:"key_id"`
 	Constitution string    `json:"constitution"`
 	PulledAt     time.Time `json:"pulled_at"`
+	// Attestation is the sha256 of the pull envelope's decoded DSSE payload,
+	// so the event can be tied back to the signed evidence.
+	Attestation string `json:"attestation"`
 }
 
 // stopID returns the ID the stop ref points at, "" when the line is running.
@@ -61,9 +67,18 @@ func (g Guard) Stopped(ctx context.Context) (string, *AndonEvent, error) {
 	if err != nil || id == "" {
 		return "", nil, err
 	}
+	// A hand-written ref may point at any object; only a failing read of a
+	// real blob is an error worth surfacing.
+	kind, err := g.Repo.Git(ctx, "cat-file", "-t", id)
+	if err != nil {
+		return "", nil, fmt.Errorf("read %s: %w", StopRef, err)
+	}
+	if kind != "blob" {
+		return id, nil, nil
+	}
 	data, err := g.Repo.ReadBlob(ctx, id)
 	if err != nil {
-		return id, nil, nil
+		return "", nil, fmt.Errorf("read andon event %s: %w", id, err)
 	}
 	var event AndonEvent
 	if err := json.Unmarshal(data, &event); err != nil {
@@ -126,9 +141,15 @@ func (g Guard) Pull(ctx context.Context, env attest.Envelope) (Result, error) {
 		return alreadyStopped(id), nil
 	}
 
+	payload, err := base64.StdEncoding.DecodeString(env.Payload)
+	if err != nil {
+		return Result{}, fmt.Errorf("decode verified payload: %w", err)
+	}
+	sum := sha256.Sum256(payload)
 	predicate := v.statement.Predicate
 	event := AndonEvent{
-		Commit: v.commit, AgentID: predicate.AgentID, Role: predicate.Role,
+		Attestation: "sha256:" + hex.EncodeToString(sum[:]),
+		Commit:      v.commit, AgentID: predicate.AgentID, Role: predicate.Role,
 		KeyID: v.keyID, Constitution: predicate.Constitution, PulledAt: g.now().UTC(),
 	}
 	found := false
@@ -159,7 +180,10 @@ func (g Guard) Pull(ctx context.Context, env attest.Envelope) (Result, error) {
 	}
 	if err := g.Repo.UpdateRef(ctx, StopRef, blob, ""); err != nil {
 		if errors.Is(err, gitx.ErrRefMoved) {
-			id, _ := g.stopID(ctx)
+			id, err := g.stopID(ctx)
+			if err != nil {
+				return Result{}, err
+			}
 			return alreadyStopped(id), nil
 		}
 		return Result{}, err
@@ -195,6 +219,17 @@ func (g Guard) Clear(ctx context.Context, env attest.Envelope) (Result, error) {
 	}
 	if v.commit != base {
 		return staleEvidence(v.commit, base), nil
+	}
+	// The pulled-on commit's own merge attestation passes every check, so
+	// replaying it would clear the line with no fix; demand a newer master.
+	_, event, err := g.Stopped(ctx)
+	if err != nil {
+		return Result{}, err
+	}
+	if event != nil && v.commit == event.Commit {
+		r := staleEvidence(v.commit, base)
+		r.Detail = "clearing needs a passing run on a master newer than the failing commit"
+		return r, nil
 	}
 	if reason, detail := checkResults(g.Constitution.Checks.Required, v.statement.Predicate.Checks); reason != "" {
 		return Result{Status: Rejected, Reason: reason, Detail: detail, Commit: v.commit, Base: base}, nil
