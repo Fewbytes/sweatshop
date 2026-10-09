@@ -99,6 +99,7 @@ func TestConcurrentKillAndCompletion(t *testing.T) {
 		}()
 		wg.Wait()
 	}
+	waitForNoProcesses(t, exec)
 }
 
 // A failed start must not leave its temp files behind. Each abandoned writer
