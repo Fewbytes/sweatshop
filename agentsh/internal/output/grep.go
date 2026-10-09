@@ -35,7 +35,7 @@ func Grep(file *os.File, options Options) (Result, error) {
 			return result, nil
 		}
 	}
-	return grepWithGo(file, expression, options.Context, info.Size())
+	return grepWithGo(file, expression, options.Context)
 }
 
 // grepWithRg runs ripgrep over the blob. ok=false means the caller should fall
@@ -78,29 +78,18 @@ func grepWithRg(rgPath, filePath string, expression *regexp.Regexp, context int)
 	}, true
 }
 
-func grepWithGo(file *os.File, expression *regexp.Regexp, context int, size int64) (Result, error) {
+// grepWithGo streams the file once, holding only the shown lines and the
+// grep's context window in memory.
+func grepWithGo(file *os.File, expression *regexp.Regexp, context int) (Result, error) {
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return Result{}, err
 	}
-	data, err := io.ReadAll(file)
-	if err != nil {
-		return Result{}, err
-	}
-	all := splitLines(data)
-	selected, total, shown := grepLines(all, expression, context, GrepMaxMatches)
-	omitted := total - shown
-	return Result{
-		Text:      render(selected, true),
-		Bytes:     int64(len(data)),
-		Lines:     int64(len(all)),
-		Matches:   int64(total),
-		Omitted:   int64(max(0, omitted)),
-		Truncated: omitted > 0,
-	}, nil
+	return readStream(file, "", expression, nil, context)
 }
 
 // grepLines returns the lines to show for a grep (matches plus context within
-// the given slice) together with the total and shown match counts.
+// the given slice) together with the total and shown match counts. It is the
+// in-memory form of streamGrep, which Read and grepWithGo use.
 func grepLines(lines []line, expression *regexp.Regexp, context, maxMatches int) ([]line, int, int) {
 	matches := make([]int, 0)
 	for i := range lines {
