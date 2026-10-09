@@ -6,10 +6,13 @@ package witness
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,12 +30,69 @@ type Witness struct {
 	ConstitutionDigest string
 	Runner             Runner
 	// CacheDir is a witness-owned bare repository. The agent's repository is
-	// only ever read through git fetch; git never runs inside it, so its
-	// hooks and config cannot execute.
+	// only ever read through git fetch, and git-upload-pack does run against
+	// it and reads its config. Safety relies on upload-pack being hardened
+	// for untrusted repositories (git >= 2.45.1, enforced before the first
+	// fetch) and on nothing else running there.
 	CacheDir string
 	Now      func() time.Time
 
-	mu sync.Mutex
+	mu         sync.Mutex
+	gitChecked bool
+}
+
+const minGit = "2.45.1"
+
+// parseGitVersion extracts major.minor.patch from `git version` output.
+func parseGitVersion(out string) ([3]int, error) {
+	var v [3]int
+	fields := strings.Fields(out)
+	if len(fields) < 3 || fields[0] != "git" || fields[1] != "version" {
+		return v, fmt.Errorf("unrecognized git version output %q", out)
+	}
+	parts := strings.Split(fields[2], ".")
+	for i := 0; i < 3 && i < len(parts); i++ {
+		n, err := strconv.Atoi(parts[i])
+		if err != nil {
+			if i < 2 {
+				return v, fmt.Errorf("unrecognized git version output %q", out)
+			}
+			break
+		}
+		v[i] = n
+	}
+	return v, nil
+}
+
+func gitAtLeastMin(v [3]int) bool {
+	want := [3]int{2, 45, 1}
+	for i := range v {
+		if v[i] != want[i] {
+			return v[i] > want[i]
+		}
+	}
+	return true
+}
+
+// checkGit verifies once per Witness that git is hardened for fetching from
+// untrusted repositories. Callers hold w.mu.
+func (w *Witness) checkGit(ctx context.Context, cache gitx.Repo) error {
+	if w.gitChecked {
+		return nil
+	}
+	out, err := cache.Git(ctx, "version")
+	if err != nil {
+		return err
+	}
+	v, err := parseGitVersion(out)
+	if err != nil {
+		return err
+	}
+	if !gitAtLeastMin(v) {
+		return fmt.Errorf("witness requires git >= %s, have %s", minGit, strings.TrimSpace(out))
+	}
+	w.gitChecked = true
+	return nil
 }
 
 type AttestResult struct {
@@ -45,6 +105,9 @@ type AttestResult struct {
 func (w *Witness) Attest(ctx context.Context, sourceDir, rev string) (AttestResult, error) {
 	if rev == "" || strings.HasPrefix(rev, "-") {
 		return AttestResult{}, fmt.Errorf("invalid revision %q", rev)
+	}
+	if len(w.Constitution.Checks.Required) == 0 {
+		return AttestResult{}, errors.New("constitution has no required checks; refusing to attest")
 	}
 	commit, tree, checkout, cleanup, err := w.prepare(ctx, sourceDir, rev)
 	if err != nil {
@@ -93,6 +156,9 @@ func (w *Witness) prepare(ctx context.Context, sourceDir, rev string) (commit, t
 	if err != nil {
 		return "", "", "", nil, err
 	}
+	if err = w.checkGit(ctx, cache); err != nil {
+		return "", "", "", nil, err
+	}
 	if commit, err = w.fetch(ctx, cache, sourceDir, rev); err != nil {
 		return "", "", "", nil, err
 	}
@@ -125,23 +191,35 @@ func (w *Witness) cache(ctx context.Context) (gitx.Repo, error) {
 }
 
 func (w *Witness) fetch(ctx context.Context, cache gitx.Repo, sourceDir, rev string) (string, error) {
-	_, err := cache.Git(ctx, "-c", "safe.directory="+sourceDir, "fetch", "--quiet", "--no-tags", "--force", "--end-of-options",
+	_, err := cache.Git(ctx, "-c", "safe.directory="+sourceDir, "fetch", "--quiet", "--no-tags", "--force", "--prune", "--end-of-options",
 		sourceDir, "+HEAD:refs/source/HEAD", "+refs/heads/*:refs/source/heads/*")
 	if err != nil {
 		return "", fmt.Errorf("fetch from %s: %w", sourceDir, err)
 	}
 	for _, candidate := range []string{"refs/source/" + rev, "refs/source/heads/" + rev, rev} {
-		if commit, err := cache.Commit(ctx, candidate); err == nil {
+		commit, err := cache.Commit(ctx, candidate)
+		if err != nil {
+			continue
+		}
+		out, err := cache.Git(ctx, "for-each-ref", "--count=1", "--format=%(refname)", "--contains", commit, "refs/source/")
+		if err != nil {
+			return "", err
+		}
+		if strings.TrimSpace(out) != "" {
 			return commit, nil
 		}
 	}
-	return "", errors.New(rev + " is not a commit reachable from the agent's branches")
+	return "", errors.New(rev + " is not reachable from the agent's branches")
 }
 
 // checkout produces a self-contained repository at commit, so it also works
 // when mounted into a container where the cache path does not exist.
 func (w *Witness) checkout(ctx context.Context, cache gitx.Repo, commit string) (string, func(), error) {
-	ref := "refs/witness/" + commit
+	nonce := make([]byte, 8)
+	if _, err := rand.Read(nonce); err != nil {
+		return "", nil, err
+	}
+	ref := "refs/witness/" + commit + "/" + hex.EncodeToString(nonce)
 	if _, err := cache.Git(ctx, "update-ref", ref, commit); err != nil {
 		return "", nil, err
 	}

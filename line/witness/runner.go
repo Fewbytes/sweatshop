@@ -21,7 +21,10 @@ type Runner interface {
 	Run(ctx context.Context, dir, command string) (RunResult, error)
 }
 
-// ExecRunner runs checks directly on the host. Valid only at trust level none.
+// ExecRunner runs checks directly on the host. Valid only at trust level none:
+// host-local runs inherit the witness's environment and filesystem, and check
+// code can follow symlinks out of the checkout and read the witness's files,
+// including its signing key.
 type ExecRunner struct{}
 
 func (ExecRunner) Run(ctx context.Context, dir, command string) (RunResult, error) {
