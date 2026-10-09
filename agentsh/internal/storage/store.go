@@ -155,6 +155,21 @@ var migrations = []migration{
 			return nil
 		},
 	},
+	{
+		2,
+		func(ctx context.Context, tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS attestations (
+				id TEXT PRIMARY KEY, commit_sha TEXT NOT NULL, tree TEXT NOT NULL,
+				passed INTEGER NOT NULL, statement TEXT NOT NULL, envelope TEXT,
+				created_at TEXT NOT NULL
+			)`)
+			if err != nil {
+				return err
+			}
+			_, err = tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS attestations_commit ON attestations(commit_sha)`)
+			return err
+		},
+	},
 }
 
 func hasColumn(ctx context.Context, tx *sql.Tx, table, column string) (bool, error) {
