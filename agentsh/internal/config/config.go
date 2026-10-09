@@ -165,6 +165,9 @@ func (c *Config) validateWitness(workspaceRoot string) error {
 	if w.Ref == "" {
 		w.Ref = "refs/heads/master"
 	}
+	if !strings.HasPrefix(w.Ref, "refs/") || slices.Contains(strings.Split(w.Ref, "/"), "..") {
+		return fmt.Errorf("config %s: witness.ref %q must start with refs/ and contain no .. component", c.Path, w.Ref)
+	}
 	if workspaceRoot == "" {
 		return nil
 	}
@@ -172,19 +175,43 @@ func (c *Config) validateWitness(workspaceRoot string) error {
 	if err != nil {
 		return err
 	}
+	roots := []string{root, resolveExisting(root)}
 	configPath, err := filepath.Abs(c.Path)
 	if err != nil {
 		return err
 	}
-	for name, p := range map[string]string{
-		"the config file": configPath, "witness.key_file": w.KeyFile, "witness.constitution": w.Constitution,
-		"witness.state_dir": w.StateDir, "witness.remote": w.Remote,
-	} {
-		if within(p, root) {
-			return fmt.Errorf("%s (%s) is inside the workspace %s, where the agent can change it; keep witness settings outside", name, p, root)
+	checked := []struct{ name, path string }{
+		{"the config file", configPath}, {"witness.key_file", w.KeyFile}, {"witness.constitution", w.Constitution},
+		{"witness.state_dir", w.StateDir}, {"witness.remote", w.Remote},
+	}
+	for _, item := range checked {
+		for _, p := range []string{item.path, resolveExisting(item.path)} {
+			for _, r := range roots {
+				if within(p, r) {
+					return fmt.Errorf("%s (%s) is inside the workspace %s, where the agent can change it; keep witness settings outside", item.name, item.path, root)
+				}
+			}
 		}
 	}
 	return nil
+}
+
+// resolveExisting resolves symlinks in the longest existing prefix of an
+// absolute path and re-joins the part that does not exist yet.
+func resolveExisting(p string) string {
+	p = filepath.Clean(p)
+	rest := ""
+	for cur := p; ; {
+		if resolved, err := filepath.EvalSymlinks(cur); err == nil {
+			return filepath.Join(resolved, rest)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return p
+		}
+		rest = filepath.Join(filepath.Base(cur), rest)
+		cur = parent
+	}
 }
 
 func within(p, root string) bool {

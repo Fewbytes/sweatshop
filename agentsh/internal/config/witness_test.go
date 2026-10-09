@@ -80,6 +80,48 @@ func TestWitnessPathsInsideWorkspaceAreRejected(t *testing.T) {
 	}
 }
 
+func TestWitnessContainmentResolvesSymlinks(t *testing.T) {
+	cases := map[string]struct {
+		workspace, field, path string
+	}{
+		"alias workspace, real key":      {"alias/ws", "key_file", "real/ws/k"},
+		"real workspace, alias key":      {"real/ws", "key_file", "alias/ws/k"},
+		"alias workspace, new state_dir": {"alias/ws", "state_dir", "real/ws/new/state"},
+		"real workspace, new alias dir":  {"real/ws", "state_dir", "alias/ws/new/state"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			base := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(base, "real", "ws"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(base, "real"), filepath.Join(base, "alias")); err != nil {
+				t.Fatal(err)
+			}
+			f := witnessFixture{workspace: filepath.Join(base, tc.workspace), outside: t.TempDir()}
+			doc := f.witnessJSON(map[string]string{tc.field: filepath.Join(base, tc.path)})
+			path := writeWitnessFile(t, filepath.Join(f.outside, "witness.json"), doc)
+			if _, err := Load(path, f.workspace); err == nil {
+				t.Fatalf("accepted %s %s inside workspace %s via symlink", tc.field, tc.path, tc.workspace)
+			}
+		})
+	}
+}
+
+func TestWitnessRefIsValidated(t *testing.T) {
+	for ref, ok := range map[string]bool{
+		"refs/heads/main": true, "heads/main": false, "refs/heads/../x": false, "/refs/heads/x": false,
+	} {
+		f := newWitnessFixture(t)
+		doc := strings.Replace(f.witnessJSON(nil), `"remote"`, `"ref": "`+ref+`", "remote"`, 1)
+		path := writeWitnessFile(t, filepath.Join(f.outside, "witness.json"), doc)
+		_, err := Load(path, f.workspace)
+		if ok != (err == nil) {
+			t.Errorf("ref %q: err = %v, want ok=%v", ref, err, ok)
+		}
+	}
+}
+
 func TestWitnessConfigRequiresFieldsAndKnownRole(t *testing.T) {
 	cases := map[string]map[string]string{
 		"missing role":     {"role": ""},
