@@ -39,7 +39,8 @@ type Watcher struct {
 	Cards    Cards
 	Interval time.Duration // default 30s
 	Log      *log.Logger
-	last     string // last master attested
+	last     string          // last master attested
+	carded   map[string]bool // andon events with a card
 }
 
 func (w *Watcher) logf(format string, args ...any) {
@@ -54,6 +55,18 @@ func (w *Watcher) Step(ctx context.Context) error {
 	st, err := w.API.Status(ctx)
 	if err != nil {
 		return fmt.Errorf("status: %w", err)
+	}
+	// Carding is decoupled from pulling: a failed Raise, or a restart that meets
+	// an event someone else pulled, must still end with a P0 card. The ledger
+	// is per process; BeadCards.Raise is idempotent across restarts.
+	if st.Event != "" {
+		ev := guard.AndonEvent{Commit: st.Master}
+		if st.Andon != nil {
+			ev = *st.Andon
+		}
+		if err := w.ensureCard(ctx, st.Event, ev); err != nil {
+			w.logf("%v", err)
+		}
 	}
 	if st.Master == "" || st.Master == w.last {
 		return nil
@@ -77,11 +90,9 @@ func (w *Watcher) Step(ctx context.Context) error {
 		switch {
 		case pr.Status == guard.Stopped:
 			w.logf("andon pulled, event %s", pr.Event)
-			id, err := w.Cards.Raise(ctx, pr.Event, eventFromResult(res))
-			if err != nil {
-				return fmt.Errorf("raise card for event %s: %w", pr.Event, err)
+			if err := w.ensureCard(ctx, pr.Event, eventFromResult(res)); err != nil {
+				return err
 			}
-			w.logf("filed card %s for event %s", id, pr.Event)
 		case pr.Reason == guard.ReasonAlreadyStopped:
 			w.logf("andon already pulled (event %s)", pr.Event)
 		case pr.Reason == guard.ReasonStaleEvidence:
@@ -122,6 +133,23 @@ func (w *Watcher) Step(ctx context.Context) error {
 	return nil
 }
 
+// ensureCard files the card for event once per process.
+func (w *Watcher) ensureCard(ctx context.Context, event string, ev guard.AndonEvent) error {
+	if w.carded[event] {
+		return nil
+	}
+	id, err := w.Cards.Raise(ctx, event, ev)
+	if err != nil {
+		return fmt.Errorf("raise card for event %s: %w", event, err)
+	}
+	if w.carded == nil {
+		w.carded = map[string]bool{}
+	}
+	w.carded[event] = true
+	w.logf("card %s for event %s", id, event)
+	return nil
+}
+
 // eventFromResult reconstructs what the card needs from the failing
 // attestation (the status was read before the pull, so it has no event yet).
 func eventFromResult(res witness.AttestResult) guard.AndonEvent {
@@ -131,6 +159,9 @@ func eventFromResult(res witness.AttestResult) guard.AndonEvent {
 			ev.Check, ev.ExitCode, ev.EvidenceID = c.Name, c.ExitCode, c.EvidenceID
 			break
 		}
+	}
+	if ev.Check == "" {
+		ev.Check = "unknown check"
 	}
 	return ev
 }
@@ -159,12 +190,46 @@ func (w *Watcher) Run(ctx context.Context) error {
 // BeadCards files andon cards with the bd CLI.
 type BeadCards struct{ Dir string } // runs `bd create` in Dir
 
+// existing returns the ID of an open andon card already naming event, so a
+// restarted watcher (or a retry after a lost reply) never files a duplicate.
+func (b BeadCards) existing(ctx context.Context, event string) (string, error) {
+	cmd := exec.CommandContext(ctx, "bd", "list", "--label", "andon", "--status", "open", "--limit", "0", "--json")
+	cmd.Dir = b.Dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("bd list: %w", err)
+	}
+	var issues []struct {
+		ID          string `json:"id"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(out, &issues); err != nil {
+		return "", fmt.Errorf("bd list: parse output: %w", err)
+	}
+	for _, is := range issues {
+		for _, line := range strings.Split(is.Description, "\n") {
+			if line == "event: "+event {
+				return is.ID, nil
+			}
+		}
+	}
+	return "", nil
+}
+
 // Raise runs `bd create` and returns the new issue's ID. The description
 // carries `event: <id>` on its own line; the fixer's prompt parses it.
 func (b BeadCards) Raise(ctx context.Context, event string, ev guard.AndonEvent) (string, error) {
+	if id, err := b.existing(ctx, event); err != nil {
+		return "", err
+	} else if id != "" {
+		return id, nil
+	}
 	short := ev.Commit
 	if len(short) > 12 {
 		short = short[:12]
+	}
+	if ev.Check == "" {
+		ev.Check = "unknown check"
 	}
 	desc := strings.Join([]string{
 		"The andon cord was pulled: the line's master fails a required check.",
