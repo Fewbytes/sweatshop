@@ -54,7 +54,7 @@ type executorRunner struct {
 
 func (r executorRunner) Run(ctx context.Context, dir, command string) (witness.RunResult, error) {
 	invocation, err := r.exec.Execute(ctx, executor.Request{
-		Command: command, Session: "witness-" + filepath.Base(dir), CWD: dir, Timeout: witnessCheckTimeout,
+		Command: command, Session: "witness", CWD: dir, Timeout: witnessCheckTimeout,
 	})
 	if err != nil {
 		return witness.RunResult{}, err
@@ -107,16 +107,27 @@ func handleLineMerge(s *Server, ctx context.Context, request agentrpc.Request) (
 	if err != nil {
 		return invalidParams(request, err)
 	}
-	result, err := s.witness.Merge(ctx, s.paths.Root, rev, s.Config.Witness.Remote, s.guard)
+	result, mergeErr := s.witness.Merge(ctx, s.paths.Root, rev, s.Config.Witness.Remote, s.guard)
+	var recordErr error
 	if result.Attestation.Commit != "" {
-		if recordErr := s.recordAttestation(ctx, result.Attestation); recordErr != nil && err == nil {
-			err = recordErr
-		}
+		recordErr = s.recordAttestation(ctx, result.Attestation)
 	}
-	if err != nil {
-		return agentrpc.Failure(request.ID, "merge", err.Error()), nil
+	return mergeResponse(request.ID, result, mergeErr, recordErr), nil
+}
+
+// mergeResponse decides the reply to line_merge. A recording failure after a
+// successful Merge must not look like a failed merge: the guard may already
+// have advanced the ref, and a caller that retried would act on a landed merge.
+func mergeResponse(id string, result witness.MergeResult, mergeErr, recordErr error) agentrpc.Response {
+	if mergeErr != nil {
+		return agentrpc.Failure(id, "merge", mergeErr.Error())
 	}
-	return agentrpc.Success(request.ID, result), nil
+	if recordErr != nil {
+		return agentrpc.Failure(id, "attestation_not_recorded", fmt.Sprintf(
+			"merge completed (guard status %q, commit %s) but the attestation was not recorded: %v",
+			result.Guard.Status, result.Guard.Commit, recordErr))
+	}
+	return agentrpc.Success(id, result)
 }
 
 func (s *Server) recordAttestation(ctx context.Context, result witness.AttestResult) error {
@@ -130,7 +141,10 @@ func (s *Server) recordAttestation(ctx context.Context, result witness.AttestRes
 			return err
 		}
 	}
-	tree, _ := result.Statement.Tree()
+	tree, err := result.Statement.Tree()
+	if err != nil {
+		return err
+	}
 	return s.store.SaveAttestation(ctx, storage.Attestation{
 		ID: newAttestationID(), Commit: result.Commit, Tree: tree, Passed: result.Passed,
 		Statement: statement, Envelope: envelope, CreatedAt: time.Now().UTC(),
