@@ -87,9 +87,13 @@ constitution store, heijunka publisher, watchers, worker scheduler.
    signal. Claims are atomic (beads).
 2. **Work.** In a sandbox, through an agentshd session. All commands are
    witnessed.
-3. **Attest.** The agent runs the constitution's required checks; the witness
-   signs an attestation over the exact tree hash. The agent never holds the key
-   and cannot forge one.
+3. **Attest.** The agent asks the witness to attest a commit. The witness
+   fetches it into a witness-owned repository, checks it out cleanly, runs the
+   constitution's required checks there (in a container from the constitution's
+   image; host-local only at trust level `none`), and signs an attestation over
+   the exact tree hash. Checks never run in the agent's own container — the
+   agent controls that environment and could fake a toolchain. The agent never
+   holds the key and cannot forge an attestation.
 4. **Merge.** The witness pushes on the agent's behalf; the merge guard verifies
    the attestation and performs the CAS. The serial section is the guard check
    plus the ref update.
