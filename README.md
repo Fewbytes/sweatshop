@@ -31,7 +31,7 @@ Embedded issue tracking with Dolt backend, providing branch-safe, cross-agent ta
 ### 3. `line` — Assembly Line Primitives
 Witness attestations (DSSE/in-toto, Ed25519), the constitution (line rules), and the merge guard that fast-forwards the guarded branch only for trusted, passing attestations. agentsh embeds the witness; `sweatshop` administers keys and the guard's repository hook.
 
-**Limitation:** the witness only protects its key and state from agents that run sandboxed apart from it. agentsh v1 runs the agent and the witness as the same host user (trust level `none`), so a malicious agent can read the witness key and alter witness state; higher trust levels are refused.
+**Limitation:** the witness only protects its key and state from agents that run sandboxed apart from it. In the agentsh dev path (`line_attest`/`line_merge`) the agent and the witness share a host user (trust level `none`), so a malicious agent can read the witness key and alter witness state. The M1 deployment (below) runs the witness on the host in `sweatshop line serve` and the agent in a container. Agent commands are not witnessed yet.
 
 *See [`design-docs/assembly-line-spec.md`](design-docs/assembly-line-spec.md)*.
 
@@ -54,6 +54,38 @@ sweatshop/
 ├── AGENTS.md          # Multi-agent system context and rules
 └── CLAUDE.md          # Claude Code instructions and quick references
 ```
+
+---
+
+## Running a line
+
+Design: [`design-docs/m1-line-live.md`](design-docs/m1-line-live.md). The M1 line runs on one host: the witness, guard, line remote and attestation store live on the host; agents run in containers. On macOS the engine is the `docker` CLI against a podman machine; give the VM enough memory for `just ci`.
+
+```bash
+just station-image                       # sweatshop-station:dev; agent container and check-runner image
+sweatshop line init --dir ~/line --source /path/to/repo [--engine docker] [--image sweatshop-station:dev] [--port 7468]
+sweatshop line serve --dir ~/line        # station API on 127.0.0.1:<port>; --addr, --unsafe-listen for non-loopback
+```
+
+`init` creates the line directory (it must be empty or absent, and outside any workspace): the line's bare remote seeded from the source's master, the constitution (trust `attest`, check `ci = "just ci"`), and stations `maker-1` and `andon-1`, each with a signing key and a bearer token under `stations/<name>/`.
+
+Run the other stations in their own shells. Client commands and the andon watcher read the station API URL and a station token:
+
+```bash
+export SWEATSHOP_LINE_URL=http://127.0.0.1:7468
+export SWEATSHOP_LINE_TOKEN=$(cat ~/line/stations/andon-1/token)
+sweatshop line andon --beads /path/to/repo [--interval 30s]
+
+export CLAUDE_CODE_OAUTH_TOKEN=...       # or ANTHROPIC_API_KEY; passed through to the container
+sweatshop line maker --dir ~/line --station maker-1 --beads /path/to/repo [--once] [--timeout 2h]
+```
+
+- **Offering work.** Beads labelled `line` that are ready are offered to the Maker, andon cards first. The maker claims the bead on the host, runs the agent in a container, and closes it when a commit carrying `Bead: <id>` lands on master; otherwise it unclaims the bead with a note.
+- **Andon.** `line andon` attests each new master. A failing signed attestation pulls the cord: merges stop except fixes with an `Andon-Event: <id>` trailer, and a P0 bead labelled `line` and `andon` is filed whose description has a line `event: <id>`. Clearing needs a passing attestation of a master newer than the failing commit; a flake needs one trivial commit carrying the trailer.
+- **Containers.** Run with `--cap-drop=ALL` and `no-new-privileges`, the line remote mounted read-only, and the station API reached through `host.containers.internal` (the API listens on loopback only; `line maker --url` overrides).
+- **Inside a station.** `sweatshop line attest|merge [--rev HEAD] [--repo .]` submit a commit as a git bundle; `line status` shows master and andon state; `line evidence ID` prints a check log.
+
+This path has not been exercised in a live run yet.
 
 ---
 

@@ -177,9 +177,15 @@ against the puller's track record. Evidence plus consequence; no identity gate.
 - Verification levels (constitution knob, CPU vs trust): attest-only →
   sampled clean-room audit at rate r → full re-run.
 - **Deployment precondition:** agents run sandboxed in Linux containers (VMs
-  later; no macOS sandbox); agentshd runs on the container host and only its
-  socket is mounted in. On macOS the line runs inside a Linux VM.
-  Unsandboxed operation is allowed only at trust level `none` (development).
+  later; no macOS sandbox). On macOS the engine is a Linux VM (docker CLI to
+  podman machine). Unsandboxed operation is allowed only at trust level `none`
+  (development).
+- **M1 deployment** (`m1-line-live.md`): the witness runs in
+  `sweatshop line serve` on the host, one key per station. Agents reach it over
+  the station API (loopback HTTP, bearer token per station) from their
+  containers; candidates arrive as git bundles, never as the agent's repository.
+  Agent commands are not witnessed yet; trust rests on the witness's clean-room
+  check run. agentshd's `line_attest`/`line_merge` are the trust-`none` dev path.
 
 Crypto is used only where trust crosses a boundary at rest (attestations,
 commits). Agent → witness uses a local socket; witness → toolchains uses each
@@ -344,6 +350,12 @@ container runtime in dev, Nomad / Kubernetes / ECS when shared. VMs are a later
 sandbox option; the macOS sandbox is out. agentshd runs per container host,
 outside the sandbox.
 
+**M1:** the line runs on one host. `sweatshop line serve` hosts the witnesses
+and the merge guard; station runners (`line maker`, `line andon`) start worker
+containers with the engine CLI. The line remote and attestation store are
+host-side files under the line directory (see `m1-line-live.md`). agentshd is
+not part of the M1 trust path.
+
 **Storage** is split by data shape:
 
 | Data | Store |
@@ -376,6 +388,9 @@ A testament has two parts:
 
 ## Deferred
 
+- **Host-side witnessing of agent commands.** M1 does not witness what the
+  agent runs in its container; agent logs are untrusted evidence.
+- **LLM Andon (triage).** M1's Andon station is a script: attest, pull, clear.
 - **Dependency-closure re-attestation.** Optimization of the lost-race path;
   v1 always re-attests. Needs per-language reverse-dependency graphs (`go list`,
   Bazel `rdeps`, Python import graph), later supplied by the structure analyzer.

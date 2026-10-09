@@ -51,7 +51,9 @@ heijunka, Kaizen/Gemba, lifetimes), scoped andon, circuit breaker auto-revert.
 - **Candidate transfer is a git bundle** (`sweatshop-xw8`). The client bundles
   `HEAD ^<line master>` and POSTs it. The witness verifies the bundle against
   its cache (seeded from the line remote, which it trusts) and fetches the
-  commit from the bundle file. The agent's repository and its config are never
+  commit from the bundle file (the bundle carries one ref under
+  `refs/sweatshop/`; the witness fetches `+refs/sweatshop/*:refs/bundle/<nonce>/*`
+  and requires the commit to be reachable from it). The agent's repository and its config are never
   read.
 - **Agent commands are not witnessed in M1.** Trust rests on the witness's own
   clean-room check run. Agent command logs are untrusted evidence. Host-side
@@ -77,7 +79,9 @@ heijunka, Kaizen/Gemba, lifetimes), scoped andon, circuit breaker auto-revert.
   commit message carries the trailer `Andon-Event: <event id>` matching the
   current event. All other merge checks still apply.
 - **Clear.** `POST /andon/clear` with a signed *passing* attestation whose
-  commit is the current master and which covers all required checks. The guard
+  commit is the current master, is not the commit the event was pulled on (a
+  replayed attestation of the failing commit cannot clear it; a flake needs one
+  trivial tagged commit), and which covers all required checks. The guard
   deletes `refs/line/andon` (CAS on the event ID). Clearing is mechanical.
 - **Card.** On pull, the Andon station creates a P0 bead naming the event,
   commit and failing check, labelled for the line. Any agent may respond; the

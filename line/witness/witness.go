@@ -1,10 +1,15 @@
 // Package witness attests commits: it runs the constitution's required checks
 // on a clean checkout it owns and signs the result.
 //
-// Agents cannot touch the checkout, the key, or the cache only when the agent
-// runs sandboxed apart from the witness (the spec's deployment precondition).
-// agentsh v1 runs both as the same host user (trust level none), so a malicious
-// agent can read the key and alter witness state.
+// In the M1 deployment the witness runs on the host inside `sweatshop line
+// serve`, and the agent runs in a container that reaches it over the station
+// API. Candidates arrive as git bundles (AttestBundle); the agent's repository
+// and config are never read. Agent commands are not witnessed: trust rests on
+// this package's clean-room check run.
+//
+// ExecRunner and Attest(sourceDir) run checks in the caller's uid and read a
+// local directory; they are the trust-none development path (agentshd), where a
+// malicious agent can read the key and alter witness state.
 package witness
 
 import (
