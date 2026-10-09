@@ -1,5 +1,6 @@
-// Command sweatshop administers an assembly line: witness keys and the merge
-// guard's repository hook.
+// Command sweatshop administers an assembly line (witness keys, the merge
+// guard's hook, line directories, the station API) and is the station
+// client agents use from inside their containers.
 package main
 
 import (
@@ -8,19 +9,35 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/linedir"
+	"github.com/Fewbytes/sweatshop/line/station"
+	"github.com/Fewbytes/sweatshop/line/witness"
 )
 
 const usage = `usage:
   sweatshop keygen PATH                 generate a witness signing key (PATH, PATH.pub)
   sweatshop guard install-hooks REPO    install the merge guard's pre-receive hook in a bare repo
   sweatshop line init --dir D --source S [--engine E] [--image I] [--port P]
-                                        create a line directory seeded from S's master`
+                                        create a line directory seeded from S's master
+  sweatshop line serve --dir D [--addr 127.0.0.1:PORT] [--unsafe-listen]
+                                        serve the station API for the line in D
+  sweatshop line attest [--rev HEAD] [--repo .]
+                                        have this station's witness check rev
+  sweatshop line merge [--rev HEAD] [--repo .]
+                                        check rev and submit it to the merge guard
+  sweatshop line status                 print the line's master and andon state
+  sweatshop line evidence ID            print a check log
+
+Client commands read SWEATSHOP_LINE_URL and SWEATSHOP_LINE_TOKEN.`
 
 func main() {
 	if err := run(os.Args[1:], os.Stdout); err != nil {
@@ -42,6 +59,23 @@ func run(args []string, stdout io.Writer) error {
 		return guard.InstallHooks(args[2])
 	case len(args) >= 2 && args[0] == "line" && args[1] == "init":
 		return lineInit(args[2:], stdout)
+	case len(args) >= 2 && args[0] == "line" && args[1] == "serve":
+		return lineServe(args[2:], stdout)
+	case len(args) >= 2 && args[0] == "line" && (args[1] == "attest" || args[1] == "merge"):
+		return lineSubmit(args[1], args[2:], stdout)
+	case len(args) == 2 && args[0] == "line" && args[1] == "status":
+		return lineStatus(stdout)
+	case len(args) == 3 && args[0] == "line" && args[1] == "evidence":
+		c, err := lineClient()
+		if err != nil {
+			return err
+		}
+		data, err := c.Evidence(context.Background(), args[2])
+		if err != nil {
+			return err
+		}
+		_, err = stdout.Write(data)
+		return err
 	default:
 		return errors.New(usage)
 	}
@@ -76,6 +110,154 @@ func lineInit(args []string, stdout io.Writer) error {
 			return err
 		}
 		fmt.Fprintf(stdout, "station %s role %s key_id %s\n", s.Name, s.Role, attest.KeyID(key))
+	}
+	return nil
+}
+
+// loopback reports whether addr's host can only be reached from this machine.
+// An empty host listens on every interface.
+func loopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func lineServe(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("line serve", flag.ContinueOnError)
+	dir := fs.String("dir", "", "line directory")
+	addr := fs.String("addr", "", "listen address (default 127.0.0.1:<port from line.toml>)")
+	unsafe := fs.Bool("unsafe-listen", false, "allow a non-loopback listen address")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 || *dir == "" {
+		return errors.New(usage)
+	}
+	l, err := linedir.Load(*dir)
+	if err != nil {
+		return err
+	}
+	if *addr == "" {
+		*addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(l.Port))
+	}
+	// The API holds every station's signing key; tokens are its only guard.
+	if !loopback(*addr) && !*unsafe {
+		return fmt.Errorf("refusing to listen on non-loopback address %s without --unsafe-listen", *addr)
+	}
+	srv, err := station.NewFromLine(l)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "station api for %s on %s\n", l.Dir, *addr)
+	// No write timeout: attest and merge run the line's checks synchronously.
+	hs := &http.Server{Addr: *addr, Handler: srv, ReadHeaderTimeout: 10 * time.Second}
+	return hs.ListenAndServe()
+}
+
+func lineClient() (station.Client, error) {
+	c := station.Client{URL: os.Getenv("SWEATSHOP_LINE_URL"), Token: os.Getenv("SWEATSHOP_LINE_TOKEN")}
+	if c.URL == "" {
+		return c, errors.New("SWEATSHOP_LINE_URL is not set")
+	}
+	if c.Token == "" {
+		return c, errors.New("SWEATSHOP_LINE_TOKEN is not set")
+	}
+	return c, nil
+}
+
+// lineSubmit runs `line attest` or `line merge`; it fails unless the checks
+// passed (attest) or the guard merged (merge).
+func lineSubmit(cmd string, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("line "+cmd, flag.ContinueOnError)
+	rev := fs.String("rev", "HEAD", "revision to submit")
+	repo := fs.String("repo", ".", "repository holding rev")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return errors.New(usage)
+	}
+	c, err := lineClient()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	var attestation witness.AttestResult
+	var outcome error
+	if cmd == "merge" {
+		res, err := c.Merge(ctx, *repo, *rev)
+		if err != nil {
+			return err
+		}
+		attestation = res.Attestation
+		fmt.Fprintf(stdout, "commit %s\nstatus %s\n", res.Guard.Commit, res.Guard.Status)
+		if res.Guard.Reason != "" {
+			fmt.Fprintf(stdout, "reason %s\n", res.Guard.Reason)
+		}
+		if res.Guard.Detail != "" {
+			fmt.Fprintf(stdout, "detail %s\n", res.Guard.Detail)
+		}
+		if res.Guard.Status != guard.Merged {
+			outcome = fmt.Errorf("not merged: %s %s", res.Guard.Status, res.Guard.Reason)
+		}
+	} else {
+		res, err := c.Attest(ctx, *repo, *rev)
+		if err != nil {
+			return err
+		}
+		attestation = res
+		fmt.Fprintf(stdout, "commit %s\npassed %t\n", res.Commit, res.Passed)
+		if !res.Passed {
+			outcome = errors.New("checks failed")
+		}
+	}
+	for _, check := range attestation.Statement.Predicate.Checks {
+		fmt.Fprintf(stdout, "check %s exit %d evidence %s\n", check.Name, check.ExitCode, check.EvidenceID)
+		if check.ExitCode == 0 || check.EvidenceID == "" {
+			continue
+		}
+		log, err := c.Evidence(ctx, check.EvidenceID)
+		if err != nil {
+			fmt.Fprintf(stdout, "(evidence unavailable: %v)\n", err)
+			continue
+		}
+		fmt.Fprintf(stdout, "--- last 200 lines of %s ---\n%s\n", check.EvidenceID, tail(string(log), 200))
+	}
+	return outcome
+}
+
+func tail(s string, n int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
+}
+
+func lineStatus(stdout io.Writer) error {
+	c, err := lineClient()
+	if err != nil {
+		return err
+	}
+	st, err := c.Status(context.Background())
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "master %s\n", st.Master)
+	if st.Event == "" {
+		fmt.Fprintln(stdout, "andon clear")
+		return nil
+	}
+	fmt.Fprintf(stdout, "andon pulled event %s\n", st.Event)
+	if e := st.Andon; e != nil {
+		fmt.Fprintf(stdout, "andon commit %s check %s exit %d evidence %s by %s (%s) at %s\n",
+			e.Commit, e.Check, e.ExitCode, e.EvidenceID, e.AgentID, e.Role, e.PulledAt.Format(time.RFC3339))
 	}
 	return nil
 }

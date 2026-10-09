@@ -1,0 +1,184 @@
+package station
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/Fewbytes/sweatshop/line/attest"
+	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/guard"
+	"github.com/Fewbytes/sweatshop/line/witness"
+)
+
+// Client talks to the station API from inside a station container.
+type Client struct {
+	URL   string // e.g. http://host.containers.internal:7468
+	Token string
+	HTTP  *http.Client // nil → default with 3h timeout (checks are slow)
+}
+
+func (c Client) http() *http.Client {
+	if c.HTTP != nil {
+		return c.HTTP
+	}
+	return &http.Client{Timeout: 3 * time.Hour}
+}
+
+// do sends a request and decodes a 2xx JSON body into out (or returns the
+// raw body when out is nil). Non-2xx responses become errors carrying the
+// server's message.
+func (c Client) do(ctx context.Context, method, path string, query url.Values, body io.Reader, out any) ([]byte, error) {
+	u := strings.TrimRight(c.URL, "/") + path
+	if len(query) > 0 {
+		u += "?" + query.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	resp, err := c.http().Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		var e struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(data, &e) == nil && e.Error != "" {
+			return nil, fmt.Errorf("station %s %s: %s: %s", method, path, resp.Status, e.Error)
+		}
+		return nil, fmt.Errorf("station %s %s: %s", method, path, resp.Status)
+	}
+	if out != nil {
+		if err := json.Unmarshal(data, out); err != nil {
+			return nil, fmt.Errorf("station %s %s: decode response: %w", method, path, err)
+		}
+	}
+	return data, nil
+}
+
+// bundle resolves rev in repoDir and writes a bundle carrying exactly one ref
+// under refs/sweatshop/ (the witness's contract), excluding what the line
+// already has. The caller must call cleanup.
+func bundle(ctx context.Context, repoDir, rev string) (commit, path string, cleanup func(), err error) {
+	if rev == "" || strings.HasPrefix(rev, "-") {
+		return "", "", nil, fmt.Errorf("invalid revision %q", rev)
+	}
+	repo := gitx.Repo{Dir: repoDir}
+	if commit, err = repo.Commit(ctx, rev); err != nil {
+		return "", "", nil, fmt.Errorf("resolve %s: %w", rev, err)
+	}
+	raw := make([]byte, 8)
+	if _, err := rand.Read(raw); err != nil {
+		return "", "", nil, err
+	}
+	ref := "refs/sweatshop/bundle-" + hex.EncodeToString(raw)
+	if _, err := repo.Git(ctx, "update-ref", "--end-of-options", ref, commit); err != nil {
+		return "", "", nil, err
+	}
+	defer func() { _ = repo.DeleteRef(context.WithoutCancel(ctx), ref) }()
+
+	dir, err := os.MkdirTemp("", "sweatshop-bundle-")
+	if err != nil {
+		return "", "", nil, err
+	}
+	cleanup = func() { _ = os.RemoveAll(dir) }
+	path = filepath.Join(dir, "candidate.bundle")
+	args := []string{"bundle", "create", "--quiet", path, ref}
+	const base = "refs/remotes/origin/master"
+	if exists, err := repo.RefExists(ctx, base); err != nil {
+		cleanup()
+		return "", "", nil, err
+	} else if exists {
+		args = append(args, "^"+base)
+	}
+	if _, err := repo.Git(ctx, args...); err != nil {
+		cleanup()
+		return "", "", nil, fmt.Errorf("bundle %s (is it already on origin/master?): %w", rev, err)
+	}
+	return commit, path, cleanup, nil
+}
+
+func (c Client) postBundle(ctx context.Context, path, repoDir, rev string, out any) error {
+	commit, file, cleanup, err := bundle(ctx, repoDir, rev)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	f, err := os.Open(file)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = c.do(ctx, http.MethodPost, path, url.Values{"commit": {commit}}, f, out)
+	return err
+}
+
+// Attest asks the station's witness to run the required checks on rev.
+func (c Client) Attest(ctx context.Context, repoDir, rev string) (witness.AttestResult, error) {
+	var res witness.AttestResult
+	err := c.postBundle(ctx, "/v1/attest", repoDir, rev, &res)
+	return res, err
+}
+
+// Merge attests rev and, if it passes, submits it to the merge guard.
+func (c Client) Merge(ctx context.Context, repoDir, rev string) (witness.MergeResult, error) {
+	var res witness.MergeResult
+	err := c.postBundle(ctx, "/v1/merge", repoDir, rev, &res)
+	return res, err
+}
+
+// AttestLine attests a commit already on the line (the andon watcher's call).
+func (c Client) AttestLine(ctx context.Context, commit string) (witness.AttestResult, error) {
+	var res witness.AttestResult
+	_, err := c.do(ctx, http.MethodPost, "/v1/attest-line", url.Values{"commit": {commit}}, nil, &res)
+	return res, err
+}
+
+func (c Client) andon(ctx context.Context, path string, env attest.Envelope) (guard.Result, error) {
+	body, err := json.Marshal(env)
+	if err != nil {
+		return guard.Result{}, err
+	}
+	var res guard.Result
+	_, err = c.do(ctx, http.MethodPost, path, nil, bytes.NewReader(body), &res)
+	return res, err
+}
+
+// Pull stops the line on a signed failing attestation of the current master.
+func (c Client) Pull(ctx context.Context, env attest.Envelope) (guard.Result, error) {
+	return c.andon(ctx, "/v1/andon/pull", env)
+}
+
+// Clear restarts the line on a signed passing attestation of the current master.
+func (c Client) Clear(ctx context.Context, env attest.Envelope) (guard.Result, error) {
+	return c.andon(ctx, "/v1/andon/clear", env)
+}
+
+func (c Client) Status(ctx context.Context) (Status, error) {
+	var st Status
+	_, err := c.do(ctx, http.MethodGet, "/v1/status", nil, nil, &st)
+	return st, err
+}
+
+// Evidence returns the check log recorded under id.
+func (c Client) Evidence(ctx context.Context, id string) ([]byte, error) {
+	return c.do(ctx, http.MethodGet, "/v1/evidence/"+url.PathEscape(id), nil, nil, nil)
+}
