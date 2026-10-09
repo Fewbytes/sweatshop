@@ -141,6 +141,13 @@ func (c Constitution) validate() error {
 		if g.Pattern == "" || len(g.Roles) == 0 {
 			return errors.New("every path guard needs a pattern and at least one role")
 		}
+		// Validate pattern syntax for non-/** patterns
+		if !strings.HasSuffix(g.Pattern, "/**") {
+			_, err := path.Match(g.Pattern, "")
+			if err != nil {
+				return fmt.Errorf("path guard pattern %q: %w", g.Pattern, err)
+			}
+		}
 		for _, role := range g.Roles {
 			if !slices.Contains(Roles, role) {
 				return fmt.Errorf("path guard %q: unknown role %q", g.Pattern, role)

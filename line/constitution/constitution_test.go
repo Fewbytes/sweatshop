@@ -65,13 +65,20 @@ func TestLoadDigestTracksContent(t *testing.T) {
 	dir := t.TempDir()
 	a := filepath.Join(dir, "a.toml")
 	b := filepath.Join(dir, "b.toml")
-	os.WriteFile(a, []byte(valid(encoded)), 0o644)
-	os.WriteFile(b, []byte(valid(encoded)+"\n# amended\n"), 0o644)
+	if err := os.WriteFile(a, []byte(valid(encoded)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte(valid(encoded)+"\n# amended\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	_, digestA, err := Load(a)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, digestA2, _ := Load(a)
+	_, digestA2, err := Load(a)
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, digestB, err := Load(b)
 	if err != nil {
 		t.Fatal(err)
@@ -95,6 +102,7 @@ func TestParseRejects(t *testing.T) {
 		"check without command":    base + "\n[[checks.required]]\nname = \"lint\"\n",
 		"bad public key":           strings.Replace(base, encoded, "AAAA", 1),
 		"unknown role":             strings.Replace(base, `roles = ["gemba"]`, `roles = ["boss"]`, 1),
+		"malformed guard pattern":  strings.Replace(base, `pattern = "acceptance/**"`, `pattern = "acceptance/[x"`, 1),
 	}
 	for name, doc := range cases {
 		t.Run(name, func(t *testing.T) {
