@@ -43,7 +43,7 @@ const usage = `usage:
   sweatshop line evidence ID            print a check log
   sweatshop line andon --beads DIR [--interval 30s]
                                         watch master; pull/clear the andon cord (andon station token)
-  sweatshop line maker --dir D --station NAME --beads DIR [--once] [--engine E] [--url URL] [--timeout 2h]
+  sweatshop line maker --dir D --station NAME --beads DIR [--once] [--engine E] [--url URL] [--timeout 2h] [--max-attempts 3]
                                         work ready "line" beads in station containers
 
 Client commands read SWEATSHOP_LINE_URL and SWEATSHOP_LINE_TOKEN.`
@@ -209,11 +209,15 @@ func lineMaker(args []string) error {
 	engine := fs.String("engine", "", "container engine CLI (default: the line's engine)")
 	url := fs.String("url", "", "station API URL as seen from the container (default http://host.containers.internal:<port>)")
 	timeout := fs.Duration("timeout", maker.DefaultTimeout, "longest one card's container may run")
+	maxAttempts := fs.Int("max-attempts", maker.DefaultMaxAttempts, "runs one card gets before it is labelled "+maker.GaveUpLabel)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 || *dir == "" || *name == "" || *beads == "" {
 		return errors.New(usage)
+	}
+	if *maxAttempts < 1 {
+		return fmt.Errorf("--max-attempts %d: must be at least 1", *maxAttempts)
 	}
 	l, err := linedir.Load(*dir)
 	if err != nil {
@@ -233,7 +237,7 @@ func lineMaker(args []string) error {
 	}
 	logger := log.New(os.Stderr, "maker: ", log.LstdFlags)
 	r := &maker.Runner{
-		Line: l, Station: *st, URL: *url, Timeout: *timeout,
+		Line: l, Station: *st, URL: *url, Timeout: *timeout, MaxAttempts: *maxAttempts,
 		Beads:  maker.BeadsCLI{Dir: *beads, Actor: st.AgentID},
 		Engine: maker.DockerEngine{Bin: *engine, Log: logger},
 		Creds:  maker.HostCreds(os.LookupEnv),

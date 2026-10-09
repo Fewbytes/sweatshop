@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/linedir"
 )
 
@@ -30,11 +31,21 @@ type Bead struct {
 }
 
 type Beads interface {
+	// Ready lists ready beads with label, excluding GaveUpLabel.
 	Ready(ctx context.Context, label string) ([]Bead, error)
 	Claim(ctx context.Context, id, agent string) error
 	Close(ctx context.Context, id, reason string) error
 	Release(ctx context.Context, id, note string) error
+	// GiveUp labels the bead GaveUpLabel so no maker picks it again.
+	GiveUp(ctx context.Context, id string) error
 }
+
+// GaveUpLabel marks a bead the maker failed to land MaxAttempts times. An
+// operator removes it (`bd label remove <id> line-gave-up`) to retry.
+const GaveUpLabel = "line-gave-up"
+
+// DefaultMaxAttempts caps the runs one bead gets before the maker gives up.
+const DefaultMaxAttempts = 3
 
 type Engine interface {
 	// Run starts the station container and waits for it; returns exit code.
@@ -61,7 +72,13 @@ type Runner struct {
 	URL     string            // as seen from inside the container; default http://host.containers.internal:<port>
 	Creds   map[string]string // model credentials passed through to the container
 	Timeout time.Duration     // bounds one container run; default DefaultTimeout
-	Log     *log.Logger
+	// MaxAttempts caps the runs one bead gets (default DefaultMaxAttempts).
+	// Attempts are counted in this process; runs cut short by the engine or
+	// by interruption do not count against the bead.
+	MaxAttempts int
+	Log         *log.Logger
+
+	attempts map[string]int
 }
 
 // DefaultTimeout bounds a Maker run so a stuck agent cannot hold a card (and
@@ -88,11 +105,15 @@ func HostCreds(lookup func(string) (string, bool)) map[string]string {
 
 // Pick chooses the next card: andon cards first (the line is stopped until
 // one lands), then the lowest priority number, then ID for a stable order.
-func Pick(beads []Bead) (Bead, bool) {
-	if len(beads) == 0 {
+// Beads labelled GaveUpLabel are never picked, and while the line is stopped
+// only andon cards are: anything else could only be refused (line_stopped).
+func Pick(beads []Bead, stopped bool) (Bead, bool) {
+	sorted := slices.DeleteFunc(slices.Clone(beads), func(b Bead) bool {
+		return slices.Contains(b.Labels, GaveUpLabel) || (stopped && !slices.Contains(b.Labels, "andon"))
+	})
+	if len(sorted) == 0 {
 		return Bead{}, false
 	}
-	sorted := slices.Clone(beads)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		ai, aj := slices.Contains(sorted[i].Labels, "andon"), slices.Contains(sorted[j].Labels, "andon")
 		if ai != aj {
@@ -106,17 +127,19 @@ func Pick(beads []Bead) (Bead, bool) {
 	return sorted[0], true
 }
 
-// landedDepth bounds how far back Landed looks; a run's commit lands at the
-// tip, so only a very busy line could bury it this deep before we look.
-const landedDepth = "200"
-
-// Landed reports whether a commit on remote's master carries the trailer
-// `Bead: <id>`. The line is the source of truth: the agent's own report of
-// success is never trusted.
-func Landed(ctx context.Context, remote gitx.Repo, beadID string) (bool, error) {
+// Landed reports whether a commit added to remote's master since pre (the
+// master recorded before the run) carries the trailer `Bead: <id>`. The line
+// is the source of truth: the agent's own report of success is never
+// trusted. Trailers are agent-authored, so only commits this run could have
+// added count; an older one (another card's commit naming this bead, or an
+// earlier partial land of a reopened bead) does not.
+func Landed(ctx context.Context, remote gitx.Repo, beadID, pre string) (bool, error) {
+	if !fullHex.MatchString(pre) {
+		return false, fmt.Errorf("bad pre-run master %q", pre)
+	}
 	// Records end in \x1e and fields in \x00 so multi-line trailers parse.
 	out, err := remote.Git(ctx, "log", "--format=%H%x00%(trailers:key=Bead,valueonly,separator=%x00)%x1e",
-		"-n", landedDepth, "refs/heads/master", "--")
+		pre+"..refs/heads/master", "--")
 	if err != nil {
 		return false, err
 	}
@@ -137,7 +160,22 @@ func (r *Runner) logf(format string, args ...any) {
 	}
 }
 
-var unsafeNameChars = regexp.MustCompile(`[^A-Za-z0-9_.-]`)
+var (
+	unsafeNameChars = regexp.MustCompile(`[^A-Za-z0-9_.-]`)
+	fullHex         = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
+)
+
+// stopped reports whether the line's andon cord is pulled.
+func (r *Runner) stopped(ctx context.Context) (bool, error) {
+	return gitx.Repo{Dir: r.Line.Remote}.RefExists(ctx, guard.StopRef)
+}
+
+func (r *Runner) maxAttempts() int {
+	if r.MaxAttempts > 0 {
+		return r.MaxAttempts
+	}
+	return DefaultMaxAttempts
+}
 
 // Once works one card: pick → claim → run → settle. It reports whether there
 // was a card to work.
@@ -146,13 +184,22 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("ready beads: %w", err)
 	}
-	b, found := Pick(ready)
+	stopped, err := r.stopped(ctx)
+	if err != nil {
+		return false, fmt.Errorf("read andon state: %w", err)
+	}
+	b, found := Pick(ready, stopped)
 	if !found {
 		return false, nil
 	}
 	token, err := r.Station.Token()
 	if err != nil {
 		return false, fmt.Errorf("station %s token: %w", r.Station.Name, err)
+	}
+	// Only commits added after this point can show that the run landed.
+	pre, err := gitx.Repo{Dir: r.Line.Remote}.Ref(ctx, "refs/heads/master")
+	if err != nil {
+		return false, fmt.Errorf("read line master: %w", err)
 	}
 	if err := r.Beads.Claim(ctx, b.ID, r.Station.AgentID); err != nil {
 		return false, fmt.Errorf("claim %s: %w", b.ID, err)
@@ -189,25 +236,42 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 	r.logf("%s: container exited %d (err %v)", b.ID, code, runErr)
 
 	note := fmt.Sprintf("maker run ended without landing (exit %d)", code)
+	counts := true // whether this run counts against the bead's attempts
 	switch {
 	case timedOut:
 		note = fmt.Sprintf("maker run timed out after %s without landing (exit %d)", timeout, code)
 	case ctx.Err() != nil:
 		note = fmt.Sprintf("maker run interrupted without landing (exit %d)", code)
+		counts = false
 	case runErr == nil && code == EngineErrorExit:
 		// docker/podman exit 125 when they could not run the container at
 		// all; that is the station's fault, not the agent's.
 		runErr = fmt.Errorf("%s: container engine failed (exit %d)", b.ID, code)
 		note = fmt.Sprintf("maker run ended without landing: container engine error (exit %d)", code)
+		counts = false
 	case runErr != nil:
 		note = fmt.Sprintf("maker run ended without landing: container engine error: %v", runErr)
+		counts = false
+	}
+	giveUp := false
+	if counts {
+		if r.attempts == nil {
+			r.attempts = map[string]int{}
+		}
+		r.attempts[b.ID]++
+		n, limit := r.attempts[b.ID], r.maxAttempts()
+		note += fmt.Sprintf(" [attempt %d/%d]", n, limit)
+		if n >= limit {
+			giveUp = true
+			note += "; giving up: labelled " + GaveUpLabel
+		}
 	}
 
 	// Settle even when interrupted, so a stopped runner does not leave the
 	// card claimed by nobody who is working it.
 	settle, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
 	defer cancel()
-	landed, err := Landed(settle, gitx.Repo{Dir: r.Line.Remote}, b.ID)
+	landed, err := Landed(settle, gitx.Repo{Dir: r.Line.Remote}, b.ID, pre)
 	if err != nil {
 		// Leave the claim: releasing a card that may have landed invites a
 		// duplicate, and an operator can see the in-progress bead.
@@ -218,7 +282,14 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 		return true, errors.Join(runErr, r.Beads.Close(settle, b.ID, "landed via line"))
 	}
 	r.logf("%s: %s", b.ID, note)
-	return true, errors.Join(runErr, r.Beads.Release(settle, b.ID, note))
+	if err := r.Beads.Release(settle, b.ID, note); err != nil {
+		return true, errors.Join(runErr, err)
+	}
+	if giveUp {
+		delete(r.attempts, b.ID)
+		return true, errors.Join(runErr, r.Beads.GiveUp(settle, b.ID))
+	}
+	return true, runErr
 }
 
 // Loop runs Once until ctx ends, sleeping idle between empty polls and after
@@ -271,7 +342,7 @@ func checkID(id string) error {
 }
 
 func (b BeadsCLI) Ready(ctx context.Context, label string) ([]Bead, error) {
-	out, err := BeadsCLI{Dir: b.Dir}.bd(ctx, "ready", "--label", label, "--limit", "0", "--json")
+	out, err := BeadsCLI{Dir: b.Dir}.bd(ctx, "ready", "--label", label, "--exclude-label", GaveUpLabel, "--limit", "0", "--json")
 	if err != nil {
 		return nil, err
 	}
@@ -320,6 +391,15 @@ func (b BeadsCLI) Release(ctx context.Context, id, note string) error {
 		return err
 	}
 	_, err := b.bd(ctx, "comments", "add", id, note)
+	return err
+}
+
+// GiveUp adds GaveUpLabel; Ready and Pick then skip the bead.
+func (b BeadsCLI) GiveUp(ctx context.Context, id string) error {
+	if err := checkID(id); err != nil {
+		return err
+	}
+	_, err := b.bd(ctx, "label", "add", id, GaveUpLabel)
 	return err
 }
 

@@ -57,33 +57,144 @@ func TestPickOrdering(t *testing.T) {
 		{ID: "b-9", Priority: 3, Labels: []string{"line", "andon"}},
 		{ID: "b-0", Priority: 4},
 	}
-	got, found := Pick(beads)
+	got, found := Pick(beads, false)
 	if !found || got.ID != "b-9" {
 		t.Fatalf("Pick = %v %v, want andon card b-9 first", got.ID, found)
 	}
-	got, _ = Pick(beads[:3])
+	got, _ = Pick(beads[:3], false)
 	if got.ID != "b-1" {
 		t.Fatalf("Pick = %v, want b-1 (lowest priority number, then ID)", got.ID)
 	}
-	if _, found := Pick(nil); found {
+	if _, found := Pick(nil, false); found {
 		t.Fatal("Pick(nil) found a bead")
 	}
+}
+
+func TestPickSkipsGaveUpAndOnlyAndonWhileStopped(t *testing.T) {
+	beads := []Bead{
+		{ID: "b-1", Priority: 0, Labels: []string{"line", GaveUpLabel}},
+		{ID: "b-2", Priority: 1, Labels: []string{"line"}},
+		{ID: "b-3", Priority: 2, Labels: []string{"line", "andon", GaveUpLabel}},
+	}
+	if got, found := Pick(beads, false); !found || got.ID != "b-2" {
+		t.Fatalf("Pick = %v %v, want b-2 (gave-up beads skipped)", got.ID, found)
+	}
+	if got, found := Pick(beads, true); found {
+		t.Fatalf("Pick while stopped = %v, want nothing (no live andon card)", got.ID)
+	}
+	beads = append(beads, Bead{ID: "b-4", Priority: 3, Labels: []string{"line", "andon"}})
+	if got, found := Pick(beads, true); !found || got.ID != "b-4" {
+		t.Fatalf("Pick while stopped = %v %v, want andon card b-4", got.ID, found)
+	}
+}
+
+func head(t *testing.T, bare gitx.Repo) string {
+	t.Helper()
+	sha, err := bare.Ref(context.Background(), "refs/heads/master")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sha
 }
 
 func TestLanded(t *testing.T) {
 	ctx := context.Background()
 	bare, work := remote(t)
-	if landed, err := Landed(ctx, bare, "b-7"); err != nil || landed {
+	pre := head(t, bare)
+	if landed, err := Landed(ctx, bare, "b-7", pre); err != nil || landed {
 		t.Fatalf("Landed before = %v %v, want false", landed, err)
 	}
 	commit(t, work, "unrelated\n\nBead: b-70")
 	commit(t, work, "do the thing\n\nBead: b-7\nAndon-Event: e1")
 	commit(t, work, "later")
-	if landed, err := Landed(ctx, bare, "b-7"); err != nil || !landed {
+	if landed, err := Landed(ctx, bare, "b-7", pre); err != nil || !landed {
 		t.Fatalf("Landed after = %v %v, want true", landed, err)
 	}
-	if landed, err := Landed(ctx, bare, "b-8"); err != nil || landed {
+	if landed, err := Landed(ctx, bare, "b-8", pre); err != nil || landed {
 		t.Fatalf("Landed(b-8) = %v %v, want false", landed, err)
+	}
+	// Only commits added since pre count: an older trailer (another card's
+	// commit claiming this bead, or an earlier partial land) does not.
+	if landed, err := Landed(ctx, bare, "b-7", head(t, bare)); err != nil || landed {
+		t.Fatalf("Landed with pre at tip = %v %v, want false", landed, err)
+	}
+}
+
+// I4: a Bead trailer planted on master before the run must not close the bead.
+func TestOncePlantedTrailerDoesNotClose(t *testing.T) {
+	bare, work := remote(t)
+	commit(t, work, "other card\n\nBead: b-1")
+	fb := &fakeBeads{ready: []Bead{{ID: "b-1", Priority: 1}}}
+	r := newRunner(t, bare, fb, &fakeEngine{})
+	if _, err := r.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if last := fb.calls[len(fb.calls)-1]; !strings.HasPrefix(last, "release b-1 ") {
+		t.Fatalf("last call = %q, want a release", last)
+	}
+}
+
+// I3: a bead that never lands is given up after MaxAttempts runs and not
+// picked again.
+func TestOnceGivesUpAfterMaxAttempts(t *testing.T) {
+	bare, _ := remote(t)
+	fb := &fakeBeads{ready: []Bead{{ID: "b-1", Priority: 1, Labels: []string{"line"}}, {ID: "b-2", Priority: 2, Labels: []string{"line"}}}}
+	fe := &fakeEngine{run: func(ContainerSpec) (int, error) { return 3, nil }}
+	r := newRunner(t, bare, fb, fe)
+	ctx := context.Background()
+	for i := 0; i < DefaultMaxAttempts; i++ {
+		if _, err := r.Once(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []string{
+		"ready line", "claim b-1 maker-1", "release b-1 maker run ended without landing (exit 3) [attempt 1/3]",
+		"ready line", "claim b-1 maker-1", "release b-1 maker run ended without landing (exit 3) [attempt 2/3]",
+		"ready line", "claim b-1 maker-1", "release b-1 maker run ended without landing (exit 3) [attempt 3/3]; giving up: labelled " + GaveUpLabel,
+		"giveup b-1",
+	}
+	if !reflect.DeepEqual(fb.calls, want) {
+		t.Fatalf("calls =\n%q\nwant\n%q", fb.calls, want)
+	}
+	fb.calls = nil
+	if _, err := r.Once(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if fb.calls[1] != "claim b-2 maker-1" {
+		t.Fatalf("after giving up on b-1: calls = %q", fb.calls)
+	}
+}
+
+func TestOnceMaxAttemptsConfigurable(t *testing.T) {
+	bare, _ := remote(t)
+	fb := &fakeBeads{ready: []Bead{{ID: "b-1", Priority: 1, Labels: []string{"line"}}}}
+	r := newRunner(t, bare, fb, &fakeEngine{run: func(ContainerSpec) (int, error) { return 1, nil }})
+	r.MaxAttempts = 1
+	if _, err := r.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if last := fb.calls[len(fb.calls)-1]; last != "giveup b-1" {
+		t.Fatalf("calls = %q", fb.calls)
+	}
+}
+
+// I3: while refs/line/andon exists only andon cards are worked.
+func TestOnceWhileStoppedWorksOnlyAndonCards(t *testing.T) {
+	bare, _ := remote(t)
+	ok(t)(bare.Git(context.Background(), "update-ref", "refs/line/andon", head(t, bare)))
+	fb := &fakeBeads{ready: []Bead{{ID: "b-1", Priority: 0, Labels: []string{"line"}}}}
+	fe := &fakeEngine{}
+	r := newRunner(t, bare, fb, fe)
+	worked, err := r.Once(context.Background())
+	if err != nil || worked || len(fe.specs) != 0 {
+		t.Fatalf("Once while stopped = %v %v runs=%d calls=%q, want idle", worked, err, len(fe.specs), fb.calls)
+	}
+	fb.ready = append(fb.ready, Bead{ID: "b-9", Priority: 3, Labels: []string{"line", "andon"}, Description: "event: e1"})
+	if _, err := r.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(fe.specs) != 1 || fe.specs[0].Env["SWEATSHOP_BEAD"] != "b-9" {
+		t.Fatalf("specs = %+v", fe.specs)
 	}
 }
 
@@ -91,6 +202,16 @@ type fakeBeads struct {
 	ready  []Bead
 	calls  []string
 	claims map[string]string
+}
+
+func (f *fakeBeads) GiveUp(_ context.Context, id string) error {
+	f.calls = append(f.calls, "giveup "+id)
+	for i := range f.ready {
+		if f.ready[i].ID == id {
+			f.ready[i].Labels = append(f.ready[i].Labels, GaveUpLabel)
+		}
+	}
+	return nil
 }
 
 func (f *fakeBeads) Ready(_ context.Context, label string) ([]Bead, error) {
@@ -173,7 +294,7 @@ func TestOnceReleasesUnlandedBead(t *testing.T) {
 	if err != nil || !worked {
 		t.Fatalf("Once = %v %v", worked, err)
 	}
-	want := []string{"ready line", "claim b-1 maker-1", "release b-1 maker run ended without landing (exit 3)"}
+	want := []string{"ready line", "claim b-1 maker-1", "release b-1 maker run ended without landing (exit 3) [attempt 1/3]"}
 	if !reflect.DeepEqual(fb.calls, want) {
 		t.Fatalf("calls = %q, want %q", fb.calls, want)
 	}
@@ -345,12 +466,16 @@ func TestBeadsCLI(t *testing.T) {
 	if err := b.Release(ctx, "b-1", "no luck"); err != nil {
 		t.Fatal(err)
 	}
+	if err := b.GiveUp(ctx, "b-1"); err != nil {
+		t.Fatal(err)
+	}
 	want := []string{
-		"ready --label line --limit 0 --json",
+		"ready --label line --exclude-label " + GaveUpLabel + " --limit 0 --json",
 		"update b-1 --claim --actor maker-1",
 		"close b-1 --reason landed via line --actor maker-1",
 		"unclaim b-1 --reason no luck --actor maker-1",
 		"comments add b-1 no luck --actor maker-1",
+		"label add b-1 " + GaveUpLabel + " --actor maker-1",
 	}
 	if got := calls(t, logFile); !reflect.DeepEqual(got, want) {
 		t.Fatalf("bd calls =\n%q\nwant\n%q", got, want)
