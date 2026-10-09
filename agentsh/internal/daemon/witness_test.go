@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/Fewbytes/sweatshop/agentsh/internal/config"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/executor"
 	agentrpc "github.com/Fewbytes/sweatshop/agentsh/internal/rpc"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/storage"
 	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/Fewbytes/sweatshop/line/gitx"
@@ -129,6 +131,74 @@ func TestLineAttestReportsFailureWithoutEnvelope(t *testing.T) {
 	}
 	if result.Passed || result.Envelope != nil {
 		t.Fatalf("result = %+v", result)
+	}
+}
+
+// Each attestation must run its checks in its own checkout. A shared executor
+// session would remember the first checkout's CWD and attest the wrong tree.
+func TestLineAttestSequentialCommitsUseTheirOwnCheckout(t *testing.T) {
+	client, work, _ := startWitnessServer(t)
+	var first witness.AttestResult
+	if err := callLine(t, client, agentrpc.OpLineAttest, &first); err != nil {
+		t.Fatal(err)
+	}
+	if !first.Passed {
+		t.Fatalf("first attestation should pass: %+v", first)
+	}
+	if err := os.WriteFile(filepath.Join(work.Dir, "BROKEN"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitMust(t, work, "add", "-A")
+	gitMust(t, work, "commit", "--quiet", "-m", "break")
+	var second witness.AttestResult
+	if err := callLine(t, client, agentrpc.OpLineAttest, &second); err != nil {
+		t.Fatal(err)
+	}
+	if second.Passed {
+		t.Fatalf("second attestation should fail: %+v", second)
+	}
+	// A failure alone would also result from a stale CWD (deleted checkout), so
+	// the discriminating step is a passing attestation after a failing one.
+	gitMust(t, work, "rm", "--quiet", "BROKEN")
+	gitMust(t, work, "commit", "--quiet", "-m", "fix")
+	var third witness.AttestResult
+	if err := callLine(t, client, agentrpc.OpLineAttest, &third); err != nil {
+		t.Fatal(err)
+	}
+	if !third.Passed {
+		t.Fatalf("third attestation should pass: %+v", third)
+	}
+}
+
+// Session state carries the CWD and request.CWD only seeds a new session, so
+// two checkouts that are alive at once (concurrent attestations) must not
+// share a session: the second would run in the first's directory.
+func TestExecutorRunnerKeepsCheckoutsApart(t *testing.T) {
+	root := t.TempDir()
+	store, err := storage.Open(context.Background(), storage.Config{Path: filepath.Join(root, "history.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	runner := executorRunner{exec: executor.New(store, storage.BlobStore{Root: filepath.Join(root, "blobs")})}
+
+	dirA, dirB := filepath.Join(root, "checkout-a"), filepath.Join(root, "checkout-b")
+	for dir, marker := range map[string]string{dirA: "A", dirB: "B"} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, marker), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, step := range []struct{ dir, command string }{{dirA, "test -e A"}, {dirB, "test -e B"}} {
+		run, err := runner.Run(context.Background(), step.dir, step.command)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.ExitCode != 0 {
+			t.Fatalf("%q in %s exited %d: ran in the wrong checkout", step.command, step.dir, run.ExitCode)
+		}
 	}
 }
 

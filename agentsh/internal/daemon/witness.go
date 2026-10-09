@@ -53,8 +53,11 @@ type executorRunner struct {
 }
 
 func (r executorRunner) Run(ctx context.Context, dir, command string) (witness.RunResult, error) {
+	// The session must be unique per checkout: session state carries the CWD,
+	// and request.CWD only seeds a new session, so a shared one would cd into
+	// a previous checkout and attest the wrong tree.
 	invocation, err := r.exec.Execute(ctx, executor.Request{
-		Command: command, Session: "witness", CWD: dir, Timeout: witnessCheckTimeout,
+		Command: command, Session: "witness-" + filepath.Base(dir), CWD: dir, Timeout: witnessCheckTimeout,
 	})
 	if err != nil {
 		return witness.RunResult{}, err
