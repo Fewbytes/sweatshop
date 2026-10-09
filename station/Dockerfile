@@ -37,7 +37,7 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         ca-certificates curl bash ripgrep fd-find python3 nodejs npm \
-        build-essential pkg-config xz-utils libcurl4 libexpat1 zlib1g openssh-client less; \
+        build-essential pkg-config xz-utils libcurl4 libexpat1 zlib1g openssh-client less tini; \
     rm -rf /var/lib/apt/lists/*; \
     have="$(git --version | awk '{print $3}')"; \
     if [ "$(printf '%s\n%s\n' "$GIT_FLOOR" "$have" | sort -V | head -n1)" != "$GIT_FLOOR" ]; then \
@@ -73,6 +73,9 @@ RUN useradd --create-home --uid 1000 --shell /bin/bash agent \
 USER agent
 WORKDIR /work
 
-# CMD, not ENTRYPOINT: the check runner runs `<image> bash -c <check>`, and the
-# Maker runner passes no arguments so the station entrypoint runs.
+# tini as PID 1 reaps orphaned grandchildren; without it a killed process
+# group lingers as zombies (agentsh's executor tests notice). The station
+# entrypoint is CMD, not ENTRYPOINT: the check runner runs
+# `<image> bash -c <check>`, and the Maker runner passes no arguments.
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["/usr/local/bin/station-entrypoint"]
