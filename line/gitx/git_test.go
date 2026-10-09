@@ -122,11 +122,116 @@ func TestUpdateRefCompareAndSwap(t *testing.T) {
 func TestDeleteRef(t *testing.T) {
 	r, ctx := newRepo(t)
 	head := commitFile(t, r, ctx, "a.txt", "1")
-	r.UpdateRef(ctx, "refs/line/candidates/x", head, "")
+	if err := r.UpdateRef(ctx, "refs/line/candidates/x", head, ""); err != nil {
+		t.Fatal(err)
+	}
 	if err := r.DeleteRef(ctx, "refs/line/candidates/x"); err != nil {
 		t.Fatal(err)
 	}
 	if ok, _ := r.RefExists(ctx, "refs/line/candidates/x"); ok {
 		t.Fatal("ref still exists after DeleteRef")
+	}
+}
+
+func TestUpdateRefDeletedRef(t *testing.T) {
+	r, ctx := newRepo(t)
+	first := commitFile(t, r, ctx, "a.txt", "1")
+	second := commitFile(t, r, ctx, "a.txt", "2")
+
+	// Create a ref and then delete it
+	if err := r.UpdateRef(ctx, "refs/heads/toDelete", first, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.DeleteRef(ctx, "refs/heads/toDelete"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Try CAS on the deleted ref; should return ErrRefMoved
+	err := r.UpdateRef(ctx, "refs/heads/toDelete", second, first)
+	if !errors.Is(err, ErrRefMoved) {
+		t.Fatalf("CAS on deleted ref err = %v, want ErrRefMoved", err)
+	}
+}
+
+func TestUpdateRefCreateOverExisting(t *testing.T) {
+	r, ctx := newRepo(t)
+	first := commitFile(t, r, ctx, "a.txt", "1")
+	second := commitFile(t, r, ctx, "a.txt", "2")
+
+	// Create a ref
+	if err := r.UpdateRef(ctx, "refs/heads/existing", first, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Try to create (oldValue "") over an existing ref; should return ErrRefMoved
+	err := r.UpdateRef(ctx, "refs/heads/existing", second, "")
+	if !errors.Is(err, ErrRefMoved) {
+		t.Fatalf("create over existing ref err = %v, want ErrRefMoved", err)
+	}
+}
+
+func TestGitDirIsolation(t *testing.T) {
+	// Create two repos
+	r1, ctx := newRepo(t)
+	r2, ctx2 := newRepo(t)
+
+	// Create a commit in r1
+	head1 := commitFile(t, r1, ctx, "a.txt", "1")
+
+	// Create a commit in r2
+	_ = commitFile(t, r2, ctx2, "b.txt", "2")
+
+	// Set GIT_DIR to point to r2's repo
+	t.Setenv("GIT_DIR", filepath.Join(r2.Dir, ".git"))
+
+	// Verify that r1.Commit still resolves r1's HEAD, not r2's
+	sha, err := r1.Commit(ctx, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sha != head1 {
+		t.Fatalf("Commit with GIT_DIR set = %s, want %s", sha, head1)
+	}
+}
+
+func TestOptionInjectionRef(t *testing.T) {
+	r, ctx := newRepo(t)
+	head := commitFile(t, r, ctx, "a.txt", "1")
+	if err := r.UpdateRef(ctx, "refs/line/x", head, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Try to inject an option in Ref
+	_, err := r.Ref(ctx, "-x")
+	if err == nil {
+		t.Fatal("Ref accepted option-like argument")
+	}
+
+	// Try to inject an option in RefExists
+	_, err = r.RefExists(ctx, "-x")
+	if err == nil {
+		t.Fatal("RefExists accepted option-like argument")
+	}
+}
+
+func TestOptionInjectionChangedPaths(t *testing.T) {
+	r, ctx := newRepo(t)
+	first := commitFile(t, r, ctx, "a.txt", "1")
+
+	// Try to inject an option in ChangedPaths
+	_, err := r.ChangedPaths(ctx, "--output=/tmp/should-not-exist", "HEAD")
+	if err == nil {
+		t.Fatal("ChangedPaths accepted option-like argument")
+	}
+
+	// Verify no file was created by the injection attempt
+	if _, err := os.Stat("/tmp/should-not-exist"); err == nil {
+		t.Fatal("injection created file")
+	}
+
+	// Try injection in second argument
+	_, err = r.ChangedPaths(ctx, first, "--bad")
+	if err == nil {
+		t.Fatal("ChangedPaths accepted option-like argument in second position")
 	}
 }
