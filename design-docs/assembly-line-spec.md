@@ -35,6 +35,10 @@ choice), `sleeping` (dormant flame-keeper, wakes on signal), `dying`, `dead`.
   (immediate).
 - *Dying*: finish or release claimed cards → write testament → `dead`. State is
   archived, never deleted (lineage, forensics).
+- *Abrupt death* (worker or host crash): the evidence log survives in the
+  witness, which runs outside the sandbox, and in its remote sync. Crashed
+  containers are retained for post-mortem, then reaped. See
+  [Testament after abrupt death](#testament-after-abrupt-death).
 - *Testament*: every item cites evidence (invocation IDs, attestations, bead
   IDs); uncited items are dropped. Inherited lessons unconfirmed for N
   generations decay.
@@ -90,10 +94,12 @@ constitution store, heijunka publisher, watchers, worker scheduler.
 4. **Merge.** The witness pushes on the agent's behalf; the merge guard verifies
    the attestation and performs the CAS. The serial section is the guard check
    plus the ref update.
-5. **Lost race.** Base moved → rebase. If the rebase diff intersects the
-   candidate's dependency closure, re-run checks and re-attest; otherwise the
-   attestation carries over. Rare semantic conflicts that slip through are
-   caught post-merge — an accepted window.
+5. **Lost race.** Base moved → rebase, re-run checks, re-attest. Deferred
+   optimization: re-attest only when the targets that transitively depend on
+   the candidate's changes intersect those that depend on the changes merged
+   since its base; otherwise carry the attestation over and accept a window in
+   which hidden dependencies (config, reflection, codegen, runtime coupling)
+   are caught post-merge.
 6. **Post-merge.** Watchers run slower suites, deploy (per-merge or batched,
    behind flags, per constitution), and collect field telemetry. Every deploy is
    change-tagged, so attribution is a query.
@@ -159,9 +165,10 @@ against the puller's track record. Evidence plus consequence; no identity gate.
   everything it signed suspect.
 - Verification levels (constitution knob, CPU vs trust): attest-only →
   sampled clean-room audit at rate r → full re-run.
-- **Deployment precondition:** agents run sandboxed; agentshd runs outside the
-  sandbox and only its socket is mounted in. Unsandboxed operation is allowed
-  only at trust level `none` (development).
+- **Deployment precondition:** agents run sandboxed in Linux containers (VMs
+  later; no macOS sandbox); agentshd runs on the container host and only its
+  socket is mounted in. On macOS the line runs inside a Linux VM.
+  Unsandboxed operation is allowed only at trust level `none` (development).
 
 Crypto is used only where trust crosses a boundary at rest (attestations,
 commits). Agent → witness uses a local socket; witness → toolchains uses each
@@ -209,7 +216,7 @@ owner, defaults above, trust level `none` until witness keys are registered.
 **Plugin interface.** Input: spend ledger, goal health metrics, constitution
 parameters. Output: the **heijunka signal** — per goal: target share, actual
 share over a rolling window, deficit, card-priority multiplier. Deterministic,
-recomputed on an interval, published to a Dolt table. Any balancing model is
+recomputed on an interval, published to the master database. Any balancing model is
 speculative, so the plugin is swappable.
 
 **Default plugin:**
@@ -239,8 +246,8 @@ the flame persists dormant.
 |---|---|---|
 | Witness | sessions, role binding, held credentials, attestations, commit signing, spend ledger | agentshd |
 | Guards | merge CAS, andon, config, role-gated paths | git server hooks / forge rules, beads atomic claims, `sweatshop-guard` |
-| Constitution | schema, versions, proposals | TOML in git/Dolt |
-| Agent runtime | agent state, lineage, lifecycle, worker scheduler | Dolt, sandbox runtime |
+| Constitution | schema, versions, proposals | TOML in git |
+| Agent runtime | agent state, lineage, lifecycle, worker scheduler | master DB, object store, Linux containers via pluggable scheduler |
 | Heijunka | signal | plugin over spend ledger + metrics |
 | Watchers | post-merge suites, telemetry, scans → cards | deterministic processes |
 | Stations | role prompts, skills, tool sets | Claude Code, pi.dev |
@@ -318,13 +325,47 @@ Dogfood on the sweatshop repository.
 9. Scoped andon, circuit breaker auto-revert, oscillation guard.
 10. Sampled audit and key revocation; proposals with meta-rules.
 
-## Open questions
+## Runtime and storage
 
-- Sandbox runtime for workers (containers, VMs, macOS sandbox) and how the
-  agentshd socket and toolchain transports cross the boundary.
-- Agent state store: one Dolt database for agents, cards, and heijunka, or
-  separate databases synced the same way.
-- Dependency-closure computation per language before the structure analyzer
-  exists (v1 may treat any rebase as touching the closure).
-- Testament distillation: who writes it when an agent dies abruptly (worker
-  crash) — a deterministic fallback from the evidence log only.
+**Workers** run as Linux containers placed by a pluggable scheduler: local
+container runtime in dev, Nomad / Kubernetes / ECS when shared. VMs are a later
+sandbox option; the macOS sandbox is out. agentshd runs per container host,
+outside the sandbox.
+
+**Storage** is split by data shape:
+
+| Data | Store |
+|---|---|
+| Agent state, hosting leases, track record, spend ledger, heijunka signal, andon events | One master database behind a storage interface. v1 backend: Turso (embedded file in dev; `sqld` or Turso Cloud when shared). Second backend: Postgres. |
+| Invocation blobs, logs, reports, attestations, container remains | S3-compatible object store (S3, MinIO, R2), content-addressed. Local filesystem in dev. |
+| Cards, claims, escalations | beads |
+| Constitution, code | git |
+
+Single master, not multi-master: hosting leases, claims, and andon/merge state
+need linearizable compare-and-swap, which multi-master replication cannot give
+(conflicting revisions would let two workers host the same agent). Writers are
+few — agents never write directly; witnesses and line infrastructure do.
+
+## Testament after abrupt death
+
+A testament has two parts:
+
+- **Mechanical** — derived deterministically from evidence: cards claimed,
+  invocations, failures, attestations. Always produced.
+- **Distilled** — lessons. Written by the agent on orderly death, or by an
+  *executor* (a separate session) after abrupt death, from evidence and
+  remains. Citation rule applies to both; the executor cannot invent.
+
+| Failure | What survives | Testament |
+|---|---|---|
+| Worker/container crash | witness log; container filesystem (retained) | mechanical + executor reads remains (working tree, scratch, partial diff) |
+| Host crash | witness remote sync; object store | mechanical from synced evidence |
+| Total loss | beads claims, merged commits | gap marker in lineage; child born as immigrant |
+
+## Deferred
+
+- **Dependency-closure re-attestation.** Optimization of the lost-race path;
+  v1 always re-attests. Needs per-language reverse-dependency graphs (`go list`,
+  Bazel `rdeps`, Python import graph), later supplied by the structure analyzer.
+- **Multi-master storage** (e.g. CouchDB) — only if partitioned multi-site lines
+  become real; requires a separate linearizable lease service.
