@@ -9,13 +9,17 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/Fewbytes/sweatshop/line/andon"
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/linedir"
@@ -36,6 +40,8 @@ const usage = `usage:
                                         check rev and submit it to the merge guard
   sweatshop line status                 print the line's master and andon state
   sweatshop line evidence ID            print a check log
+  sweatshop line andon --beads DIR [--interval 30s]
+                                        watch master; pull/clear the andon cord (andon station token)
 
 Client commands read SWEATSHOP_LINE_URL and SWEATSHOP_LINE_TOKEN.`
 
@@ -65,6 +71,8 @@ func run(args []string, stdout io.Writer) error {
 		return lineSubmit(args[1], args[2:], stdout)
 	case len(args) == 2 && args[0] == "line" && args[1] == "status":
 		return lineStatus(stdout)
+	case len(args) >= 2 && args[0] == "line" && args[1] == "andon":
+		return lineAndon(args[2:])
 	case len(args) == 3 && args[0] == "line" && args[1] == "evidence":
 		c, err := lineClient()
 		if err != nil {
@@ -158,6 +166,31 @@ func lineServe(args []string, stdout io.Writer) error {
 	// No write timeout: attest and merge run the line's checks synchronously.
 	hs := &http.Server{Addr: *addr, Handler: srv, ReadHeaderTimeout: 10 * time.Second}
 	return hs.ListenAndServe()
+}
+
+// lineAndon runs the andon watcher until interrupted. It needs the andon
+// station's token.
+func lineAndon(args []string) error {
+	fs := flag.NewFlagSet("line andon", flag.ContinueOnError)
+	beads := fs.String("beads", "", "directory whose beads database receives andon cards")
+	interval := fs.Duration("interval", 30*time.Second, "how often to look at master")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 || *beads == "" {
+		return errors.New(usage)
+	}
+	c, err := lineClient()
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	w := &andon.Watcher{
+		API: c, Cards: andon.BeadCards{Dir: *beads}, Interval: *interval,
+		Log: log.New(os.Stderr, "andon: ", log.LstdFlags),
+	}
+	return w.Run(ctx)
 }
 
 func lineClient() (station.Client, error) {
