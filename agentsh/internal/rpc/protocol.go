@@ -25,6 +25,9 @@ const (
 	OpBashServiceStatus = "bash_service_status"
 	OpBashServiceKill   = "bash_service_kill"
 	OpBashServiceLogs   = "bash_service_logs"
+
+	OpLineAttest = "line_attest"
+	OpLineMerge  = "line_merge"
 )
 
 type Request struct {
@@ -166,6 +169,12 @@ type BashServiceKillRequest struct {
 type BashGCRequest struct {
 	OlderThanHours int   `json:"older_than_hours,omitempty"`
 	MaxBytes       int64 `json:"max_bytes,omitempty"`
+}
+
+// LineRequest names the commit a witness op acts on. Empty Rev means HEAD of
+// the workspace repository.
+type LineRequest struct {
+	Rev string `json:"rev,omitempty"`
 }
 
 func Success(id string, value any) Response {
