@@ -244,6 +244,34 @@ func TestRolesGatePaths(t *testing.T) {
 	}
 }
 
+func TestKeyRolesBindRole(t *testing.T) {
+	f := newFixture(t)
+	f.guard.Constitution.Trust.Keys[0].Roles = []string{"maker"}
+	commit := f.commit("src/a.go", "package a")
+	f.candidate(commit)
+	f.expectRejected(commit, f.envelope(commit, f.key, func(p *attest.ChecksPredicate) { p.Role = "gemba" }), ReasonRoleNotPermitted)
+
+	f.candidate(commit)
+	result, err := f.guard.Merge(f.ctx, commit, f.envelope(commit, f.key, nil))
+	if err != nil || result.Status != Merged {
+		t.Fatalf("maker merge: %+v %v", result, err)
+	}
+}
+
+func TestRejectsUnbornGuardedRef(t *testing.T) {
+	f := newFixture(t)
+	f.guard.Ref = "refs/heads/never-created"
+	commit := f.commit("src/a.go", "package a")
+	f.candidate(commit)
+	result, err := f.guard.Merge(f.ctx, commit, f.envelope(commit, f.key, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != Rejected || result.Reason != ReasonNoBase || result.Detail != "refs/heads/never-created does not exist; seed it before installing the guard's hook" {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
 func TestRejectsRefNameCandidate(t *testing.T) {
 	f := newFixture(t)
 	commit := f.commit("src/a.go", "package a")
