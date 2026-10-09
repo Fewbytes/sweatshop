@@ -88,7 +88,7 @@ func TestAttestBundlePasses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c, _ := st.Commit(); c != head {
+	if c, err := st.Commit(); err != nil || c != head {
 		t.Fatalf("statement commit %s, want %s", c, head)
 	}
 }
@@ -118,6 +118,41 @@ func TestAttestBundleRejectsCommitNotInBundle(t *testing.T) {
 	}
 }
 
+func (r *bundleRig) head() string {
+	r.t.Helper()
+	sha, err := r.agent.Commit(r.ctx, "HEAD")
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return sha
+}
+
+// The cache keeps objects from earlier attestations, so cache.Commit alone
+// proves nothing; the --contains check is what ties a commit to its bundle.
+func TestAttestBundleRejectsCachedCommitOutsideBundleRef(t *testing.T) {
+	r := newBundleRig(t)
+	x := r.commit("src/x.go", "package x")
+	if _, err := r.w.AttestBundle(r.ctx, r.bundle(x), x); err != nil {
+		t.Fatal(err)
+	}
+	// x is now in the witness cache. Build a sibling branch that excludes it.
+	ok(t)(r.agent.Git(r.ctx, "reset", "--quiet", "--hard", "origin/master"))
+	y := r.commit("src/y.go", "package y")
+	if _, err := r.w.AttestBundle(r.ctx, r.bundle(y), x); err == nil {
+		t.Fatal("attested a cached commit that is not reachable from the bundle's ref")
+	}
+}
+
+func TestAttestBundleAcceptsAncestorOfBundleRef(t *testing.T) {
+	r := newBundleRig(t)
+	c1 := r.commit("src/1.go", "package a")
+	c2 := r.commit("src/2.go", "package a")
+	res, err := r.w.AttestBundle(r.ctx, r.bundle(c2), c1)
+	if err != nil || res.Commit != c1 {
+		t.Fatalf("AttestBundle(ancestor) = %+v, %v", res, err)
+	}
+}
+
 func TestAttestBundleIgnoresAgentRepoConfig(t *testing.T) {
 	r := newBundleRig(t)
 	head := r.commit("src/a.go", "package a")
@@ -136,7 +171,7 @@ func TestAttestBundleIgnoresAgentRepoConfig(t *testing.T) {
 
 func TestAttestLineRequiresLineHistory(t *testing.T) {
 	r := newBundleRig(t)
-	master, _ := r.agent.Commit(r.ctx, "HEAD")
+	master := r.head()
 	res, err := r.w.AttestLine(r.ctx, master)
 	if err != nil || !res.Passed || res.Commit != master {
 		t.Fatalf("AttestLine(master) = %+v, %v", res, err)
@@ -150,7 +185,7 @@ func TestAttestLineRequiresLineHistory(t *testing.T) {
 func TestAttestRequiresUpstream(t *testing.T) {
 	r := newBundleRig(t)
 	r.w.Upstream = ""
-	master, _ := r.agent.Commit(r.ctx, "HEAD")
+	master := r.head()
 	if _, err := r.w.AttestLine(r.ctx, master); err == nil {
 		t.Fatal("attested without an upstream")
 	}
@@ -175,7 +210,10 @@ func TestMergeBundleMerges(t *testing.T) {
 	if res.Guard.Status != guard.Merged {
 		t.Fatalf("result = %+v", res)
 	}
-	got, _ := r.upstream.Commit(r.ctx, "refs/heads/master")
+	got, err := r.upstream.Commit(r.ctx, "refs/heads/master")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got != head {
 		t.Fatalf("upstream master = %s, want %s", got, head)
 	}
