@@ -50,6 +50,8 @@ var commands = map[string]command{
 	"service-status": {"agentsh service-status NAME", buildServiceStatus},
 	"service-kill":   {"agentsh service-kill [flags] NAME", buildServiceKill},
 	"service-logs":   {"agentsh service-logs [flags] NAME", buildServiceLogs},
+	"attest":         {"agentsh attest [flags]", buildAttest},
+	"merge":          {"agentsh merge [flags]", buildMerge},
 }
 
 func main() {
@@ -98,6 +100,11 @@ func main() {
 	// limit; the overall bound must sit above it so the CLI does not abandon a
 	// result the daemon is still producing.
 	client := agentrpc.Client{Socket: paths.Socket, Timeout: 180 * time.Second}
+	if request.Op == agentrpc.OpLineAttest || request.Op == agentrpc.OpLineMerge {
+		// Witness checks run the full required suite; the daemon bounds each
+		// check at 30 minutes.
+		client.Timeout = 2 * time.Hour
+	}
 	if err := call(client, paths, request); err != nil {
 		fatal(err.Error())
 	}
@@ -264,6 +271,27 @@ func buildBash(args []string) (agentrpc.Request, error) {
 		Background: *background, Interactive: *interactive, Stdin: *stdin,
 	})
 	return agentrpc.Request{Op: agentrpc.OpBash, Params: params}, nil
+}
+
+func buildAttest(args []string) (agentrpc.Request, error) {
+	return buildLine("attest", agentrpc.OpLineAttest, args)
+}
+
+func buildMerge(args []string) (agentrpc.Request, error) {
+	return buildLine("merge", agentrpc.OpLineMerge, args)
+}
+
+func buildLine(name, op string, args []string) (agentrpc.Request, error) {
+	fs := newFlagSet(name)
+	rev := fs.String("rev", "", "revision to attest (default HEAD)")
+	if err := fs.Parse(args); err != nil {
+		return agentrpc.Request{}, err
+	}
+	if fs.NArg() != 0 {
+		return agentrpc.Request{}, usageErr(fs, "takes no positional arguments")
+	}
+	params, _ := json.Marshal(agentrpc.LineRequest{Rev: *rev})
+	return agentrpc.Request{Op: op, Params: params}, nil
 }
 
 func buildOutput(args []string) (agentrpc.Request, error) {
