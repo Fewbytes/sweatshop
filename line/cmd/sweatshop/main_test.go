@@ -47,3 +47,30 @@ func TestUnknownCommand(t *testing.T) {
 		t.Fatal("empty command line accepted")
 	}
 }
+
+func TestLineInit(t *testing.T) {
+	ctx := context.Background()
+	src := gitx.Repo{Dir: t.TempDir()}
+	for _, args := range [][]string{
+		{"init", "--quiet", "--initial-branch=master"},
+		{"config", "user.name", "t"}, {"config", "user.email", "t@example.com"},
+		{"commit", "--quiet", "--allow-empty", "-m", "seed"},
+	} {
+		if _, err := src.Git(ctx, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir := filepath.Join(t.TempDir(), "line")
+	var out bytes.Buffer
+	if err := run([]string{"line", "init", "--dir", dir, "--source", src.Dir}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{dir, "7468", "maker-1", "andon-1", "key_id"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output missing %q: %s", want, out.String())
+		}
+	}
+	if err := run([]string{"line", "init", "--dir", dir}, &bytes.Buffer{}); err == nil {
+		t.Fatal("missing --source accepted")
+	}
+}
