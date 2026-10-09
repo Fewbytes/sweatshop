@@ -3,17 +3,18 @@ package attest
 import (
 	"crypto/ed25519"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 )
 
 const (
-	PayloadType         = "application/vnd.in-toto+json"
-	StatementType       = "https://in-toto.io/Statement/v1"
-	ChecksPredicateType = "https://github.com/Fewbytes/sweatshop/line/attest/checks/v0"
-	TreeSubjectName     = "git-tree"
-	TreeDigestAlgorithm = "gitTree"
+	PayloadType           = "application/vnd.in-toto+json"
+	StatementType         = "https://in-toto.io/Statement/v1"
+	ChecksPredicateType   = "https://github.com/Fewbytes/sweatshop/line/attest/checks/v0"
+	CommitSubjectName     = "git-commit"
+	CommitDigestAlgorithm = "gitCommit"
+	TreeSubjectName       = "git-tree"
+	TreeDigestAlgorithm   = "gitTree"
 )
 
 type Subject struct {
@@ -29,7 +30,6 @@ type CheckResult struct {
 }
 
 type ChecksPredicate struct {
-	Commit       string        `json:"commit"`
 	Role         string        `json:"role"`
 	AgentID      string        `json:"agent_id"`
 	Constitution string        `json:"constitution"`
@@ -45,22 +45,37 @@ type Statement struct {
 	Predicate     ChecksPredicate `json:"predicate"`
 }
 
-func NewStatement(tree string, predicate ChecksPredicate) Statement {
+// NewStatement binds the predicate to a commit, not only its tree. A role's
+// authority covers a change (the commit against its parent); a tree-only
+// subject would let an old attestation authorize any later commit that
+// restores the same tree. The tree subject is informational.
+func NewStatement(commit, tree string, predicate ChecksPredicate) Statement {
 	return Statement{
-		Type:          StatementType,
-		Subject:       []Subject{{Name: TreeSubjectName, Digest: map[string]string{TreeDigestAlgorithm: tree}}},
+		Type: StatementType,
+		Subject: []Subject{
+			{Name: CommitSubjectName, Digest: map[string]string{CommitDigestAlgorithm: commit}},
+			{Name: TreeSubjectName, Digest: map[string]string{TreeDigestAlgorithm: tree}},
+		},
 		PredicateType: ChecksPredicateType,
 		Predicate:     predicate,
 	}
 }
 
+func (s Statement) Commit() (string, error) {
+	return s.subject(CommitSubjectName, CommitDigestAlgorithm)
+}
+
 func (s Statement) Tree() (string, error) {
+	return s.subject(TreeSubjectName, TreeDigestAlgorithm)
+}
+
+func (s Statement) subject(name, algorithm string) (string, error) {
 	for _, subject := range s.Subject {
-		if subject.Name == TreeSubjectName && subject.Digest[TreeDigestAlgorithm] != "" {
-			return subject.Digest[TreeDigestAlgorithm], nil
+		if subject.Name == name && subject.Digest[algorithm] != "" {
+			return subject.Digest[algorithm], nil
 		}
 	}
-	return "", errors.New("statement has no git-tree subject")
+	return "", fmt.Errorf("statement has no %s subject", name)
 }
 
 func SignStatement(key ed25519.PrivateKey, statement Statement) (Envelope, error) {

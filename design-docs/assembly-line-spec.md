@@ -65,11 +65,11 @@ constitution store, heijunka publisher, watchers, worker scheduler.
  card (beads) ──claim──▶ agent (session, role) ──work──▶ candidate tree
                                                             │
                          witness: run required checks ──────┤
-                         signed attestation {tree, cmds,    │
-                         image, exit codes, cfg version}    ▼
+                         signed attestation {commit, tree,  │
+                         cmds, image, exit codes, cfg}      ▼
                                               merge guard: CAS on master
                                               ├ attestation valid + trusted key
-                                              ├ tree == attested tree
+                                              ├ candidate == attested commit
                                               ├ checks ⊇ constitution's required set
                                               ├ line not stopped (in scope)
                                               └ ref still at expected base
@@ -91,7 +91,7 @@ constitution store, heijunka publisher, watchers, worker scheduler.
    fetches it into a witness-owned repository, checks it out cleanly, runs the
    constitution's required checks there (in a container from the constitution's
    image; host-local only at trust level `none`), and signs an attestation over
-   the exact tree hash. Checks never run in the agent's own container — the
+   the exact commit (tree hash included for information). Checks never run in the agent's own container — the
    agent controls that environment and could fake a toolchain. The agent never
    holds the key and cannot forge an attestation.
 4. **Merge.** The witness pushes on the agent's behalf; the merge guard verifies
@@ -159,9 +159,17 @@ against the puller's track record. Evidence plus consequence; no identity gate.
 
 - One Ed25519 key per agentshd instance. Private keys never reachable from
   agent sandboxes.
-- Attestations: in-toto statements in DSSE envelopes. Subject = tree hash;
-  predicate = commands, environment image digest, exit codes, invocation IDs,
-  session role, config version.
+- Attestations: in-toto statements in DSSE envelopes. Subject = commit hash
+  (plus tree hash, informational); predicate = commands, environment image
+  digest, exit codes, invocation IDs, session role, config version.
+- Binding is to the commit, not the tree. A role's authority covers a change —
+  the commit against its parent — while a tree is only a state. A tree-only
+  subject lets an old attestation authorize any later commit that restores the
+  same tree: a Maker could revert newer acceptance work by replaying an old
+  Gemba attestation. The guard already requires the candidate's parent to be
+  the current master, so a commit-bound attestation is single-use: once master
+  moves past its parent, it can never merge. Cost: nothing in practice, since a
+  rebase changes the tree anyway.
 - Merged commits are signed by the witness (git SSH signing); the ref guard
   requires a trusted signer.
 - Trust list = witness public keys in the constitution. Removing a key makes
@@ -295,7 +303,7 @@ the flame persists dormant.
 Dogfood on the sweatshop repository.
 
 - Constitution v0: king; required checks = `just ci`; trust level attest-only.
-- Witness v1: session role binding; signed attestation over the tree for
+- Witness v1: session role binding; signed attestation over the commit for
   `just ci`.
 - Merge guard v1: verify attestation + CAS on master, against a local bare repo
   as the remote.
@@ -307,8 +315,9 @@ Dogfood on the sweatshop repository.
 ## Testing
 
 - **Witness and guards:** table-driven unit tests plus adversarial cases —
-  forged attestation, tree mismatch, stale base, unknown key, stopped line,
-  role-gated path touched by the wrong role.
+  forged attestation, commit mismatch, replay of an old attestation on a
+  restored tree, stale base, unknown key, stopped line, role-gated path touched
+  by the wrong role.
 - **Slice end-to-end:** a scenario harness driving scripted fake agents (no
   LLM): claim → attest → merge → break master → andon → fix → clear, plus a
   lost CAS race (rebase, re-attest, retry). LLM agents join
@@ -370,5 +379,17 @@ A testament has two parts:
 - **Dependency-closure re-attestation.** Optimization of the lost-race path;
   v1 always re-attests. Needs per-language reverse-dependency graphs (`go list`,
   Bazel `rdeps`, Python import graph), later supplied by the structure analyzer.
+- **Split check results from authority.** Two attestation kinds instead of one:
+  - *check result* — subject = tree; predicate = checks, runner, image, exit
+    codes; no role. A pure function of the tree under a given constitution and
+    runner, so it is cacheable and reusable: identical trees from speculative
+    parallel attempts, re-orderings, or reverts skip the re-run.
+  - *authority* — subject = the change (base commit → candidate commit), signed
+    for a role; references the check-result attestation for the candidate tree.
+
+  The guard checks authority against the diff from current master and checks
+  results against the candidate tree. Worth it once check cost dominates
+  (heijunka-driven speculation, many agents racing equivalent trees). Until
+  then, commit binding is simpler and closes the same replay hole.
 - **Multi-master storage** (e.g. CouchDB) — only if partitioned multi-site lines
   become real; requires a separate linearizable lease service.

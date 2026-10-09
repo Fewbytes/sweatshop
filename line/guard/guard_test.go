@@ -97,14 +97,14 @@ func (f *fixture) envelope(commit string, key ed25519.PrivateKey, mutate func(*a
 		f.t.Fatal(err)
 	}
 	predicate := attest.ChecksPredicate{
-		Commit: commit, Role: "maker", AgentID: "maker-1", Constitution: digest, Runner: "local",
+		Role: "maker", AgentID: "maker-1", Constitution: digest, Runner: "local",
 		Checks:     []attest.CheckResult{{Name: "ci", Command: "sh check.sh", ExitCode: 0, EvidenceID: "inv_1"}},
 		FinishedAt: time.Now().UTC(),
 	}
 	if mutate != nil {
 		mutate(&predicate)
 	}
-	env, err := attest.SignStatement(key, attest.NewStatement(tree, predicate))
+	env, err := attest.SignStatement(key, attest.NewStatement(commit, tree, predicate))
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -160,12 +160,40 @@ func TestRejectsUntrustedKey(t *testing.T) {
 	f.expectRejected(commit, f.envelope(commit, attacker, nil), ReasonUntrusted)
 }
 
-func TestRejectsAttestationForAnotherTree(t *testing.T) {
+func TestRejectsAttestationForAnotherCommit(t *testing.T) {
 	f := newFixture(t)
 	honest := f.commit("src/a.go", "package a")
 	sneaky := f.commit("src/b.go", "package b // unattested")
 	f.candidate(sneaky)
-	f.expectRejected(sneaky, f.envelope(honest, f.key, nil), ReasonTreeMismatch)
+	f.expectRejected(sneaky, f.envelope(honest, f.key, nil), ReasonCommitMismatch)
+}
+
+// An old gemba attestation must not authorize a later commit that restores the
+// attested tree: that would revert newer acceptance work under gemba's name.
+func TestRejectsReplayOnRestoredTree(t *testing.T) {
+	f := newFixture(t)
+	gemba := func(p *attest.ChecksPredicate) { p.Role = "gemba" }
+	merge := func(commit string, env attest.Envelope) {
+		t.Helper()
+		f.candidate(commit)
+		if result, err := f.guard.Merge(f.ctx, commit, env); err != nil || result.Status != Merged {
+			t.Fatalf("merge %s: %+v %v", commit, result, err)
+		}
+	}
+	v1 := f.commit("acceptance/spec.txt", "v1")
+	old := f.envelope(v1, f.key, gemba)
+	merge(v1, old)
+	v2 := f.commit("acceptance/spec.txt", "v2")
+	merge(v2, f.envelope(v2, f.key, gemba))
+
+	revert := f.commit("acceptance/spec.txt", "v1")
+	oldTree, _ := f.work.Tree(f.ctx, v1)
+	revertTree, _ := f.work.Tree(f.ctx, revert)
+	if oldTree != revertTree {
+		t.Fatalf("revert tree %s, want %s", revertTree, oldTree)
+	}
+	f.candidate(revert)
+	f.expectRejected(revert, old, ReasonCommitMismatch)
 }
 
 func TestRejectsOtherConstitution(t *testing.T) {

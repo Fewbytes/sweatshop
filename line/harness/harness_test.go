@@ -242,7 +242,7 @@ func TestAttestationReplayedOnAnotherCommitIsRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != guard.Rejected || result.Reason != guard.ReasonTreeMismatch {
+	if result.Status != guard.Rejected || result.Reason != guard.ReasonCommitMismatch {
 		t.Fatalf("result = %+v", result)
 	}
 }

@@ -120,7 +120,7 @@ func (w *Witness) Attest(ctx context.Context, sourceDir, rev string) (AttestResu
 	defer cleanup()
 
 	predicate := attest.ChecksPredicate{
-		Commit: commit, Role: w.Role, AgentID: w.AgentID,
+		Role: w.Role, AgentID: w.AgentID,
 		Constitution: w.ConstitutionDigest, Runner: w.Constitution.Runner.ID(),
 	}
 	passed := true
@@ -139,7 +139,7 @@ func (w *Witness) Attest(ctx context.Context, sourceDir, rev string) (AttestResu
 	}
 	predicate.FinishedAt = w.now().UTC()
 
-	statement := attest.NewStatement(tree, predicate)
+	statement := attest.NewStatement(commit, tree, predicate)
 	result := AttestResult{Commit: commit, Passed: passed, Statement: statement}
 	if passed {
 		env, err := attest.SignStatement(w.Key, statement)

@@ -96,13 +96,16 @@ func TestAttestSignsPassingCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if commit, _ := statement.Commit(); commit != head {
+		t.Fatalf("attested commit %s, want %s", commit, head)
+	}
 	tree, _ := statement.Tree()
 	want, _ := s.repo.Tree(s.ctx, head)
 	if tree != want {
 		t.Fatalf("attested tree %s, commit tree %s", tree, want)
 	}
 	p := statement.Predicate
-	if p.Role != "maker" || p.AgentID != "maker-1" || p.Constitution != "sha256:test" || p.Runner != "local" || p.Commit != head {
+	if p.Role != "maker" || p.AgentID != "maker-1" || p.Constitution != "sha256:test" || p.Runner != "local" {
 		t.Fatalf("predicate = %+v", p)
 	}
 	if len(p.Checks) != 1 || p.Checks[0].ExitCode != 0 || p.Checks[0].Command != "sh check.sh" {

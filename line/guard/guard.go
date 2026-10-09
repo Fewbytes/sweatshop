@@ -31,16 +31,16 @@ const (
 type Reason string
 
 const (
-	ReasonUntrusted     Reason = "untrusted_attestation"
-	ReasonTreeMismatch  Reason = "tree_mismatch"
-	ReasonConstitution  Reason = "constitution_mismatch"
-	ReasonRunner        Reason = "runner_mismatch"
-	ReasonChecksMissing Reason = "checks_missing"
-	ReasonChecksFailed  Reason = "checks_failed"
-	ReasonLineStopped   Reason = "line_stopped"
-	ReasonBaseMoved     Reason = "base_moved"
-	ReasonRoleForbidden Reason = "role_forbidden"
-	ReasonBadCandidate  Reason = "bad_candidate"
+	ReasonUntrusted      Reason = "untrusted_attestation"
+	ReasonCommitMismatch Reason = "commit_mismatch"
+	ReasonConstitution   Reason = "constitution_mismatch"
+	ReasonRunner         Reason = "runner_mismatch"
+	ReasonChecksMissing  Reason = "checks_missing"
+	ReasonChecksFailed   Reason = "checks_failed"
+	ReasonLineStopped    Reason = "line_stopped"
+	ReasonBaseMoved      Reason = "base_moved"
+	ReasonRoleForbidden  Reason = "role_forbidden"
+	ReasonBadCandidate   Reason = "bad_candidate"
 
 	ReasonRoleNotPermitted Reason = "role_not_permitted"
 	ReasonNoBase           Reason = "no_base"
@@ -98,16 +98,15 @@ func (g Guard) Merge(ctx context.Context, commit string, env attest.Envelope) (R
 	if allowed := keyRoles[keyID]; len(allowed) > 0 && !slices.Contains(allowed, statement.Predicate.Role) {
 		return reject(ReasonRoleNotPermitted, fmt.Sprintf("the verifying key may only attest as %v, not %s", allowed, statement.Predicate.Role))
 	}
-	attestedTree, err := statement.Tree()
+	// Bind to the commit, not its tree: role authority covers a change, and a
+	// tree-only match would let an old attestation authorize a later commit
+	// that restores the same tree (reverting newer work under the old role).
+	attestedCommit, err := statement.Commit()
 	if err != nil {
 		return reject(ReasonUntrusted, err.Error())
 	}
-	tree, err := g.Repo.Tree(ctx, commit)
-	if err != nil {
-		return Result{}, fmt.Errorf("resolve candidate %s: %w", commit, err)
-	}
-	if tree != attestedTree {
-		return reject(ReasonTreeMismatch, fmt.Sprintf("commit tree %s, attested tree %s", tree, attestedTree))
+	if attestedCommit != commit {
+		return reject(ReasonCommitMismatch, fmt.Sprintf("candidate %s, attested commit %s", commit, attestedCommit))
 	}
 
 	predicate := statement.Predicate
