@@ -28,7 +28,11 @@ A high-performance Go-based daemon (`agentshd`), client CLI (`agentsh`), and MCP
 ### 2. Issue Tracking & Workflow (`beads` / `bd`)
 Embedded issue tracking with Dolt backend, providing branch-safe, cross-agent task assignment, atomic claims, and structured session close protocols.
 
-### 3. Agent Skills & Extensions
+### 3. `line` — Assembly Line Primitives
+Witness attestations (DSSE/in-toto, Ed25519), the constitution (line rules), and the merge guard that fast-forwards the guarded branch only for trusted, passing attestations. agentsh embeds the witness; `sweatshop` administers keys and the guard's repository hook.
+*See [`design-docs/assembly-line-spec.md`](design-docs/assembly-line-spec.md)*.
+
+### 4. Agent Skills & Extensions
 - **Claude Code**: Agent skills under `.agents/skills/` and `.claude/`.
 - **pi.dev**: Extensions and skills compatible with pi agent harness.
 
@@ -39,6 +43,7 @@ Embedded issue tracking with Dolt backend, providing branch-safe, cross-agent ta
 ```text
 sweatshop/
 ├── agentsh/           # Go implementation of agentsh daemon, client, and MCP server
+├── line/              # Assembly line: witness attestations, constitution, merge guard
 ├── design-docs/       # Technical specs (agentsh, factory architecture)
 ├── skills/            # Shared agent skills and tool definitions
 ├── .claude/           # Claude Code configuration and settings
