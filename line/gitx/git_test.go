@@ -133,6 +133,79 @@ func TestDeleteRef(t *testing.T) {
 	}
 }
 
+func TestBlobRoundTrip(t *testing.T) {
+	r, ctx := newRepo(t)
+	id, err := r.WriteBlob(ctx, []byte("event\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := r.ReadBlob(ctx, id)
+	if err != nil || string(data) != "event\n" {
+		t.Fatalf("ReadBlob = %q, %v", data, err)
+	}
+	if _, err := r.ReadBlob(ctx, "-p"); err == nil {
+		t.Fatal("ReadBlob accepted an option-like id")
+	}
+}
+
+func TestDeleteRefIfIsCAS(t *testing.T) {
+	r, ctx := newRepo(t)
+	a := commitFile(t, r, ctx, "a.txt", "1")
+	b := commitFile(t, r, ctx, "a.txt", "2")
+	const ref = "refs/line/andon/x"
+	if err := r.UpdateRef(ctx, ref, a, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.DeleteRefIf(ctx, ref, b); !errors.Is(err, ErrRefMoved) {
+		t.Fatalf("DeleteRefIf with stale value = %v, want ErrRefMoved", err)
+	}
+	if ok, _ := r.RefExists(ctx, ref); !ok {
+		t.Fatal("ref deleted despite stale old value")
+	}
+	if err := r.DeleteRefIf(ctx, ref, a); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := r.RefExists(ctx, ref); ok {
+		t.Fatal("ref still exists after matching DeleteRefIf")
+	}
+	if err := r.DeleteRefIf(ctx, ref, a); !errors.Is(err, ErrRefMoved) {
+		t.Fatalf("DeleteRefIf on missing ref = %v, want ErrRefMoved", err)
+	}
+	if err := r.DeleteRefIf(ctx, "-d", a); err == nil {
+		t.Fatal("DeleteRefIf accepted an option-like ref")
+	}
+}
+
+func TestTrailer(t *testing.T) {
+	r, ctx := newRepo(t)
+	if err := os.WriteFile(filepath.Join(r.Dir, "a.txt"), []byte("1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Git(ctx, "add", "-A"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Git(ctx, "commit", "--quiet", "-m", "fix\n\nAndon-Event: abc123\nBead: sweatshop-1\n"); err != nil {
+		t.Fatal(err)
+	}
+	head, err := r.Commit(ctx, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.Trailer(ctx, head, "Andon-Event")
+	if err != nil || len(got) != 1 || got[0] != "abc123" {
+		t.Fatalf("Trailer = %q, %v", got, err)
+	}
+	if got, err := r.Trailer(ctx, head, "Missing"); err != nil || got != nil {
+		t.Fatalf("Trailer(Missing) = %q, %v", got, err)
+	}
+	if _, err := r.Trailer(ctx, head, "-x"); err == nil {
+		t.Fatal("Trailer accepted an option-like key")
+	}
+	if _, err := r.Trailer(ctx, "-x", "Bead"); err == nil {
+		t.Fatal("Trailer accepted an option-like commit")
+	}
+}
+
 func TestUpdateRefDeletedRef(t *testing.T) {
 	r, ctx := newRepo(t)
 	first := commitFile(t, r, ctx, "a.txt", "1")

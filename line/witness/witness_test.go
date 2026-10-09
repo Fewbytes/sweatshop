@@ -113,16 +113,23 @@ func TestAttestSignsPassingCommit(t *testing.T) {
 	}
 }
 
-func TestAttestFailingCheckIsNotSigned(t *testing.T) {
+func TestAttestSignsFailingCheck(t *testing.T) {
 	s := newSource(t)
-	w, _ := newWitness(t)
+	w, pub := newWitness(t)
 	s.commit("BROKEN", "x")
 	result, err := w.Attest(s.ctx, s.repo.Dir, "HEAD")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed || result.Envelope != nil || result.Statement.Predicate.Checks[0].ExitCode == 0 {
-		t.Fatalf("result = %+v", result)
+	if result.Passed || result.Envelope == nil {
+		t.Fatalf("failing run must be signed: %+v", result)
+	}
+	statement, _, err := attest.VerifyStatement(*result.Envelope, map[string]ed25519.PublicKey{attest.KeyID(pub): pub})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := statement.Predicate.Checks[len(statement.Predicate.Checks)-1]; last.ExitCode == 0 {
+		t.Fatalf("signed predicate hides the failure: %+v", statement.Predicate.Checks)
 	}
 }
 

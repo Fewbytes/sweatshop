@@ -140,15 +140,13 @@ func (w *Witness) Attest(ctx context.Context, sourceDir, rev string) (AttestResu
 	predicate.FinishedAt = w.now().UTC()
 
 	statement := attest.NewStatement(commit, tree, predicate)
-	result := AttestResult{Commit: commit, Passed: passed, Statement: statement}
-	if passed {
-		env, err := attest.SignStatement(w.Key, statement)
-		if err != nil {
-			return AttestResult{}, err
-		}
-		result.Envelope = &env
+	// Failing runs are signed too: andon needs signed evidence of failure. The
+	// guard rejects a failing attestation for merge, so this widens nothing.
+	env, err := attest.SignStatement(w.Key, statement)
+	if err != nil {
+		return AttestResult{}, err
 	}
-	return result, nil
+	return AttestResult{Commit: commit, Passed: passed, Statement: statement, Envelope: &env}, nil
 }
 
 // prepare serializes access to the shared cache: fetch, resolve, and check

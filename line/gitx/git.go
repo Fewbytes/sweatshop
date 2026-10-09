@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
@@ -36,6 +37,17 @@ func (r Repo) Git(ctx context.Context, args ...string) (string, error) {
 }
 
 func (r Repo) gitRaw(ctx context.Context, trimOutput bool, args ...string) (string, error) {
+	return runGit(r.command(ctx, args), trimOutput, args)
+}
+
+func (r Repo) gitStdin(ctx context.Context, stdin []byte, args ...string) (string, error) {
+	cmd := r.command(ctx, args)
+	cmd.Stdin = bytes.NewReader(stdin)
+	return runGit(cmd, true, args)
+}
+
+// command builds a git invocation with the isolated environment.
+func (r Repo) command(ctx context.Context, args []string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", r.Dir}, args...)...)
 
 	// Filter out GIT_* variables from parent environment to prevent redirection to another repo
@@ -46,7 +58,10 @@ func (r Repo) gitRaw(ctx context.Context, trimOutput bool, args ...string) (stri
 		}
 	}
 	cmd.Env = append(env, "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
+	return cmd
+}
 
+func runGit(cmd *exec.Cmd, trimOutput bool, args []string) (string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
@@ -167,6 +182,68 @@ func (r Repo) UpdateRef(ctx context.Context, ref, newValue, oldValue string) err
 		return ErrRefMoved
 	}
 	return err
+}
+
+// WriteBlob stores data as a loose blob and returns its object ID.
+func (r Repo) WriteBlob(ctx context.Context, data []byte) (string, error) {
+	return r.gitStdin(ctx, data, "hash-object", "-w", "--stdin")
+}
+
+func (r Repo) ReadBlob(ctx context.Context, id string) ([]byte, error) {
+	if err := rejectOptionInjection(id); err != nil {
+		return nil, err
+	}
+	out, err := r.gitRaw(ctx, false, "cat-file", "blob", id)
+	return []byte(out), err
+}
+
+// DeleteRefIf deletes ref only if it currently holds oldValue; ErrRefMoved
+// means it holds another value or is already gone.
+func (r Repo) DeleteRefIf(ctx context.Context, ref, oldValue string) error {
+	if err := rejectOptionInjection(ref); err != nil {
+		return err
+	}
+	if err := rejectOptionInjection(oldValue); err != nil {
+		return err
+	}
+	_, err := r.Git(ctx, "update-ref", "-d", "--end-of-options", ref, oldValue)
+	if err == nil {
+		return nil
+	}
+	current, readErr := r.Ref(ctx, ref)
+	if readErr != nil {
+		if exitCode(readErr) == 1 {
+			return ErrRefMoved
+		}
+		return err
+	}
+	if current != oldValue {
+		return ErrRefMoved
+	}
+	return err
+}
+
+var trailerKey = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]*$`)
+
+// Trailer returns the values of the commit message trailer key, in order.
+func (r Repo) Trailer(ctx context.Context, commit, key string) ([]string, error) {
+	if err := rejectOptionInjection(commit); err != nil {
+		return nil, err
+	}
+	if !trailerKey.MatchString(key) {
+		return nil, fmt.Errorf("invalid trailer key %q", key)
+	}
+	out, err := r.gitRaw(ctx, false, "log", "-1", "--format=%(trailers:key="+key+",valueonly,separator=%x00)", "--end-of-options", commit)
+	if err != nil {
+		return nil, err
+	}
+	var values []string
+	for _, v := range strings.Split(out, "\x00") {
+		if v = strings.TrimSpace(v); v != "" {
+			values = append(values, v)
+		}
+	}
+	return values, nil
 }
 
 func (r Repo) DeleteRef(ctx context.Context, ref string) error {

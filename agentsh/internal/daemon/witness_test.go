@@ -118,7 +118,7 @@ func TestLineMergeAttestsWithEvidenceAndMerges(t *testing.T) {
 	}
 }
 
-func TestLineAttestReportsFailureWithoutEnvelope(t *testing.T) {
+func TestLineAttestSignsFailure(t *testing.T) {
 	client, work, _ := startWitnessServer(t)
 	if err := os.WriteFile(filepath.Join(work.Dir, "BROKEN"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
@@ -129,8 +129,8 @@ func TestLineAttestReportsFailureWithoutEnvelope(t *testing.T) {
 	if err := callLine(t, client, agentrpc.OpLineAttest, &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed || result.Envelope != nil {
-		t.Fatalf("result = %+v", result)
+	if result.Passed || result.Envelope == nil {
+		t.Fatalf("failing run must be signed: %+v", result)
 	}
 }
 
