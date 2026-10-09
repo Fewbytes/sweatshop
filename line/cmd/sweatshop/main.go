@@ -23,6 +23,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/linedir"
+	"github.com/Fewbytes/sweatshop/line/maker"
 	"github.com/Fewbytes/sweatshop/line/station"
 	"github.com/Fewbytes/sweatshop/line/witness"
 )
@@ -42,6 +43,8 @@ const usage = `usage:
   sweatshop line evidence ID            print a check log
   sweatshop line andon --beads DIR [--interval 30s]
                                         watch master; pull/clear the andon cord (andon station token)
+  sweatshop line maker --dir D --station NAME --beads DIR [--once] [--engine E] [--url URL]
+                                        work ready "line" beads in station containers
 
 Client commands read SWEATSHOP_LINE_URL and SWEATSHOP_LINE_TOKEN.`
 
@@ -73,6 +76,8 @@ func run(args []string, stdout io.Writer) error {
 		return lineStatus(stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "andon":
 		return lineAndon(args[2:])
+	case len(args) >= 2 && args[0] == "line" && args[1] == "maker":
+		return lineMaker(args[2:])
 	case len(args) == 3 && args[0] == "line" && args[1] == "evidence":
 		c, err := lineClient()
 		if err != nil {
@@ -191,6 +196,54 @@ func lineAndon(args []string) error {
 		Log: log.New(os.Stderr, "andon: ", log.LstdFlags),
 	}
 	return w.Run(ctx)
+}
+
+// lineMaker runs a Maker station on the host: it reads the station's token
+// from the line directory and hands it only to the station container.
+func lineMaker(args []string) error {
+	fs := flag.NewFlagSet("line maker", flag.ContinueOnError)
+	dir := fs.String("dir", "", "line directory")
+	name := fs.String("station", "", "maker station name (e.g. maker-1)")
+	beads := fs.String("beads", "", "directory whose beads database holds the cards")
+	once := fs.Bool("once", false, "work at most one card, then exit")
+	engine := fs.String("engine", "", "container engine CLI (default: the line's engine)")
+	url := fs.String("url", "", "station API URL as seen from the container (default http://host.containers.internal:<port>)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 || *dir == "" || *name == "" || *beads == "" {
+		return errors.New(usage)
+	}
+	l, err := linedir.Load(*dir)
+	if err != nil {
+		return err
+	}
+	var st *linedir.Station
+	for i := range l.Stations {
+		if l.Stations[i].Name == *name {
+			st = &l.Stations[i]
+		}
+	}
+	if st == nil {
+		return fmt.Errorf("line %s has no station %q", l.Dir, *name)
+	}
+	if *engine == "" {
+		*engine = l.Engine
+	}
+	r := &maker.Runner{
+		Line: l, Station: *st, URL: *url,
+		Beads:  maker.BeadsCLI{Dir: *beads, Actor: st.AgentID},
+		Engine: maker.DockerEngine{Bin: *engine},
+		Creds:  maker.HostCreds(os.LookupEnv),
+		Log:    log.New(os.Stderr, "maker: ", log.LstdFlags),
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if *once {
+		_, err := r.Once(ctx)
+		return err
+	}
+	return r.Loop(ctx, 60*time.Second)
 }
 
 func lineClient() (station.Client, error) {

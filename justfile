@@ -96,5 +96,9 @@ bughunt-hook:
 validate-marketplace:
     node scripts/validate-marketplace.mjs
 
+# Build the station image (Maker container and the line's check runner)
+station-image tag="dev":
+    docker build -f station/Dockerfile -t sweatshop-station:{{tag}} .
+
 # Everything CI runs
 ci: lint test build validate-marketplace
