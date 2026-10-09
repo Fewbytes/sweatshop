@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,6 +40,9 @@ type Witness struct {
 	// for untrusted repositories (git >= 2.45.1, enforced before the first
 	// fetch) and on nothing else running there.
 	CacheDir string
+	// Upstream is the path of the line's bare remote. It is trusted and the
+	// witness only reads it, except to push candidates in MergeBundle.
+	Upstream string
 	Now      func() time.Time
 
 	mu         sync.Mutex
@@ -110,15 +114,132 @@ func (w *Witness) Attest(ctx context.Context, sourceDir, rev string) (AttestResu
 	if rev == "" || strings.HasPrefix(rev, "-") {
 		return AttestResult{}, fmt.Errorf("invalid revision %q", rev)
 	}
+	return w.attest(ctx, func(ctx context.Context, cache gitx.Repo) (string, error) {
+		return w.fetch(ctx, cache, sourceDir, rev)
+	})
+}
+
+var fullHex = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
+
+func checkFullHex(commit string) error {
+	if !fullHex.MatchString(commit) {
+		return fmt.Errorf("commit %q is not a full lowercase hex object id", commit)
+	}
+	return nil
+}
+
+// seed refreshes the cache's view of the line from the trusted upstream.
+func (w *Witness) seed(ctx context.Context, cache gitx.Repo) error {
+	if w.Upstream == "" {
+		return errors.New("witness has no upstream")
+	}
+	if _, err := cache.Git(ctx, "fetch", "--quiet", "--no-tags", "--force", "--prune", "--end-of-options",
+		w.Upstream, "+refs/heads/*:refs/line/heads/*"); err != nil {
+		return fmt.Errorf("seed from upstream: %w", err)
+	}
+	return nil
+}
+
+// contained reports whether commit is reachable from a ref under prefix.
+func contained(ctx context.Context, cache gitx.Repo, commit, prefix string) (bool, error) {
+	out, err := cache.Git(ctx, "for-each-ref", "--count=1", "--format=%(refname)", "--contains", commit, prefix)
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) != "", nil
+}
+
+// AttestBundle attests commit, which must arrive in the git bundle at
+// bundlePath. The agent's repository is never read: the bundle is verified
+// against the line's own history and fetched into a nonce-named namespace.
+func (w *Witness) AttestBundle(ctx context.Context, bundlePath, commit string) (AttestResult, error) {
+	if err := checkFullHex(commit); err != nil {
+		return AttestResult{}, err
+	}
+	return w.attest(ctx, func(ctx context.Context, cache gitx.Repo) (string, error) {
+		if err := w.seed(ctx, cache); err != nil {
+			return "", err
+		}
+		if _, err := cache.Git(ctx, "bundle", "verify", "--quiet", "--end-of-options", bundlePath); err != nil {
+			return "", fmt.Errorf("bundle does not apply to the line: %w", err)
+		}
+		raw := make([]byte, 8)
+		if _, err := rand.Read(raw); err != nil {
+			return "", err
+		}
+		prefix := "refs/bundle/" + hex.EncodeToString(raw) + "/"
+		defer w.deleteRefs(ctx, cache, prefix)
+		if _, err := cache.Git(ctx, "fetch", "--quiet", "--no-tags", "--force", "--end-of-options",
+			bundlePath, "+refs/sweatshop/*:"+prefix+"*"); err != nil {
+			return "", fmt.Errorf("fetch bundle: %w", err)
+		}
+		got, err := cache.Commit(ctx, commit)
+		if err != nil || got != commit {
+			return "", fmt.Errorf("%s is not in the bundle", commit)
+		}
+		in, err := contained(ctx, cache, commit, prefix)
+		if err != nil {
+			return "", err
+		}
+		if !in {
+			return "", fmt.Errorf("%s is not reachable from the bundle's ref", commit)
+		}
+		return commit, nil
+	})
+}
+
+// AttestLine attests a commit already on the line, without any bundle. The
+// Andon watcher uses it to attest master.
+func (w *Witness) AttestLine(ctx context.Context, commit string) (AttestResult, error) {
+	if err := checkFullHex(commit); err != nil {
+		return AttestResult{}, err
+	}
+	return w.attest(ctx, func(ctx context.Context, cache gitx.Repo) (string, error) {
+		if err := w.seed(ctx, cache); err != nil {
+			return "", err
+		}
+		got, err := cache.Commit(ctx, commit)
+		if err != nil || got != commit {
+			return "", fmt.Errorf("%s is not on the line", commit)
+		}
+		in, err := contained(ctx, cache, commit, "refs/line/heads/")
+		if err != nil {
+			return "", err
+		}
+		if !in {
+			return "", fmt.Errorf("%s is not reachable from the line's branches", commit)
+		}
+		return commit, nil
+	})
+}
+
+func (w *Witness) deleteRefs(ctx context.Context, cache gitx.Repo, prefix string) {
+	ctx = context.WithoutCancel(ctx)
+	out, err := cache.Git(ctx, "for-each-ref", "--format=%(refname)", prefix)
+	if err != nil {
+		return
+	}
+	for _, ref := range strings.Fields(out) {
+		_ = cache.DeleteRef(ctx, ref)
+	}
+}
+
+// attest fetches via fetch, checks out the commit it returns, and runs and
+// signs the required checks.
+func (w *Witness) attest(ctx context.Context, fetch func(context.Context, gitx.Repo) (string, error)) (AttestResult, error) {
 	if len(w.Constitution.Checks.Required) == 0 {
 		return AttestResult{}, errors.New("constitution has no required checks; refusing to attest")
 	}
-	commit, tree, checkout, cleanup, err := w.prepare(ctx, sourceDir, rev)
+	commit, tree, checkout, cleanup, err := w.prepare(ctx, fetch)
 	if err != nil {
 		return AttestResult{}, err
 	}
 	defer cleanup()
+	return w.run(ctx, commit, tree, checkout)
+}
 
+// run executes the required checks in checkout and signs the outcome.
+func (w *Witness) run(ctx context.Context, commit, tree, checkout string) (AttestResult, error) {
 	predicate := attest.ChecksPredicate{
 		Role: w.Role, AgentID: w.AgentID,
 		Constitution: w.ConstitutionDigest, Runner: w.Constitution.Runner.ID(),
@@ -151,7 +272,7 @@ func (w *Witness) Attest(ctx context.Context, sourceDir, rev string) (AttestResu
 
 // prepare serializes access to the shared cache: fetch, resolve, and check
 // out under the lock; checks themselves run outside it.
-func (w *Witness) prepare(ctx context.Context, sourceDir, rev string) (commit, tree, checkout string, cleanup func(), err error) {
+func (w *Witness) prepare(ctx context.Context, fetch func(context.Context, gitx.Repo) (string, error)) (commit, tree, checkout string, cleanup func(), err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	cache, err := w.cache(ctx)
@@ -161,7 +282,7 @@ func (w *Witness) prepare(ctx context.Context, sourceDir, rev string) (commit, t
 	if err = w.checkGit(ctx, cache); err != nil {
 		return "", "", "", nil, err
 	}
-	if commit, err = w.fetch(ctx, cache, sourceDir, rev); err != nil {
+	if commit, err = fetch(ctx, cache); err != nil {
 		return "", "", "", nil, err
 	}
 	if tree, err = cache.Tree(ctx, commit); err != nil {

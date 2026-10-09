@@ -26,6 +26,20 @@ func (w *Witness) Merge(ctx context.Context, sourceDir, rev, remote string, merg
 	if err != nil {
 		return MergeResult{}, err
 	}
+	return w.pushAndMerge(ctx, attestation, remote, merger)
+}
+
+// MergeBundle is Merge for a candidate delivered as a git bundle; the
+// candidate is pushed to the witness's upstream.
+func (w *Witness) MergeBundle(ctx context.Context, bundlePath, commit string, merger Merger) (MergeResult, error) {
+	attestation, err := w.AttestBundle(ctx, bundlePath, commit)
+	if err != nil {
+		return MergeResult{}, err
+	}
+	return w.pushAndMerge(ctx, attestation, w.Upstream, merger)
+}
+
+func (w *Witness) pushAndMerge(ctx context.Context, attestation AttestResult, remote string, merger Merger) (MergeResult, error) {
 	result := MergeResult{Attestation: attestation}
 	if !attestation.Passed {
 		result.Guard = guard.Result{
@@ -38,6 +52,7 @@ func (w *Witness) Merge(ctx context.Context, sourceDir, rev, remote string, merg
 	if _, err := cache.Git(ctx, "push", "--quiet", remote, attestation.Commit+":"+guard.CandidatePrefix+attestation.Commit); err != nil {
 		return result, fmt.Errorf("push candidate: %w", err)
 	}
+	var err error
 	result.Guard, err = merger.Merge(ctx, attestation.Commit, *attestation.Envelope)
 	return result, err
 }
