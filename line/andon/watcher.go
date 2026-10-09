@@ -29,8 +29,10 @@ type API interface {
 
 // Cards files work items for andon events.
 type Cards interface {
-	// Raise files a P0 card for an andon event and returns its ID.
-	Raise(ctx context.Context, event string, ev guard.AndonEvent) (string, error)
+	// Raise returns the live (open or in_progress) card for an andon event,
+	// filing a P0 card when there is none. master is the line's current
+	// master.
+	Raise(ctx context.Context, event string, ev guard.AndonEvent, master string) (string, error)
 }
 
 // Watcher observes the line's master.
@@ -39,8 +41,8 @@ type Watcher struct {
 	Cards    Cards
 	Interval time.Duration // default 30s
 	Log      *log.Logger
-	last     string          // last master attested
-	carded   map[string]bool // andon events with a card
+	last     string            // last master attested
+	carded   map[string]string // andon event -> card last seen, for logging
 }
 
 func (w *Watcher) logf(format string, args ...any) {
@@ -56,19 +58,25 @@ func (w *Watcher) Step(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("status: %w", err)
 	}
-	// Carding is decoupled from pulling: a failed Raise, or a restart that meets
-	// an event someone else pulled, must still end with a P0 card. The ledger
-	// is per process; BeadCards.Raise is idempotent across restarts.
-	if st.Event != "" {
-		ev := guard.AndonEvent{Commit: st.Master}
+	// Carding: whenever a step ends with the line stopped, the event must have
+	// a live (open or in_progress) card. Raise is idempotent, so this runs every
+	// such step: a failed Raise, a restart, a card closed by a fix that did not
+	// clear the line, all end with a card. It runs only once the current master
+	// has a verdict, so a fix that is about to clear the line (its card already
+	// closed by the maker) does not get a needless fresh card first.
+	stoppedEvent := func() guard.AndonEvent {
 		if st.Andon != nil {
-			ev = *st.Andon
+			return *st.Andon
 		}
-		if err := w.ensureCard(ctx, st.Event, ev); err != nil {
-			w.logf("%v", err)
-		}
+		return guard.AndonEvent{Commit: st.Master}
 	}
-	if st.Master == "" || st.Master == w.last {
+	if st.Master == "" {
+		return nil
+	}
+	if st.Master == w.last {
+		if st.Event != "" {
+			return w.ensureCard(ctx, st.Event, stoppedEvent(), st.Master)
+		}
 		return nil
 	}
 	res, err := w.API.AttestLine(ctx, st.Master)
@@ -90,11 +98,19 @@ func (w *Watcher) Step(ctx context.Context) error {
 		switch {
 		case pr.Status == guard.Stopped:
 			w.logf("andon pulled, event %s", pr.Event)
-			if err := w.ensureCard(ctx, pr.Event, eventFromResult(res)); err != nil {
-				return err
-			}
+			return w.ensureCard(ctx, pr.Event, eventFromResult(res), st.Master)
 		case pr.Reason == guard.ReasonAlreadyStopped:
+			// Typically a fix landed but master still fails (its card may be
+			// closed by now), or a restart met an existing stop.
 			w.logf("andon already pulled (event %s)", pr.Event)
+			event, ev := pr.Event, eventFromResult(res)
+			if st.Event != "" && (event == "" || event == st.Event) {
+				event, ev = st.Event, stoppedEvent()
+			}
+			if event == "" {
+				return nil
+			}
+			return w.ensureCard(ctx, event, ev, st.Master)
 		case pr.Reason == guard.ReasonStaleEvidence:
 			// Master moved while the checks ran; look at the new one next step.
 			w.last = ""
@@ -125,28 +141,30 @@ func (w *Watcher) Step(ctx context.Context) error {
 		// and a newer master will be attested on its own.
 		if cr.Reason == guard.ReasonStaleEvidence && st.Andon != nil && st.Andon.Commit == st.Master {
 			w.logf("master %s is the failing commit; waiting for a newer master", st.Master)
-			return nil
+			return w.ensureCard(ctx, st.Event, stoppedEvent(), st.Master)
 		}
 		w.last = ""
-		return fmt.Errorf("clear rejected: %s %s", cr.Reason, cr.Detail)
+		return errors.Join(fmt.Errorf("clear rejected: %s %s", cr.Reason, cr.Detail),
+			w.ensureCard(ctx, st.Event, stoppedEvent(), st.Master))
 	}
 	return nil
 }
 
-// ensureCard files the card for event once per process.
-func (w *Watcher) ensureCard(ctx context.Context, event string, ev guard.AndonEvent) error {
-	if w.carded[event] {
-		return nil
-	}
-	id, err := w.Cards.Raise(ctx, event, ev)
+// ensureCard makes sure event has a live card; Raise is idempotent. master is
+// the line's current master, which the card names when it differs from the
+// event's commit (a fix landed but master still fails).
+func (w *Watcher) ensureCard(ctx context.Context, event string, ev guard.AndonEvent, master string) error {
+	id, err := w.Cards.Raise(ctx, event, ev, master)
 	if err != nil {
 		return fmt.Errorf("raise card for event %s: %w", event, err)
 	}
 	if w.carded == nil {
-		w.carded = map[string]bool{}
+		w.carded = map[string]string{}
 	}
-	w.carded[event] = true
-	w.logf("card %s for event %s", id, event)
+	if w.carded[event] != id {
+		w.carded[event] = id
+		w.logf("card %s for event %s", id, event)
+	}
 	return nil
 }
 
@@ -190,10 +208,12 @@ func (w *Watcher) Run(ctx context.Context) error {
 // BeadCards files andon cards with the bd CLI.
 type BeadCards struct{ Dir string } // runs `bd create` in Dir
 
-// existing returns the ID of an open andon card already naming event, so a
-// restarted watcher (or a retry after a lost reply) never files a duplicate.
+// existing returns the ID of a live (open or in_progress) andon card already
+// naming event, so a restarted watcher, a retry after a lost reply, or a card
+// a fixer has claimed never yields a duplicate. A closed card does not count:
+// if the line is still stopped, its fix did not work.
 func (b BeadCards) existing(ctx context.Context, event string) (string, error) {
-	cmd := exec.CommandContext(ctx, "bd", "list", "--label", "andon", "--status", "open", "--limit", "0", "--json")
+	cmd := exec.CommandContext(ctx, "bd", "list", "--label", "andon", "--status", "open,in_progress", "--limit", "0", "--json")
 	cmd.Dir = b.Dir
 	out, err := cmd.Output()
 	if err != nil {
@@ -218,24 +238,32 @@ func (b BeadCards) existing(ctx context.Context, event string) (string, error) {
 
 // Raise runs `bd create` and returns the new issue's ID. The description
 // carries `event: <id>` on its own line; the fixer's prompt parses it.
-func (b BeadCards) Raise(ctx context.Context, event string, ev guard.AndonEvent) (string, error) {
+func (b BeadCards) Raise(ctx context.Context, event string, ev guard.AndonEvent, master string) (string, error) {
 	if id, err := b.existing(ctx, event); err != nil {
 		return "", err
 	} else if id != "" {
 		return id, nil
 	}
-	short := ev.Commit
+	if master == "" {
+		master = ev.Commit
+	}
+	short := master
 	if len(short) > 12 {
 		short = short[:12]
 	}
 	if ev.Check == "" {
 		ev.Check = "unknown check"
 	}
+	lead := "The andon cord was pulled: the line's master fails a required check."
+	if master != ev.Commit {
+		lead = "A fix landed but master still fails: the line is still stopped on this event."
+	}
 	desc := strings.Join([]string{
-		"The andon cord was pulled: the line's master fails a required check.",
+		lead,
 		"",
 		"event: " + event,
 		"commit: " + ev.Commit,
+		"master: " + master,
 		"check: " + ev.Check,
 		fmt.Sprintf("exit code: %d", ev.ExitCode),
 		"evidence: " + ev.EvidenceID,

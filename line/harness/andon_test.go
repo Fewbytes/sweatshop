@@ -18,10 +18,16 @@ import (
 	"github.com/Fewbytes/sweatshop/line/station"
 )
 
-// recordingCards is a Cards fake that remembers what the watcher raised.
+// recordingCards is a Cards fake that remembers the cards the watcher filed.
+// Like BeadCards it is idempotent: a live card for an event is returned again.
 type recordingCards struct{ events []string }
 
-func (c *recordingCards) Raise(_ context.Context, event string, _ guard.AndonEvent) (string, error) {
+func (c *recordingCards) Raise(_ context.Context, event string, _ guard.AndonEvent, _ string) (string, error) {
+	for _, e := range c.events {
+		if e == event {
+			return "card-" + event, nil
+		}
+	}
 	c.events = append(c.events, event)
 	return "card-" + event, nil
 }
