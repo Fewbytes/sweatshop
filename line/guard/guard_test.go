@@ -243,3 +243,58 @@ func TestRolesGatePaths(t *testing.T) {
 		t.Fatalf("gemba merge: %+v %v", result, err)
 	}
 }
+
+func TestRejectsRefNameCandidate(t *testing.T) {
+	f := newFixture(t)
+	commit := f.commit("src/a.go", "package a")
+	f.candidate(commit)
+	before := f.master()
+	// Try to pass a ref name instead of a full commit ID
+	result, err := f.guard.Merge(f.ctx, CandidatePrefix+commit, f.envelope(commit, f.key, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != Rejected || result.Reason != ReasonBadCandidate {
+		t.Fatalf("result = %+v, want rejected/bad_candidate", result)
+	}
+	if f.master() != before {
+		t.Fatal("master moved on a rejected merge")
+	}
+}
+
+func TestRejectsAbbreviatedSHA(t *testing.T) {
+	f := newFixture(t)
+	commit := f.commit("src/a.go", "package a")
+	f.candidate(commit)
+	before := f.master()
+	// Try to pass abbreviated SHA
+	result, err := f.guard.Merge(f.ctx, commit[:12], f.envelope(commit, f.key, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != Rejected || result.Reason != ReasonBadCandidate {
+		t.Fatalf("result = %+v, want rejected/bad_candidate", result)
+	}
+	if f.master() != before {
+		t.Fatal("master moved on a rejected merge")
+	}
+}
+
+func TestRejectsNonexistentCommit(t *testing.T) {
+	f := newFixture(t)
+	commit := f.commit("src/a.go", "package a")
+	f.candidate(commit)
+	before := f.master()
+	// Use a valid-looking hex that doesn't exist
+	fakeCommit := "0000000000000000000000000000000000000000"
+	result, err := f.guard.Merge(f.ctx, fakeCommit, f.envelope(commit, f.key, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != Rejected || result.Reason != ReasonBadCandidate {
+		t.Fatalf("result = %+v, want rejected/bad_candidate", result)
+	}
+	if f.master() != before {
+		t.Fatal("master moved on a rejected merge")
+	}
+}

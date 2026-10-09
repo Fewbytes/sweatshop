@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 
 	"github.com/Fewbytes/sweatshop/line/attest"
@@ -39,6 +40,7 @@ const (
 	ReasonLineStopped   Reason = "line_stopped"
 	ReasonBaseMoved     Reason = "base_moved"
 	ReasonRoleForbidden Reason = "role_forbidden"
+	ReasonBadCandidate  Reason = "bad_candidate"
 )
 
 type Result struct {
@@ -57,10 +59,26 @@ type Guard struct {
 }
 
 func (g Guard) Merge(ctx context.Context, commit string, env attest.Envelope) (Result, error) {
-	defer g.Repo.DeleteRef(context.WithoutCancel(ctx), CandidatePrefix+commit)
 	reject := func(reason Reason, detail string) (Result, error) {
 		return Result{Status: Rejected, Reason: reason, Detail: detail, Commit: commit}, nil
 	}
+
+	// Validate commit is a full lowercase hex of length 40 or 64
+	if !isValidHexCommit(commit) {
+		return reject(ReasonBadCandidate, fmt.Sprintf("candidate must be a full-length hex commit ID (40 or 64 chars), got %q", commit))
+	}
+
+	// Resolve commit to ensure it exists and is a commit object
+	resolved, err := g.Repo.Commit(ctx, commit)
+	if err != nil {
+		return reject(ReasonBadCandidate, fmt.Sprintf("candidate commit not found: %v", err))
+	}
+	if resolved != commit {
+		return reject(ReasonBadCandidate, fmt.Sprintf("resolved to different ID: input %s, resolved %s", commit, resolved))
+	}
+
+	// Now safe to defer cleanup using validated ID
+	defer g.Repo.DeleteRef(context.WithoutCancel(ctx), CandidatePrefix+commit)
 
 	trusted, err := g.Constitution.TrustedKeys()
 	if err != nil {
@@ -134,6 +152,12 @@ func (g Guard) Merge(ctx context.Context, commit string, env attest.Envelope) (R
 		return Result{}, err
 	}
 	return Result{Status: Merged, Commit: commit, Base: base}, nil
+}
+
+var hexCommitPattern = regexp.MustCompile(`^[0-9a-f]{40}$|^[0-9a-f]{64}$`)
+
+func isValidHexCommit(commit string) bool {
+	return hexCommitPattern.MatchString(commit)
 }
 
 func checkResults(required []constitution.Check, results []attest.CheckResult) (Reason, string) {
