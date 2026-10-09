@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"time"
 
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/Fewbytes/sweatshop/line/constitution"
@@ -52,6 +53,7 @@ type Result struct {
 	Detail string `json:"detail,omitempty"`
 	Commit string `json:"commit"`
 	Base   string `json:"base,omitempty"`
+	Event  string `json:"event,omitempty"` // andon event blob ID
 }
 
 type Guard struct {
@@ -59,6 +61,14 @@ type Guard struct {
 	Ref                string
 	Constitution       constitution.Constitution
 	ConstitutionDigest string
+	Now                func() time.Time // defaults to time.Now
+}
+
+func (g Guard) now() time.Time {
+	if g.Now != nil {
+		return g.Now()
+	}
+	return time.Now()
 }
 
 func (g Guard) Merge(ctx context.Context, commit string, env attest.Envelope) (Result, error) {
@@ -83,49 +93,33 @@ func (g Guard) Merge(ctx context.Context, commit string, env attest.Envelope) (R
 	// Now safe to defer cleanup using validated ID
 	defer g.Repo.DeleteRef(context.WithoutCancel(ctx), CandidatePrefix+commit)
 
-	trusted, err := g.Constitution.TrustedKeys()
+	v, rejected, err := g.verify(env, commit, commit)
 	if err != nil {
 		return Result{}, err
 	}
-	keyRoles, err := g.Constitution.KeyRoles()
-	if err != nil {
-		return Result{}, err
+	if rejected != nil {
+		return *rejected, nil
 	}
-	statement, keyID, err := attest.VerifyStatement(env, trusted)
-	if err != nil {
-		return reject(ReasonUntrusted, err.Error())
-	}
-	if allowed := keyRoles[keyID]; len(allowed) > 0 && !slices.Contains(allowed, statement.Predicate.Role) {
-		return reject(ReasonRoleNotPermitted, fmt.Sprintf("the verifying key may only attest as %v, not %s", allowed, statement.Predicate.Role))
-	}
-	// Bind to the commit, not its tree: role authority covers a change, and a
-	// tree-only match would let an old attestation authorize a later commit
-	// that restores the same tree (reverting newer work under the old role).
-	attestedCommit, err := statement.Commit()
-	if err != nil {
-		return reject(ReasonUntrusted, err.Error())
-	}
-	if attestedCommit != commit {
-		return reject(ReasonCommitMismatch, fmt.Sprintf("candidate %s, attested commit %s", commit, attestedCommit))
-	}
-
-	predicate := statement.Predicate
-	if predicate.Constitution != g.ConstitutionDigest {
-		return reject(ReasonConstitution, fmt.Sprintf("attested under %s, line is at %s", predicate.Constitution, g.ConstitutionDigest))
-	}
-	if want := g.Constitution.Runner.ID(); predicate.Runner != want {
-		return reject(ReasonRunner, fmt.Sprintf("checks ran on %s, constitution requires %s", predicate.Runner, want))
-	}
+	predicate := v.statement.Predicate
 	if reason, detail := checkResults(g.Constitution.Checks.Required, predicate.Checks); reason != "" {
 		return reject(reason, detail)
 	}
 
-	stopped, err := g.Repo.RefExists(ctx, StopRef)
+	// While the cord is pulled only a fix tagged with the event may pass.
+	stopID, err := g.stopID(ctx)
 	if err != nil {
 		return Result{}, err
 	}
-	if stopped {
-		return reject(ReasonLineStopped, "the andon cord is pulled")
+	if stopID != "" {
+		tagged, err := g.Repo.Trailer(ctx, commit, FixTrailer)
+		if err != nil {
+			return Result{}, err
+		}
+		if !slices.Contains(tagged, stopID) {
+			result, _ := reject(ReasonLineStopped, fmt.Sprintf("the andon cord is pulled (event %s); fixes must carry the trailer %s: %s", stopID, FixTrailer, stopID))
+			result.Event = stopID
+			return result, nil
+		}
 	}
 
 	exists, err := g.Repo.RefExists(ctx, g.Ref)
