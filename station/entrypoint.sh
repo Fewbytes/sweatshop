@@ -11,7 +11,9 @@ set -euo pipefail
 # explicitly or git refuses to read it.
 git config --global --add safe.directory /line/remote.git
 
-git clone -q /line/remote.git /work && cd /work \
-    && git config user.name "$SWEATSHOP_AGENT_ID" \
-    && git config user.email "$SWEATSHOP_AGENT_ID@line.local"
+# Separate statements: set -e ignores failures inside an && chain except the last.
+git clone -q /line/remote.git /work
+cd /work
+git config user.name "$SWEATSHOP_AGENT_ID"
+git config user.email "$SWEATSHOP_AGENT_ID@line.local"
 exec claude -p "$SWEATSHOP_PROMPT" --dangerously-skip-permissions --output-format text

@@ -43,7 +43,7 @@ const usage = `usage:
   sweatshop line evidence ID            print a check log
   sweatshop line andon --beads DIR [--interval 30s]
                                         watch master; pull/clear the andon cord (andon station token)
-  sweatshop line maker --dir D --station NAME --beads DIR [--once] [--engine E] [--url URL]
+  sweatshop line maker --dir D --station NAME --beads DIR [--once] [--engine E] [--url URL] [--timeout 2h]
                                         work ready "line" beads in station containers
 
 Client commands read SWEATSHOP_LINE_URL and SWEATSHOP_LINE_TOKEN.`
@@ -208,6 +208,7 @@ func lineMaker(args []string) error {
 	once := fs.Bool("once", false, "work at most one card, then exit")
 	engine := fs.String("engine", "", "container engine CLI (default: the line's engine)")
 	url := fs.String("url", "", "station API URL as seen from the container (default http://host.containers.internal:<port>)")
+	timeout := fs.Duration("timeout", maker.DefaultTimeout, "longest one card's container may run")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -230,12 +231,13 @@ func lineMaker(args []string) error {
 	if *engine == "" {
 		*engine = l.Engine
 	}
+	logger := log.New(os.Stderr, "maker: ", log.LstdFlags)
 	r := &maker.Runner{
-		Line: l, Station: *st, URL: *url,
+		Line: l, Station: *st, URL: *url, Timeout: *timeout,
 		Beads:  maker.BeadsCLI{Dir: *beads, Actor: st.AgentID},
-		Engine: maker.DockerEngine{Bin: *engine},
+		Engine: maker.DockerEngine{Bin: *engine, Log: logger},
 		Creds:  maker.HostCreds(os.LookupEnv),
-		Log:    log.New(os.Stderr, "maker: ", log.LstdFlags),
+		Log:    logger,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -55,7 +55,7 @@ func TestLargeStreamIsReadWithoutCap(t *testing.T) {
 		t.Skip("large stream fixture")
 	}
 	const size = 500 * 1024 * 1024
-	reader := io.LimitReader(strings.NewReader(strings.Repeat("0123456789abcde\n", size/16)), size)
+	reader := io.LimitReader(&repeatReader{pattern: []byte("0123456789abcde\n")}, size)
 	result, err := Read(reader, Options{Lines: "1:1"})
 	if err != nil {
 		t.Fatal(err)
@@ -63,6 +63,23 @@ func TestLargeStreamIsReadWithoutCap(t *testing.T) {
 	if result.Bytes != size {
 		t.Fatalf("read %d bytes, want %d", result.Bytes, size)
 	}
+}
+
+// repeatReader yields pattern forever without materialising the fixture, so
+// the large-stream test measures Read's memory, not the test's.
+type repeatReader struct {
+	pattern []byte
+	off     int
+}
+
+func (r *repeatReader) Read(p []byte) (int, error) {
+	n := 0
+	for n < len(p) {
+		c := copy(p[n:], r.pattern[r.off:])
+		n += c
+		r.off = (r.off + c) % len(r.pattern)
+	}
+	return n, nil
 }
 
 func TestReadFileIndexedMatchesRead(t *testing.T) {

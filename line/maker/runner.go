@@ -16,6 +16,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Fewbytes/sweatshop/line/gitx"
@@ -59,8 +60,17 @@ type Runner struct {
 	Engine  Engine
 	URL     string            // as seen from inside the container; default http://host.containers.internal:<port>
 	Creds   map[string]string // model credentials passed through to the container
+	Timeout time.Duration     // bounds one container run; default DefaultTimeout
 	Log     *log.Logger
 }
+
+// DefaultTimeout bounds a Maker run so a stuck agent cannot hold a card (and
+// the station) forever.
+const DefaultTimeout = 2 * time.Hour
+
+// EngineErrorExit is the exit code docker and podman use when they could not
+// run the container at all, as opposed to the container's own exit code.
+const EngineErrorExit = 125
 
 // credentialVars are the host variables a station container may inherit.
 var credentialVars = []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"}
@@ -168,8 +178,30 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 		Env:    env,
 		Mounts: []Mount{{Host: r.Line.Remote, Container: "/line/remote.git", ReadOnly: true}},
 	}
-	code, runErr := r.Engine.Run(ctx, spec)
+	timeout := r.Timeout
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+	runCtx, cancelRun := context.WithTimeout(ctx, timeout)
+	code, runErr := r.Engine.Run(runCtx, spec)
+	timedOut := errors.Is(runCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
+	cancelRun()
 	r.logf("%s: container exited %d (err %v)", b.ID, code, runErr)
+
+	note := fmt.Sprintf("maker run ended without landing (exit %d)", code)
+	switch {
+	case timedOut:
+		note = fmt.Sprintf("maker run timed out after %s without landing (exit %d)", timeout, code)
+	case ctx.Err() != nil:
+		note = fmt.Sprintf("maker run interrupted without landing (exit %d)", code)
+	case runErr == nil && code == EngineErrorExit:
+		// docker/podman exit 125 when they could not run the container at
+		// all; that is the station's fault, not the agent's.
+		runErr = fmt.Errorf("%s: container engine failed (exit %d)", b.ID, code)
+		note = fmt.Sprintf("maker run ended without landing: container engine error (exit %d)", code)
+	case runErr != nil:
+		note = fmt.Sprintf("maker run ended without landing: container engine error: %v", runErr)
+	}
 
 	// Settle even when interrupted, so a stopped runner does not leave the
 	// card claimed by nobody who is working it.
@@ -185,7 +217,6 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 		r.logf("%s landed", b.ID)
 		return true, errors.Join(runErr, r.Beads.Close(settle, b.ID, "landed via line"))
 	}
-	note := fmt.Sprintf("maker run ended without landing (exit %d)", code)
 	r.logf("%s: %s", b.ID, note)
 	return true, errors.Join(runErr, r.Beads.Release(settle, b.ID, note))
 }
@@ -296,6 +327,22 @@ func (b BeadsCLI) Release(ctx context.Context, id, note string) error {
 type DockerEngine struct {
 	Bin            string // default "docker"
 	Stdout, Stderr io.Writer
+	Log            *log.Logger // reports cleanup failures; optional
+}
+
+// stopGrace is how long a cancelled run's CLI gets to stop the container
+// before it is killed.
+const stopGrace = 30 * time.Second
+
+// remove force-removes the named container. It usually is already gone
+// (--rm), so failure is only logged.
+func (d DockerEngine) remove(bin, name string) {
+	ctx, cancel := context.WithTimeout(context.Background(), stopGrace)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, bin, "rm", "-f", "--", name).CombinedOutput()
+	if err != nil && d.Log != nil {
+		d.Log.Printf("%s rm -f %s: %v: %s", bin, name, err, strings.TrimSpace(string(out)))
+	}
 }
 
 // Run execs `<bin> run --rm ...` without a shell. Environment values reach
@@ -306,7 +353,11 @@ func (d DockerEngine) Run(ctx context.Context, spec ContainerSpec) (int, error) 
 	if bin == "" {
 		bin = "docker"
 	}
-	args := []string{"run", "--rm"}
+	// The agent runs as a non-root user and needs no capabilities.
+	args := []string{"run", "--rm", "--cap-drop=ALL", "--security-opt=no-new-privileges"}
+	if strings.HasPrefix(spec.Name, "-") {
+		return -1, fmt.Errorf("bad container name %q", spec.Name)
+	}
 	if spec.Name != "" {
 		args = append(args, "--name", spec.Name)
 	}
@@ -339,6 +390,10 @@ func (d DockerEngine) Run(ctx context.Context, spec ContainerSpec) (int, error) 
 	args = append(append(args, spec.Image), spec.Args...)
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Env = env
+	// On cancellation ask the CLI to stop (it proxies the signal to the
+	// container) instead of SIGKILLing it, which would orphan the container.
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = stopGrace
 	cmd.Stdout, cmd.Stderr = d.Stdout, d.Stderr
 	if cmd.Stdout == nil {
 		cmd.Stdout = os.Stderr
@@ -347,6 +402,11 @@ func (d DockerEngine) Run(ctx context.Context, spec ContainerSpec) (int, error) 
 		cmd.Stderr = os.Stderr
 	}
 	err := cmd.Run()
+	if spec.Name != "" {
+		// Whatever ended the CLI, make sure no container outlives the run:
+		// the bead is about to be settled and another run may take it.
+		d.remove(bin, spec.Name)
+	}
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) && exitErr.ExitCode() >= 0 {
 		return exitErr.ExitCode(), nil

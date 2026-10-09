@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Fewbytes/sweatshop/line/gitx"
 	"github.com/Fewbytes/sweatshop/line/linedir"
@@ -115,10 +116,15 @@ func (f *fakeBeads) Release(_ context.Context, id, note string) error {
 type fakeEngine struct {
 	specs []ContainerSpec
 	run   func(spec ContainerSpec) (int, error)
+	block bool // run until the context ends
 }
 
-func (f *fakeEngine) Run(_ context.Context, spec ContainerSpec) (int, error) {
+func (f *fakeEngine) Run(ctx context.Context, spec ContainerSpec) (int, error) {
 	f.specs = append(f.specs, spec)
+	if f.block {
+		<-ctx.Done()
+		return 143, nil
+	}
 	if f.run == nil {
 		return 0, nil
 	}
@@ -183,6 +189,33 @@ func TestOnceReleasesWhenEngineFails(t *testing.T) {
 	}
 	if last := fb.calls[len(fb.calls)-1]; !strings.HasPrefix(last, "release b-1 ") {
 		t.Fatalf("last call = %q, want a release", last)
+	}
+}
+
+func TestOnceTimesOut(t *testing.T) {
+	bare, _ := remote(t)
+	fb := &fakeBeads{ready: []Bead{{ID: "b-1", Priority: 1}}}
+	r := newRunner(t, bare, fb, &fakeEngine{block: true})
+	r.Timeout = 50 * time.Millisecond
+	worked, err := r.Once(context.Background())
+	if err != nil || !worked {
+		t.Fatalf("Once = %v %v", worked, err)
+	}
+	if last := fb.calls[len(fb.calls)-1]; !strings.HasPrefix(last, "release b-1 ") || !strings.Contains(last, "timed out after 50ms") {
+		t.Fatalf("last call = %q, want a timed-out release", last)
+	}
+}
+
+func TestOnceEngineExit125IsAnError(t *testing.T) {
+	bare, _ := remote(t)
+	fb := &fakeBeads{ready: []Bead{{ID: "b-1", Priority: 1}}}
+	fe := &fakeEngine{run: func(ContainerSpec) (int, error) { return EngineErrorExit, nil }}
+	worked, err := newRunner(t, bare, fb, fe).Once(context.Background())
+	if err == nil || !worked {
+		t.Fatalf("Once = %v %v, want an engine error", worked, err)
+	}
+	if last := fb.calls[len(fb.calls)-1]; last != "release b-1 maker run ended without landing: container engine error (exit 125)" {
+		t.Fatalf("last call = %q", last)
 	}
 }
 
@@ -328,8 +361,7 @@ func TestBeadsCLI(t *testing.T) {
 }
 
 func TestDockerEngine(t *testing.T) {
-	logFile := fakeBin(t, "docker", `printf '%s' "$SWEATSHOP_LINE_TOKEN" > "$(dirname "$0")/token.seen"
-exit 4
+	logFile := fakeBin(t, "docker", `case "$1" in run) printf '%s' "$SWEATSHOP_LINE_TOKEN" > "$(dirname "$0")/token.seen"; exit 4;; esac
 `)
 	e := DockerEngine{Bin: "docker"}
 	code, err := e.Run(context.Background(), ContainerSpec{
@@ -340,7 +372,10 @@ exit 4
 	if err != nil || code != 4 {
 		t.Fatalf("Run = %d %v, want exit 4", code, err)
 	}
-	want := []string{"run --rm --name maker-1-b-1 -e A -e SWEATSHOP_LINE_TOKEN -v /h/remote.git:/line/remote.git:ro -v /h/x:/x img:1"}
+	want := []string{
+		"run --rm --cap-drop=ALL --security-opt=no-new-privileges --name maker-1-b-1 -e A -e SWEATSHOP_LINE_TOKEN -v /h/remote.git:/line/remote.git:ro -v /h/x:/x img:1",
+		"rm -f -- maker-1-b-1",
+	}
 	if got := calls(t, logFile); !reflect.DeepEqual(got, want) {
 		t.Fatalf("docker calls = %q, want %q", got, want)
 	}
@@ -352,5 +387,25 @@ exit 4
 	}
 	if _, err := e.Run(context.Background(), ContainerSpec{Image: "img", Mounts: []Mount{{Host: "/a:b", Container: "/c"}}}); err == nil {
 		t.Fatal("Run accepted a mount path containing ':'")
+	}
+}
+
+// Cancelling a run must stop the CLI gracefully and then remove the
+// container, so no orphan keeps working a card that is being released.
+func TestDockerEngineCancelRemovesContainer(t *testing.T) {
+	logFile := fakeBin(t, "docker", `case "$1" in run) exec sleep 30;; esac
+`)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := (DockerEngine{Bin: "docker"}).Run(ctx, ContainerSpec{Image: "img", Name: "maker-1-b-1"}); err == nil {
+		t.Fatal("Run of a SIGTERMed CLI reported success")
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Fatalf("Run took %s after cancellation", d)
+	}
+	got := calls(t, logFile)
+	if len(got) != 2 || got[1] != "rm -f -- maker-1-b-1" {
+		t.Fatalf("docker calls = %q, want run then rm -f", got)
 	}
 }
