@@ -1,6 +1,10 @@
 // Package witness attests commits: it runs the constitution's required checks
-// on a clean checkout it owns and signs the result. Agents never touch the
-// checkout, the key, or the cache.
+// on a clean checkout it owns and signs the result.
+//
+// Agents cannot touch the checkout, the key, or the cache only when the agent
+// runs sandboxed apart from the witness (the spec's deployment precondition).
+// agentsh v1 runs both as the same host user (trust level none), so a malicious
+// agent can read the key and alter witness state.
 package witness
 
 import (

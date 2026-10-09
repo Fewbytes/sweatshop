@@ -30,6 +30,9 @@ Embedded issue tracking with Dolt backend, providing branch-safe, cross-agent ta
 
 ### 3. `line` — Assembly Line Primitives
 Witness attestations (DSSE/in-toto, Ed25519), the constitution (line rules), and the merge guard that fast-forwards the guarded branch only for trusted, passing attestations. agentsh embeds the witness; `sweatshop` administers keys and the guard's repository hook.
+
+**Limitation:** the witness only protects its key and state from agents that run sandboxed apart from it. agentsh v1 runs the agent and the witness as the same host user (trust level `none`), so a malicious agent can read the witness key and alter witness state; higher trust levels are refused.
+
 *See [`design-docs/assembly-line-spec.md`](design-docs/assembly-line-spec.md)*.
 
 ### 4. Agent Skills & Extensions
