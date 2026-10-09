@@ -59,6 +59,16 @@ compare-and-swap; everything else runs concurrently.
 **P10. No human legacy by default.** No PRs, no separate CI, no review queues.
 Humans enter the line as owner (king) and as escalation target, by config.
 
+**P11. Cards block, agents don't.** Waiting — on a human answer, an external
+event, another agent's request — blocks the card, never the agent. The agent
+records what the card waits on, releases its worker, and pulls other work. When
+the wait resolves, the card is ready again; the original agent has affinity
+(it holds the context) but any agent of the role may resume it. Sleep and
+vacation are population and rate states, not waiting states. A question may
+carry a deadline and a default ("proceed with X unless told otherwise by T")
+where the constitution allows it. Wait time is muda; a line stalled on one
+human is an andon-class signal.
+
 ## Vocabulary
 
 | TPS term | Line element |
