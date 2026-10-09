@@ -12,8 +12,11 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/pelletier/go-toml/v2"
@@ -44,6 +47,21 @@ type TrustedKey struct {
 
 type Checks struct {
 	Required []Check `toml:"required"`
+	// Timeout bounds each check run (Go duration, default DefaultCheckTimeout).
+	// A run that hits it is a runner error: the witness signs nothing, so a
+	// hung or starved check can never become signed evidence of failure.
+	Timeout string `toml:"timeout,omitempty"`
+}
+
+const DefaultCheckTimeout = 30 * time.Minute
+
+// TimeoutDuration is the per-check timeout; empty means the default. Parse
+// rejects malformed values, so a bad one here can only come from code.
+func (c Checks) TimeoutDuration() time.Duration {
+	if d, err := time.ParseDuration(c.Timeout); err == nil && d > 0 {
+		return d
+	}
+	return DefaultCheckTimeout
 }
 
 type Check struct {
@@ -55,10 +73,50 @@ type Runner struct {
 	Kind   string `toml:"kind"`
 	Engine string `toml:"engine"`
 	Image  string `toml:"image"`
+	// Resource ceilings for container check runs (engine syntax: --memory,
+	// --pids-limit, --cpus). Empty or zero means the default in Limits.
+	Memory string `toml:"memory,omitempty"`
+	Pids   int    `toml:"pids,omitempty"`
+	CPUs   string `toml:"cpus,omitempty"`
 }
 
+// Limits are the resource ceilings a container check run gets.
+type Limits struct {
+	Memory string
+	Pids   int
+	CPUs   string
+}
+
+const (
+	DefaultMemory = "4g"
+	DefaultPids   = 1024
+	DefaultCPUs   = "2"
+)
+
+// Limits returns the runner's ceilings with defaults filled in.
+func (r Runner) Limits() Limits {
+	l := Limits{Memory: r.Memory, Pids: r.Pids, CPUs: r.CPUs}
+	if l.Memory == "" {
+		l.Memory = DefaultMemory
+	}
+	if l.Pids <= 0 {
+		l.Pids = DefaultPids
+	}
+	if l.CPUs == "" {
+		l.CPUs = DefaultCPUs
+	}
+	return l
+}
+
+var (
+	memorySize = regexp.MustCompile(`^[1-9][0-9]*[bkmgBKMG]?$`) // 0 would mean unlimited
+	cpuCount   = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?$`)
+)
+
 // ID is recorded in attestations so the guard can reject checks that ran in
-// a different environment than the constitution demands.
+// a different environment than the constitution demands. Resource limits are
+// deliberately not part of it: tuning them must not invalidate attestations
+// already made under the same image and engine.
 func (r Runner) ID() string {
 	if r.Kind == "container" {
 		return "container:" + r.Engine + ":" + r.Image
@@ -101,6 +159,10 @@ func Parse(data []byte) (Constitution, error) {
 	if err := c.validate(); err != nil {
 		return Constitution{}, err
 	}
+	if c.Runner.Kind == "container" {
+		l := c.Runner.Limits()
+		c.Runner.Memory, c.Runner.Pids, c.Runner.CPUs = l.Memory, l.Pids, l.CPUs
+	}
 	return c, nil
 }
 
@@ -113,6 +175,22 @@ func (c Constitution) validate() error {
 		}
 	default:
 		return fmt.Errorf("runner.kind %q: want local or container", c.Runner.Kind)
+	}
+	if c.Runner.Memory != "" && !memorySize.MatchString(c.Runner.Memory) {
+		return fmt.Errorf("runner.memory %q: want a size like 4g or 512m", c.Runner.Memory)
+	}
+	if c.Runner.Pids < 0 {
+		return fmt.Errorf("runner.pids %d: must be positive", c.Runner.Pids)
+	}
+	if c.Runner.CPUs != "" {
+		if n, err := strconv.ParseFloat(c.Runner.CPUs, 64); err != nil || n <= 0 || !cpuCount.MatchString(c.Runner.CPUs) {
+			return fmt.Errorf("runner.cpus %q: want a positive number like 2 or 0.5", c.Runner.CPUs)
+		}
+	}
+	if c.Checks.Timeout != "" {
+		if d, err := time.ParseDuration(c.Checks.Timeout); err != nil || d <= 0 {
+			return fmt.Errorf("checks.timeout %q: want a positive duration like 30m", c.Checks.Timeout)
+		}
 	}
 	switch c.Trust.Level {
 	case "none":

@@ -6,7 +6,9 @@ import (
 	"crypto/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/Fewbytes/sweatshop/line/constitution"
@@ -110,6 +112,33 @@ func TestAttestSignsPassingCommit(t *testing.T) {
 	}
 	if len(p.Checks) != 1 || p.Checks[0].ExitCode != 0 || p.Checks[0].Command != "sh check.sh" {
 		t.Fatalf("checks = %+v", p.Checks)
+	}
+}
+
+// blockingRunner waits for its context, like a check that never finishes,
+// then reports a failing result the way a careless runner might.
+type blockingRunner struct{}
+
+func (blockingRunner) Run(ctx context.Context, _, _ string) (RunResult, error) {
+	<-ctx.Done()
+	return RunResult{ExitCode: 137}, nil
+}
+
+func TestAttestCheckTimeoutIsAnErrorNotASignedFailure(t *testing.T) {
+	s := newSource(t)
+	w, _ := newWitness(t)
+	w.Constitution.Checks.Timeout = "100ms"
+	w.Runner = blockingRunner{}
+	start := time.Now()
+	result, err := w.Attest(s.ctx, s.repo.Dir, "HEAD")
+	if err == nil || result.Envelope != nil {
+		t.Fatalf("timed-out check produced %+v, %v; want an error and no signature", result, err)
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("error = %v", err)
+	}
+	if time.Since(start) > 10*time.Second {
+		t.Fatalf("timeout not applied: took %s", time.Since(start))
 	}
 }
 

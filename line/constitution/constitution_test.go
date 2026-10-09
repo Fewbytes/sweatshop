@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Fewbytes/sweatshop/line/attest"
 )
@@ -140,6 +141,74 @@ func TestContainerRunnerDefaultsEngineAndID(t *testing.T) {
 	}
 	if got := c.Runner.ID(); got != "container:docker:ghcr.io/x/ci@sha256:abc" {
 		t.Fatalf("Runner.ID() = %q", got)
+	}
+}
+
+func containerDoc(encoded, extraRunner string) string {
+	doc := strings.Replace(valid(encoded), `kind = "local"`, "kind = \"container\"\nimage = \"ci:1\""+extraRunner, 1)
+	return strings.Replace(doc, `level = "none"`, `level = "attest"`, 1)
+}
+
+func TestRunnerLimitsAndCheckTimeoutDefault(t *testing.T) {
+	_, encoded := publicKey(t)
+	c, err := Parse([]byte(containerDoc(encoded, "")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Runner.Memory != "4g" || c.Runner.Pids != 1024 || c.Runner.CPUs != "2" {
+		t.Fatalf("runner limits = %+v", c.Runner)
+	}
+	if got := c.Checks.TimeoutDuration(); got != 30*time.Minute {
+		t.Fatalf("check timeout = %s", got)
+	}
+	// A zero-value constitution (built in code) gets the same defaults.
+	if got := (Checks{}).TimeoutDuration(); got != 30*time.Minute {
+		t.Fatalf("zero check timeout = %s", got)
+	}
+	if l := (Runner{}).Limits(); l.Memory != "4g" || l.Pids != 1024 || l.CPUs != "2" {
+		t.Fatalf("zero runner limits = %+v", l)
+	}
+}
+
+func TestRunnerLimitsConfigurableAndOutsideID(t *testing.T) {
+	_, encoded := publicKey(t)
+	doc := containerDoc(encoded, "\nmemory = \"512m\"\npids = 64\ncpus = \"0.5\"")
+	doc = strings.Replace(doc, "[[checks.required]]", "[checks]\ntimeout = \"90s\"\n\n[[checks.required]]", 1)
+	c, err := Parse([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Runner.Memory != "512m" || c.Runner.Pids != 64 || c.Runner.CPUs != "0.5" {
+		t.Fatalf("runner limits = %+v", c.Runner)
+	}
+	if got := c.Checks.TimeoutDuration(); got != 90*time.Second {
+		t.Fatalf("check timeout = %s", got)
+	}
+	// Limits are not part of the runner identity: existing attestations stay
+	// comparable when an operator tunes them.
+	if got := c.Runner.ID(); got != "container:docker:ci:1" {
+		t.Fatalf("Runner.ID() = %q", got)
+	}
+}
+
+func TestRunnerLimitsRejected(t *testing.T) {
+	_, encoded := publicKey(t)
+	cases := map[string]string{
+		"bad memory":       containerDoc(encoded, "\nmemory = \"lots\""),
+		"option in memory": containerDoc(encoded, "\nmemory = \"--privileged\""),
+		"unlimited memory": containerDoc(encoded, "\nmemory = \"0\""),
+		"negative pids":    containerDoc(encoded, "\npids = -1"),
+		"bad cpus":         containerDoc(encoded, "\ncpus = \"two\""),
+		"zero cpus":        containerDoc(encoded, "\ncpus = \"0\""),
+		"bad timeout":      strings.Replace(containerDoc(encoded, ""), "[[checks.required]]", "[checks]\ntimeout = \"soon\"\n\n[[checks.required]]", 1),
+		"zero timeout":     strings.Replace(containerDoc(encoded, ""), "[[checks.required]]", "[checks]\ntimeout = \"0s\"\n\n[[checks.required]]", 1),
+	}
+	for name, doc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Parse([]byte(doc)); err == nil {
+				t.Fatalf("accepted:\n%s", doc)
+			}
+		})
 	}
 }
 

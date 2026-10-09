@@ -11,7 +11,12 @@ import (
 	"path/filepath"
 	"regexp"
 	"sync"
+	"syscall"
+	"time"
 )
+
+// stopGrace is how long a cancelled check gets to stop before it is killed.
+const stopGrace = 30 * time.Second
 
 // maxEvidence bounds one check log: the tail of a long run is what explains a
 // failure, and the station serves these logs to agents.
@@ -35,9 +40,18 @@ func (r LogRunner) Run(ctx context.Context, dir, command string) (RunResult, err
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	cmd.Dir = dir
+	// On cancel or timeout ask the process (for a container check, the engine
+	// CLI, which stops its container) to stop rather than SIGKILLing it.
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = stopGrace
 	out := &tailBuffer{max: maxEvidence}
 	cmd.Stdout, cmd.Stderr = out, out
 	err := cmd.Run()
+	if ctx.Err() != nil {
+		// A cut-short run says nothing about the commit; it must never be
+		// reported (and signed) as a failing check.
+		return RunResult{}, fmt.Errorf("check run cut short: %w", context.Cause(ctx))
+	}
 	var exitErr *exec.ExitError
 	code := 0
 	switch {

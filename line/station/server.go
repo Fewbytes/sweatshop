@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/Fewbytes/sweatshop/line/constitution"
@@ -39,7 +40,17 @@ type Station struct {
 	// StateDir receives bundle uploads while they are attested; "" means the
 	// system temp directory.
 	StateDir string
+
+	// busy admits one check-running request (attest, merge, attest-line) at a
+	// time, so one agent cannot pile up uploads and check runs on the host.
+	busy atomic.Bool
 }
+
+// errBusy is returned while the station already has a check run in flight.
+var errBusy = fail(http.StatusConflict, "busy")
+
+// acquire claims the station's single check slot; release with st.busy.Store(false).
+func (st *Station) acquire() bool { return st.busy.CompareAndSwap(false, true) }
 
 type Server struct {
 	Stations    []*Station
@@ -176,11 +187,19 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 		if err := method(http.MethodPost); err != nil {
 			return "", err
 		}
+		if !st.acquire() {
+			return "", errBusy
+		}
+		defer st.busy.Store(false)
 		return s.bundle(w, r, st, path == "/v1/merge")
 	case path == "/v1/attest-line":
 		if err := method(http.MethodPost); err != nil {
 			return "", err
 		}
+		if !st.acquire() {
+			return "", errBusy
+		}
+		defer st.busy.Store(false)
 		return s.attestLine(w, r, st)
 	case path == "/v1/andon/pull" || path == "/v1/andon/clear":
 		if err := method(http.MethodPost); err != nil {

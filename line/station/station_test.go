@@ -19,6 +19,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/gitx"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/linedir"
+	"github.com/Fewbytes/sweatshop/line/witness"
 )
 
 // ok checks a git call: ok(t)(repo.Git(...)).
@@ -231,6 +232,63 @@ func TestMergeBrokenCommit(t *testing.T) {
 	}
 	if code, _ := r.raw("GET", "/v1/evidence/..%2f..%2ftoken", r.token("maker-1"), nil); code == http.StatusOK {
 		t.Fatal("served a path outside the evidence directory")
+	}
+}
+
+// gateRunner holds every check until release is closed.
+type gateRunner struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (g *gateRunner) Run(ctx context.Context, _, _ string) (witness.RunResult, error) {
+	g.started <- struct{}{}
+	select {
+	case <-g.release:
+		return witness.RunResult{}, nil
+	case <-ctx.Done():
+		return witness.RunResult{}, ctx.Err()
+	}
+}
+
+func TestOneCheckInFlightPerStation(t *testing.T) {
+	r := newRig(t)
+	master := r.master()
+	gate := &gateRunner{started: make(chan struct{}, 4), release: make(chan struct{})}
+	for _, st := range r.srv.Stations {
+		if st.Name == "maker-1" {
+			st.Witness.Runner = gate
+		}
+	}
+	makerTok := r.token("maker-1")
+	first := make(chan int, 1)
+	go func() {
+		code, _ := r.raw("POST", "/v1/attest-line?commit="+master, makerTok, nil)
+		first <- code
+	}()
+	<-gate.started
+
+	for _, route := range []string{"/v1/attest-line?commit=" + master, "/v1/attest?commit=" + master, "/v1/merge?commit=" + master} {
+		code, body := r.raw("POST", route, makerTok, nil)
+		var e struct{ Error string }
+		if code != http.StatusConflict || json.Unmarshal([]byte(body), &e) != nil || e.Error != "busy" {
+			t.Fatalf("%s while busy: %d %s", route, code, body)
+		}
+	}
+	// Other stations and read-only routes are unaffected.
+	if code, body := r.raw("POST", "/v1/attest-line?commit="+master, r.token("andon-1"), nil); code != http.StatusOK {
+		t.Fatalf("andon attest-line while maker busy: %d %s", code, body)
+	}
+	if code, body := r.raw("GET", "/v1/status", makerTok, nil); code != http.StatusOK {
+		t.Fatalf("status while busy: %d %s", code, body)
+	}
+
+	close(gate.release)
+	if code := <-first; code != http.StatusOK {
+		t.Fatalf("first attest-line = %d", code)
+	}
+	if code, body := r.raw("POST", "/v1/attest-line?commit="+master, makerTok, nil); code != http.StatusOK {
+		t.Fatalf("attest-line after release: %d %s", code, body)
 	}
 }
 

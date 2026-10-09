@@ -2,10 +2,13 @@ package witness
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Fewbytes/sweatshop/line/constitution"
 )
@@ -34,19 +37,85 @@ func TestExecRunnerReportsExitCode(t *testing.T) {
 	}
 }
 
+var checkName = regexp.MustCompile(`--name '(sweatshop-check-[0-9a-f]{16})' `)
+
 func TestContainerRunnerWrapsCommandThroughInner(t *testing.T) {
 	inner := &recordingRunner{}
+	var removed []string
 	runner := NewRunner(constitution.Runner{Kind: "container", Engine: "docker", Image: "ci:1"}, inner)
-	result, err := runner.Run(context.Background(), "/tmp/check out", "echo 'hi' && just ci")
+	cr := runner.(ContainerRunner)
+	cr.Remove = func(name string) { removed = append(removed, name) }
+	result, err := cr.Run(context.Background(), "/tmp/check out", "echo 'hi' && just ci")
 	if err != nil || result.EvidenceID != "inv_rec" {
 		t.Fatalf("result = %+v, %v", result, err)
 	}
-	want := `docker run --rm -v '/tmp/check out':/src -w /src -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/src 'ci:1' bash -c 'echo '\''hi'\'' && just ci'`
+	m := checkName.FindStringSubmatch(inner.command)
+	if m == nil {
+		t.Fatalf("no unique --name in %s", inner.command)
+	}
+	want := `docker run --rm --name '` + m[1] + `' --cap-drop=ALL --security-opt=no-new-privileges --memory '4g' --pids-limit 1024 --cpus '2' -v '/tmp/check out':/src -w /src -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/src 'ci:1' bash -c 'echo '\''hi'\'' && just ci'`
 	if inner.command != want {
 		t.Fatalf("wrapped command:\n got %s\nwant %s", inner.command, want)
 	}
 	if inner.dir != "/tmp/check out" {
 		t.Fatalf("inner dir = %q", inner.dir)
+	}
+	if len(removed) != 1 || removed[0] != m[1] {
+		t.Fatalf("removed = %v, want [%s]", removed, m[1])
+	}
+
+	// Names are unique per run so concurrent stations never collide.
+	if _, err := cr.Run(context.Background(), "/x", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if m2 := checkName.FindStringSubmatch(inner.command); m2 == nil || m2[1] == m[1] {
+		t.Fatalf("second run reused name: %s", inner.command)
+	}
+}
+
+func TestContainerRunnerUsesConstitutionLimits(t *testing.T) {
+	inner := &recordingRunner{}
+	runner := NewRunner(constitution.Runner{Kind: "container", Engine: "podman", Image: "ci:1", Memory: "512m", Pids: 64, CPUs: "0.5"}, inner)
+	cr := runner.(ContainerRunner)
+	cr.Remove = func(string) {}
+	if _, err := cr.Run(context.Background(), "/x", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(inner.command, "--memory '512m' --pids-limit 64 --cpus '0.5'") || !strings.HasPrefix(inner.command, "podman run ") {
+		t.Fatalf("limits not applied: %s", inner.command)
+	}
+}
+
+type failingRunner struct{ command string }
+
+func (f *failingRunner) Run(_ context.Context, _, command string) (RunResult, error) {
+	f.command = command
+	return RunResult{}, errors.New("cancelled")
+}
+
+func TestContainerRunnerRemovesContainerWhenRunFails(t *testing.T) {
+	inner := &failingRunner{}
+	var removed []string
+	cr := ContainerRunner{Inner: inner, Engine: "docker", Image: "ci:1", Remove: func(name string) { removed = append(removed, name) }}
+	if _, err := cr.Run(context.Background(), "/x", "sleep 1000"); err == nil {
+		t.Fatal("inner error swallowed")
+	}
+	m := checkName.FindStringSubmatch(inner.command)
+	if m == nil || len(removed) != 1 || removed[0] != m[1] {
+		t.Fatalf("removed = %v after failed run of %s", removed, inner.command)
+	}
+}
+
+func TestLogRunnerCancelIsAnErrorNotAResult(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	res, err := LogRunner{Dir: t.TempDir()}.Run(ctx, t.TempDir(), "sleep 30")
+	if err == nil {
+		t.Fatalf("cancelled run reported a result: %+v", res)
+	}
+	if time.Since(start) > 15*time.Second {
+		t.Fatalf("cancel took %s", time.Since(start))
 	}
 }
 

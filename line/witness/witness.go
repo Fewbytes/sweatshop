@@ -243,6 +243,8 @@ func (w *Witness) attest(ctx context.Context, fetch func(context.Context, gitx.R
 	return w.run(ctx, commit, tree, checkout)
 }
 
+var errCheckTimeout = errors.New("check timed out")
+
 // run executes the required checks in checkout and signs the outcome.
 func (w *Witness) run(ctx context.Context, commit, tree, checkout string) (AttestResult, error) {
 	predicate := attest.ChecksPredicate{
@@ -250,8 +252,21 @@ func (w *Witness) run(ctx context.Context, commit, tree, checkout string) (Attes
 		Constitution: w.ConstitutionDigest, Runner: w.Constitution.Runner.ID(),
 	}
 	passed := true
+	timeout := w.Constitution.Checks.TimeoutDuration()
 	for _, check := range w.Constitution.Checks.Required {
-		run, err := w.Runner.Run(ctx, checkout, check.Command)
+		checkCtx, cancel := context.WithTimeoutCause(ctx, timeout, errCheckTimeout)
+		run, err := w.Runner.Run(checkCtx, checkout, check.Command)
+		cut := checkCtx.Err() != nil
+		cancel()
+		// A check that timed out or was cancelled is a runner error, never a
+		// signed failure: otherwise starving a check would let an agent mint
+		// signed evidence that master fails (and pull the cord at will).
+		if cut && ctx.Err() == nil {
+			return AttestResult{}, fmt.Errorf("run check %s: timed out after %s", check.Name, timeout)
+		}
+		if cut {
+			return AttestResult{}, fmt.Errorf("run check %s: %w", check.Name, ctx.Err())
+		}
 		if err != nil {
 			return AttestResult{}, fmt.Errorf("run check %s: %w", check.Name, err)
 		}
