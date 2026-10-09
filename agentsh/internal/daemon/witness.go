@@ -33,6 +33,9 @@ func (s *Server) setupWitness() error {
 	if err != nil {
 		return fmt.Errorf("witness constitution: %w", err)
 	}
+	if rules.Trust.Level != "none" {
+		return fmt.Errorf("trust level %q is not supported by agentsh v1: the agent and witness share a host user; only \"none\" is honest", rules.Trust.Level)
+	}
 	if err := guard.InstallHooks(cfg.Remote); err != nil {
 		return fmt.Errorf("guard hooks: %w", err)
 	}
@@ -53,11 +56,16 @@ type executorRunner struct {
 }
 
 func (r executorRunner) Run(ctx context.Context, dir, command string) (witness.RunResult, error) {
-	// The session must be unique per checkout: session state carries the CWD,
-	// and request.CWD only seeds a new session, so a shared one would cd into
-	// a previous checkout and attest the wrong tree.
+	// The session must be unique per Run: session state carries the CWD (and
+	// exports), and request.CWD only seeds a new session, so a shared one would
+	// cd into a previous checkout and attest the wrong tree, or leak a `cd` or
+	// `export` from one check into the next.
+	var nonce [8]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return witness.RunResult{}, err
+	}
 	invocation, err := r.exec.Execute(ctx, executor.Request{
-		Command: command, Session: "witness-" + filepath.Base(dir), CWD: dir, Timeout: witnessCheckTimeout,
+		Command: command, Session: "witness-" + filepath.Base(dir) + "-" + hex.EncodeToString(nonce[:]), CWD: dir, Timeout: witnessCheckTimeout,
 	})
 	if err != nil {
 		return witness.RunResult{}, err

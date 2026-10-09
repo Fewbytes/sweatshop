@@ -202,6 +202,56 @@ func TestExecutorRunnerKeepsCheckoutsApart(t *testing.T) {
 	}
 }
 
+// Checks of the same checkout must not share shell state either.
+func TestExecutorRunnerIsolatesChecksInTheSameCheckout(t *testing.T) {
+	root := t.TempDir()
+	store, err := storage.Open(context.Background(), storage.Config{Path: filepath.Join(root, "history.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	runner := executorRunner{exec: executor.New(store, storage.BlobStore{Root: filepath.Join(root, "blobs")})}
+	dir := filepath.Join(root, "checkout")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{"export LEAK=1", `test -z "$LEAK"`} {
+		run, err := runner.Run(context.Background(), dir, command)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.ExitCode != 0 {
+			t.Fatalf("%q exited %d: state leaked between checks", command, run.ExitCode)
+		}
+	}
+}
+
+func TestSetupWitnessRefusesTrustAttest(t *testing.T) {
+	outside := t.TempDir()
+	keyFile := filepath.Join(outside, "witness.key")
+	pub, err := attest.GenerateKeyFile(keyFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	constitutionFile := filepath.Join(outside, "line.toml")
+	doc := fmt.Sprintf("[trust]\nlevel = \"attest\"\n\n[[trust.keys]]\nname = \"w\"\npublic_key = %q\n\n[runner]\nkind = \"container\"\nimage = \"x@sha256:abc\"\n\n[[checks.required]]\nname = \"check\"\ncommand = \"true\"\n", attest.EncodePublicKey(pub))
+	if err := os.WriteFile(constitutionFile, []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := workspace.Resolve(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := NewWithConfig(paths, config.Config{Witness: &config.Witness{
+		KeyFile: keyFile, Role: "maker", AgentID: "maker-1", Constitution: constitutionFile,
+		StateDir: filepath.Join(outside, "state"), Remote: filepath.Join(outside, "remote.git"), Ref: "refs/heads/master",
+	}})
+	err = server.Serve(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "not supported by agentsh v1") {
+		t.Fatalf("Serve err = %v, want unsupported trust level", err)
+	}
+}
+
 func TestLineOpsRequireAWitness(t *testing.T) {
 	_, client := startTestServer(t)
 	err := callLine(t, client, agentrpc.OpLineMerge, nil)
