@@ -335,7 +335,7 @@ outside the sandbox.
 
 | Data | Store |
 |---|---|
-| Agent state, hosting leases, track record, spend ledger, heijunka signal, andon events | One master database behind a storage interface. v1 backend: Turso (embedded file in dev; `sqld` or Turso Cloud when shared). Second backend: Postgres. |
+| Agent state, hosting leases, track record, spend ledger, heijunka signal, andon events | One master database behind a storage interface. v1 backend: Turso (embedded file in dev; `sqld` or Turso Cloud when shared). Expected to suffice long-term; Postgres only if Turso is outgrown. |
 | Invocation blobs, logs, reports, attestations, container remains | S3-compatible object store (S3, MinIO, R2), content-addressed. Local filesystem in dev. |
 | Cards, claims, escalations | beads |
 | Constitution, code | git |
