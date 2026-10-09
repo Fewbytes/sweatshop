@@ -58,6 +58,11 @@ type Config struct {
 	// Path is the file this came from, empty when no file was found.
 	Path string `json:"-"`
 
+	// WitnessPath is the file the witness section came from. It differs from
+	// Path when a workspace config without a witness section is backed by an
+	// operator config that has one.
+	WitnessPath string `json:"-"`
+
 	// Warnings are non-fatal problems worth surfacing to the operator.
 	Warnings []string `json:"-"`
 }
@@ -109,6 +114,22 @@ func Load(explicitPath, workspaceRoot string) (Config, error) {
 			}
 			return config, fmt.Errorf("read config %s: %w", path, err)
 		}
+		if config.Path != "" {
+			// A later candidate only contributes its witness section. Without
+			// this, a workspace config the agent wrote could shadow the
+			// operator's witness binding just by existing.
+			var outer struct {
+				Witness *Witness `json:"witness"`
+			}
+			if err := json.Unmarshal(data, &outer); err != nil {
+				return config, fmt.Errorf("parse config %s: %w", path, err)
+			}
+			if outer.Witness != nil {
+				config.Witness, config.WitnessPath = outer.Witness, path
+				break
+			}
+			continue
+		}
 		if err := json.Unmarshal(data, &config); err != nil {
 			return config, fmt.Errorf("parse config %s: %w", path, err)
 		}
@@ -116,7 +137,10 @@ func Load(explicitPath, workspaceRoot string) (Config, error) {
 		if warning := permissionWarning(path, config); warning != "" {
 			config.Warnings = append(config.Warnings, warning)
 		}
-		break
+		if config.Witness != nil {
+			config.WitnessPath = path
+			break
+		}
 	}
 
 	if err := config.resolveToken(); err != nil {
@@ -146,7 +170,7 @@ func (c *Config) validateWitness(workspaceRoot string) error {
 	}
 	for _, f := range fields {
 		if *f.value == "" {
-			return fmt.Errorf("config %s: witness.%s is required", c.Path, f.name)
+			return fmt.Errorf("config %s: witness.%s is required", c.WitnessPath, f.name)
 		}
 		if !f.path {
 			continue
@@ -160,13 +184,13 @@ func (c *Config) validateWitness(workspaceRoot string) error {
 		}
 	}
 	if !slices.Contains(constitution.Roles, w.Role) {
-		return fmt.Errorf("config %s: witness.role %q is not one of %v", c.Path, w.Role, constitution.Roles)
+		return fmt.Errorf("config %s: witness.role %q is not one of %v", c.WitnessPath, w.Role, constitution.Roles)
 	}
 	if w.Ref == "" {
 		w.Ref = "refs/heads/master"
 	}
 	if !strings.HasPrefix(w.Ref, "refs/") || slices.Contains(strings.Split(w.Ref, "/"), "..") {
-		return fmt.Errorf("config %s: witness.ref %q must start with refs/ and contain no .. component", c.Path, w.Ref)
+		return fmt.Errorf("config %s: witness.ref %q must start with refs/ and contain no .. component", c.WitnessPath, w.Ref)
 	}
 	if workspaceRoot == "" {
 		return nil
@@ -176,7 +200,7 @@ func (c *Config) validateWitness(workspaceRoot string) error {
 		return err
 	}
 	roots := []string{root, resolveExisting(root)}
-	configPath, err := filepath.Abs(c.Path)
+	configPath, err := filepath.Abs(c.WitnessPath)
 	if err != nil {
 		return err
 	}

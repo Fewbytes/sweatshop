@@ -67,6 +67,26 @@ func TestWitnessConfigInsideWorkspaceIsRejected(t *testing.T) {
 	}
 }
 
+// A workspace config without a witness section must not hide the operator's
+// witness binding: the agent can create that file.
+func TestWorkspaceConfigDoesNotShadowWitness(t *testing.T) {
+	f := newWitnessFixture(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	operator := writeWitnessFile(t, filepath.Join(home, ".config", "agentsh", "config.json"), f.witnessJSON(nil))
+	workspace := writeWitnessFile(t, filepath.Join(f.workspace, ".agentsh", "config.json"), `{"turso": {}}`)
+	cfg, err := Load("", f.workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Witness == nil || cfg.Witness.Role != "maker" {
+		t.Fatalf("witness = %+v; the workspace config shadowed it", cfg.Witness)
+	}
+	if cfg.Path != workspace || cfg.WitnessPath != operator {
+		t.Fatalf("Path = %s, WitnessPath = %s", cfg.Path, cfg.WitnessPath)
+	}
+}
+
 func TestWitnessPathsInsideWorkspaceAreRejected(t *testing.T) {
 	for _, field := range []string{"key_file", "constitution", "state_dir", "remote"} {
 		t.Run(field, func(t *testing.T) {
