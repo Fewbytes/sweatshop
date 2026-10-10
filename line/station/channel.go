@@ -300,7 +300,7 @@ func (c *Channel) Poll(ctx context.Context) error {
 		if n := len(msgs); n > 0 {
 			return c.saveLast(msgs[n-1].ID)
 		}
-		return nil
+		return c.saveLast(nowSnowflake())
 	}
 	for _, m := range msgs {
 		if !snowflakeLess(c.last, m.ID) {
@@ -323,6 +323,12 @@ func (c *Channel) Poll(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// nowSnowflake is a synthetic Discord ID for the current time, used as the
+// baseline when the channel is empty so later messages are delivered.
+func nowSnowflake() string {
+	return strconv.FormatInt((time.Now().UnixMilli()-1420070400000)<<22, 10)
 }
 
 func (c *Channel) saveLast(id string) error {

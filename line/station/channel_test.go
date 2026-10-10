@@ -301,3 +301,19 @@ func TestOpenChannel(t *testing.T) {
 		t.Fatalf("%+v %v", ch, err)
 	}
 }
+
+func TestChannelEmptyStartDeliversFirstMessage(t *testing.T) {
+	ch, fd := newChan(t, nil)
+	ctx := context.Background()
+	if err := ch.Poll(ctx); err != nil { // empty channel: records a synthetic baseline
+		t.Fatal(err)
+	}
+	fd.add(nowSnowflake()+"0", "2", "first ever")
+	if err := ch.Poll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ch.Since(ctx, "", 0)
+	if err != nil || len(got) != 1 || got[0].Text != "first ever" {
+		t.Fatalf("inbox %v %v", got, err)
+	}
+}
