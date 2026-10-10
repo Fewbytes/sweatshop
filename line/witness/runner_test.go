@@ -53,9 +53,12 @@ func TestContainerRunnerWrapsCommandThroughInner(t *testing.T) {
 	if m == nil {
 		t.Fatalf("no unique --name in %s", inner.command)
 	}
-	want := `docker run --rm --name '` + m[1] + `' --cap-drop=ALL --security-opt=no-new-privileges --memory '4g' --pids-limit 1024 --cpus '2' -v '/tmp/check out':/src -w /src -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/src 'ci:1' bash -c 'echo '\''hi'\'' && just ci'`
+	want := `docker run --name '` + m[1] + `' --cap-drop=ALL --security-opt=no-new-privileges --memory '4g' --pids-limit 1024 --cpus '2' -v '/tmp/check out':/src -w /src -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/src 'ci:1' bash -c 'echo '\''hi'\'' && just ci'`
 	if inner.command != want {
 		t.Fatalf("wrapped command:\n got %s\nwant %s", inner.command, want)
+	}
+	if strings.Contains(inner.command, "--rm") {
+		t.Fatalf("wrapped command has --rm, which deletes the container before OOMKilled is inspected: %s", inner.command)
 	}
 	if inner.dir != "/tmp/check out" {
 		t.Fatalf("inner dir = %q", inner.dir)

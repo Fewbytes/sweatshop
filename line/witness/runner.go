@@ -142,7 +142,9 @@ func (c ContainerRunner) Run(ctx context.Context, dir, command string) (RunResul
 	}
 	name := "sweatshop-check-" + hex.EncodeToString(raw)
 	l := constitution.Runner{Memory: c.Limits.Memory, Pids: c.Limits.Pids, CPUs: c.Limits.CPUs}.Limits()
-	wrapped := fmt.Sprintf("%s run --rm --name %s --cap-drop=ALL --security-opt=no-new-privileges --memory %s --pids-limit %d --cpus %s -v %s:/src -w /src -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/src %s bash -c %s",
+	// No --rm: the container must outlive the run so classify can inspect
+	// OOMKilled; c.remove force-removes it afterwards.
+	wrapped := fmt.Sprintf("%s run --name %s --cap-drop=ALL --security-opt=no-new-privileges --memory %s --pids-limit %d --cpus %s -v %s:/src -w /src -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/src %s bash -c %s",
 		c.Engine, shellQuote(name), shellQuote(l.Memory), l.Pids, shellQuote(l.CPUs),
 		shellQuote(dir), shellQuote(c.Image), shellQuote(command))
 	res, err := c.Inner.Run(ctx, dir, wrapped)
