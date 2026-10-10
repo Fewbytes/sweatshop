@@ -48,6 +48,8 @@ const usage = `usage:
   sweatshop line evidence ID            print a check log
   sweatshop line cards list [--status S] [--label L] [--parent ID] | show ID | create --title T --type TYPE --priority N [--parent ID] [--acceptance A] (description on stdin) | comment ID (text on stdin) | offer ID
                                         read and (viceroy only) write cards; output is JSON
+  sweatshop line channel inbox [--after ID] [--wait 30s] | post (text on stdin)
+                                        read the king's channel / post to it (viceroy only)
   sweatshop line andon --beads DIR [--interval 30s]
                                         watch master; pull/clear the andon cord (andon station token)
   sweatshop line maker --dir D --station NAME --beads DIR [--once] [--engine E] [--url URL] [--timeout 2h] [--max-attempts 3] [--memory 4g] [--pids 1024] [--cpus 2]
@@ -85,6 +87,8 @@ func run(args []string, stdout io.Writer) error {
 		return lineStatus(stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "cards":
 		return lineCards(args[2:], os.Stdin, stdout)
+	case len(args) >= 2 && args[0] == "line" && args[1] == "channel":
+		return lineChannel(args[2:], os.Stdin, stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "andon":
 		return lineAndon(args[2:])
 	case len(args) >= 2 && args[0] == "line" && args[1] == "maker":
@@ -208,6 +212,16 @@ func lineServe(args []string, stdout io.Writer) error {
 	}
 	if *beads != "" {
 		srv.Cards = station.BeadsCards{Dir: *beads}
+	}
+	ch, err := station.OpenChannel(l.Dir, srv.Guard.Constitution, srv.Cards)
+	if err != nil {
+		return err
+	}
+	srv.Channel = ch
+	if ch != nil {
+		pollCtx, stopPoll := context.WithCancel(context.Background())
+		defer stopPoll()
+		go ch.Run(pollCtx)
 	}
 	fmt.Fprintf(stdout, "station api for %s on %s\n", l.Dir, *addr)
 	// No write timeout: attest and merge run the line's checks synchronously.
@@ -471,6 +485,88 @@ func lineCards(args []string, stdin io.Reader, stdout io.Writer) error {
 	case "offer":
 		out, err = c.CardOffer(ctx, fs.Arg(0))
 	}
+	if err != nil {
+		return err
+	}
+	_, err = stdout.Write(bytes.TrimRight(out, "\n"))
+	if err == nil {
+		_, err = io.WriteString(stdout, "\n")
+	}
+	return err
+}
+
+// chunkText splits text into pieces of at most max characters, breaking on
+// line boundaries (a single longer line is split mid-line).
+func chunkText(text string, max int) []string {
+	var out []string
+	var cur []rune
+	flush := func() {
+		if s := strings.TrimRight(string(cur), "\n"); strings.TrimSpace(s) != "" {
+			out = append(out, s)
+		}
+		cur = cur[:0]
+	}
+	for _, line := range strings.SplitAfter(text, "\n") {
+		l := []rune(line)
+		if len(cur)+len(l) > max {
+			flush()
+		}
+		for len(l) > max {
+			cur = append(cur, l[:max]...)
+			flush()
+			l = l[max:]
+		}
+		cur = append(cur, l...)
+	}
+	flush()
+	return out
+}
+
+// lineChannel implements `line channel`; post reads its text from stdin.
+func lineChannel(args []string, stdin io.Reader, stdout io.Writer) error {
+	if len(args) == 0 {
+		return errors.New(usage)
+	}
+	cmd, args := args[0], args[1:]
+	fs := flag.NewFlagSet("line channel "+cmd, flag.ContinueOnError)
+	var after string
+	var wait time.Duration
+	switch cmd {
+	case "inbox":
+		fs.StringVar(&after, "after", "", "only messages after this message ID")
+		fs.DurationVar(&wait, "wait", 0, "long-poll up to this long (at most 60s)")
+	case "post":
+	default:
+		return errors.New(usage)
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return errors.New(usage)
+	}
+	c, err := lineClient()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	if cmd == "post" {
+		text, err := io.ReadAll(io.LimitReader(stdin, 1<<20))
+		if err != nil {
+			return err
+		}
+		parts := chunkText(string(text), 1900)
+		if len(parts) == 0 {
+			return errors.New("line channel post: no text on stdin")
+		}
+		for _, p := range parts {
+			if err := c.ChannelPost(ctx, p); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	out, err := c.ChannelInbox(ctx, after, wait)
 	if err != nil {
 		return err
 	}

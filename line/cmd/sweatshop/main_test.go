@@ -329,3 +329,53 @@ func TestLineCards(t *testing.T) {
 		t.Fatalf("run dispatch: %v", err)
 	}
 }
+
+func TestChunkText(t *testing.T) {
+	long := strings.Repeat("x", 25)
+	got := chunkText("aaaa\nbbbb\ncccc\n"+long+"\n", 10)
+	want := []string{"aaaa\nbbbb", "cccc", long[:10], long[10:20], long[20:]}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("got %q want %q", got, want)
+	}
+	if len(chunkText("  \n\n", 10)) != 0 {
+		t.Fatal("blank text produced chunks")
+	}
+}
+
+func TestLineChannel(t *testing.T) {
+	var got []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		got = append(got, r.Method+" "+r.URL.RequestURI()+" "+string(body))
+		_, _ = w.Write([]byte(`{"messages":[]}`))
+	}))
+	defer ts.Close()
+	t.Setenv("SWEATSHOP_LINE_URL", ts.URL)
+	t.Setenv("SWEATSHOP_LINE_TOKEN", "tok")
+	var out bytes.Buffer
+	if err := lineChannel([]string{"inbox", "--after", "7", "--wait", "30s"}, strings.NewReader(""), &out); err != nil {
+		t.Fatal(err)
+	}
+	if got[0] != "GET /v1/channel/inbox?after=7&wait=30s " || strings.TrimSpace(out.String()) != `{"messages":[]}` {
+		t.Fatalf("%q %q", got, out.String())
+	}
+	got = nil
+	text := strings.Repeat("l", 1000) + "\n" + strings.Repeat("m", 1000) + "\n"
+	if err := lineChannel([]string{"post"}, strings.NewReader(text), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || !strings.HasPrefix(got[0], "POST /v1/channel/post ") {
+		t.Fatalf("posts %q", got)
+	}
+	for _, bad := range [][]string{{}, {"nope"}, {"inbox", "x"}} {
+		if err := lineChannel(bad, strings.NewReader(""), &out); err == nil {
+			t.Fatalf("%v accepted", bad)
+		}
+	}
+	if err := lineChannel([]string{"post"}, strings.NewReader("\n"), &out); err == nil {
+		t.Fatal("empty post accepted")
+	}
+	if err := run([]string{"line", "channel", "inbox"}, &out); err != nil {
+		t.Fatalf("run dispatch: %v", err)
+	}
+}

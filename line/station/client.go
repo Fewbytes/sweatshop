@@ -220,3 +220,22 @@ func (c Client) CardComment(ctx context.Context, id, text string) ([]byte, error
 func (c Client) CardOffer(ctx context.Context, id string) ([]byte, error) {
 	return c.do(ctx, http.MethodPost, "/v1/cards/"+url.PathEscape(id)+"/offer", nil, nil, nil)
 }
+
+// ChannelInbox returns the channel messages after the given ID as JSON,
+// waiting up to wait for one (viceroy only).
+func (c Client) ChannelInbox(ctx context.Context, after string, wait time.Duration) ([]byte, error) {
+	q := url.Values{}
+	if after != "" {
+		q.Set("after", after)
+	}
+	if wait > 0 {
+		q.Set("wait", wait.String())
+	}
+	return c.do(ctx, http.MethodGet, "/v1/channel/inbox", q, nil, nil)
+}
+
+// ChannelPost posts one message of at most 2000 characters (viceroy only).
+func (c Client) ChannelPost(ctx context.Context, text string) error {
+	_, err := c.postJSON(ctx, "/v1/channel/post", map[string]string{"text": text})
+	return err
+}
