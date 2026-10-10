@@ -36,17 +36,62 @@ func (c Client) http() *http.Client {
 	return &http.Client{Timeout: 3 * time.Hour}
 }
 
-// do sends a request and decodes a 2xx JSON body into out (or returns the
-// raw body when out is nil). Non-2xx responses become errors carrying the
-// server's message.
+// Busy-retry policy: the line runs one check at a time and answers 409 busy
+// while another is in flight.
+var (
+	busyInitial = 5 * time.Second
+	busyMax     = 60 * time.Second
+	busyGiveUp  = 30 * time.Minute
+)
+
+// do sends a request, retrying 409 busy with capped backoff, and returns the
+// result of the last attempt.
 func (c Client) do(ctx context.Context, method, path string, query url.Values, body io.Reader, out any) ([]byte, error) {
+	deadline := time.Now().Add(busyGiveUp)
+	wait := busyInitial
+	for {
+		data, busy, err := c.doOnce(ctx, method, path, query, body, out)
+		if !busy {
+			return data, err
+		}
+		if time.Now().Add(wait).After(deadline) {
+			return nil, fmt.Errorf("%w (gave up waiting after %s)", err, busyGiveUp)
+		}
+		seeker, ok := body.(io.Seeker)
+		if body != nil && !ok {
+			return nil, err
+		}
+		if ok {
+			if _, serr := seeker.Seek(0, io.SeekStart); serr != nil {
+				return nil, err
+			}
+		}
+		fmt.Fprintf(os.Stderr, "station %s %s: line busy, retrying in %s\n", method, path, wait)
+		t := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return nil, ctx.Err()
+		case <-t.C:
+		}
+		wait = min(wait*2, busyMax)
+	}
+}
+
+// doOnce is one attempt; busy reports a 409 {"error":"busy"} response. It
+// decodes a 2xx JSON body into out (or returns the raw body when out is nil). Non-2xx responses become errors carrying the
+// server's message.
+func (c Client) doOnce(ctx context.Context, method, path string, query url.Values, body io.Reader, out any) (_ []byte, busy bool, _ error) {
 	u := strings.TrimRight(c.URL, "/") + path
 	if len(query) > 0 {
 		u += "?" + query.Encode()
 	}
+	if f, ok := body.(*os.File); ok {
+		body = io.NopCloser(f) // the transport must not close a body we may resend
+	}
 	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	if c.Gen != "" {
@@ -54,28 +99,28 @@ func (c Client) do(ctx context.Context, method, path string, query url.Values, b
 	}
 	resp, err := c.http().Do(req)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		var e struct {
 			Error string `json:"error"`
 		}
 		if json.Unmarshal(data, &e) == nil && e.Error != "" {
-			return nil, fmt.Errorf("station %s %s: %s: %s", method, path, resp.Status, e.Error)
+			return nil, resp.StatusCode == http.StatusConflict && e.Error == "busy", fmt.Errorf("station %s %s: %s: %s", method, path, resp.Status, e.Error)
 		}
-		return nil, fmt.Errorf("station %s %s: %s", method, path, resp.Status)
+		return nil, false, fmt.Errorf("station %s %s: %s", method, path, resp.Status)
 	}
 	if out != nil {
 		if err := json.Unmarshal(data, out); err != nil {
-			return nil, fmt.Errorf("station %s %s: decode response: %w", method, path, err)
+			return nil, false, fmt.Errorf("station %s %s: decode response: %w", method, path, err)
 		}
 	}
-	return data, nil
+	return data, false, nil
 }
 
 // bundle resolves rev in repoDir and writes a bundle carrying exactly one ref
