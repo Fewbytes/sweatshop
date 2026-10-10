@@ -246,3 +246,83 @@ func TestAllowedRoles(t *testing.T) {
 		t.Fatal("unguarded path reported as guarded")
 	}
 }
+
+func TestGovernance(t *testing.T) {
+	_, key := publicKey(t)
+	cases := []struct {
+		name, extra, wantErr string
+	}{
+		{"absent", "", ""},
+		{"full", `
+[sovereign]
+name = "k"
+discord = "123"
+[channel]
+kind = "discord"
+channel = "456"
+[viceroy]
+succession = true
+[[viceroy.delegations]]
+offer = "line"
+types = ["bug"]
+[[viceroy.delegations]]
+offer = "line"
+parent = "sweatshop-0mw.2"
+`, ""},
+		{"bad discord", "[sovereign]\nname=\"k\"\ndiscord=\"abc\"\n", "sovereign.discord"},
+		{"bad kind", "[channel]\nkind=\"slack\"\nchannel=\"1\"\n", "channel.kind"},
+		{"bad channel", "[channel]\nkind=\"discord\"\nchannel=\"x\"\n", "channel.channel"},
+		{"bad offer", "[[viceroy.delegations]]\noffer=\"all\"\ntypes=[\"bug\"]\n", "offer"},
+		{"empty delegation", "[[viceroy.delegations]]\noffer=\"line\"\n", "types or parent"},
+		{"bad parent", "[[viceroy.delegations]]\noffer=\"line\"\nparent=\"A B\"\n", "parent"},
+		{"unknown field", "[viceroy]\nking = true\n", "strict mode"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse([]byte(valid(key) + tc.extra))
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("err = %v, want mention of %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestViceroyRole(t *testing.T) {
+	_, key := publicKey(t)
+	extra := "[[guards.paths]]\npattern = \"x/**\"\nroles = [\"viceroy\"]\n"
+	if _, err := Parse([]byte(valid(key) + extra)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDelegates(t *testing.T) {
+	c := Constitution{Viceroy: Viceroy{Delegations: []Delegation{
+		{Offer: "line", Types: []string{"bug"}},
+		{Offer: "line", Parent: "m-2"},
+	}}}
+	cases := []struct {
+		name      string
+		typ       string
+		ancestors []string
+		want      bool
+	}{
+		{"type match", "bug", nil, true},
+		{"parent match", "task", []string{"m-2.1", "m-2"}, true},
+		{"no match", "task", []string{"m-3"}, false},
+		{"empty", "", nil, false},
+	}
+	for _, tc := range cases {
+		if got := c.Delegates(tc.typ, tc.ancestors); got != tc.want {
+			t.Errorf("%s: got %v want %v", tc.name, got, tc.want)
+		}
+	}
+	if (Constitution{}).Delegates("bug", []string{"m-2"}) {
+		t.Error("empty constitution delegates")
+	}
+}

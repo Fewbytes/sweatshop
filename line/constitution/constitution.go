@@ -22,13 +22,92 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-var Roles = []string{"maker", "andon", "kaizen", "gemba"}
+var Roles = []string{"maker", "andon", "kaizen", "gemba", "viceroy"}
 
 type Constitution struct {
 	Trust  Trust  `toml:"trust"`
 	Checks Checks `toml:"checks"`
 	Runner Runner `toml:"runner"`
 	Guards Guards `toml:"guards"`
+	// Optional: absent means no king channel, no delegations, no succession.
+	Sovereign Sovereign `toml:"sovereign"`
+	Channel   Channel   `toml:"channel"`
+	Viceroy   Viceroy   `toml:"viceroy"`
+}
+
+// Sovereign is the king: the only identity whose channel messages carry
+// authority. Discord is a Discord user ID.
+type Sovereign struct {
+	Name    string `toml:"name"`
+	Discord string `toml:"discord"`
+}
+
+// Channel is where the king and the viceroy talk.
+type Channel struct {
+	Kind    string `toml:"kind"`
+	Channel string `toml:"channel"`
+}
+
+type Viceroy struct {
+	Succession  bool         `toml:"succession"`
+	Delegations []Delegation `toml:"delegations"`
+}
+
+// Delegation lets the viceroy offer matching cards without the king. A card
+// matches by issue type or by having Parent in its ancestor chain.
+type Delegation struct {
+	Offer  string   `toml:"offer"`
+	Types  []string `toml:"types"`
+	Parent string   `toml:"parent"`
+}
+
+// Delegates reports whether some delegation covers a card of cardType whose
+// ancestor chain is given.
+func (c Constitution) Delegates(cardType string, ancestors []string) bool {
+	for _, d := range c.Viceroy.Delegations {
+		if cardType != "" && slices.Contains(d.Types, cardType) {
+			return true
+		}
+		if d.Parent != "" && slices.Contains(ancestors, d.Parent) {
+			return true
+		}
+	}
+	return false
+}
+
+var (
+	digits = regexp.MustCompile(`^[0-9]+$`)
+	cardID = regexp.MustCompile(`^[a-z0-9-]+(\.[0-9]+)*$`)
+)
+
+func (c Constitution) validateGovernance() error {
+	s, ch := c.Sovereign, c.Channel
+	if s != (Sovereign{}) && !digits.MatchString(s.Discord) {
+		return fmt.Errorf("sovereign.discord %q: want a Discord user ID (digits only)", s.Discord)
+	}
+	if ch != (Channel{}) {
+		if ch.Kind != "discord" {
+			return fmt.Errorf("channel.kind %q: want discord", ch.Kind)
+		}
+		if !digits.MatchString(ch.Channel) {
+			return fmt.Errorf("channel.channel %q: want a Discord channel ID (digits only)", ch.Channel)
+		}
+	}
+	for i, d := range c.Viceroy.Delegations {
+		if d.Offer != "line" {
+			return fmt.Errorf("viceroy.delegations[%d].offer %q: want line", i, d.Offer)
+		}
+		if len(d.Types) == 0 && d.Parent == "" {
+			return fmt.Errorf("viceroy.delegations[%d]: needs types or parent", i)
+		}
+		if slices.Contains(d.Types, "") {
+			return fmt.Errorf("viceroy.delegations[%d].types: empty issue type", i)
+		}
+		if d.Parent != "" && !cardID.MatchString(d.Parent) {
+			return fmt.Errorf("viceroy.delegations[%d].parent %q: not a card id", i, d.Parent)
+		}
+	}
+	return nil
 }
 
 // Trust.Level labels how far check environments can be trusted. Signatures
@@ -241,7 +320,7 @@ func (c Constitution) validate() error {
 			}
 		}
 	}
-	return nil
+	return c.validateGovernance()
 }
 
 func (c Constitution) TrustedKeys() (map[string]ed25519.PublicKey, error) {
