@@ -67,6 +67,7 @@ COPY --from=builder /usr/local/go /usr/local/go
 ENV PATH=/usr/local/go/bin:/home/agent/go/bin:$PATH
 COPY --from=builder /out/sweatshop /usr/local/bin/sweatshop
 COPY --chmod=0755 station/entrypoint.sh /usr/local/bin/station-entrypoint
+COPY --chmod=0644 station/claude-settings.json /etc/sweatshop/claude-settings.json
 
 RUN useradd --create-home --uid 1000 --shell /bin/bash agent \
     && mkdir -p /work && chown agent:agent /work

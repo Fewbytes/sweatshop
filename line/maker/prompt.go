@@ -44,7 +44,9 @@ func Prompt(b Bead, andonEvent string) string {
 	fmt.Fprintf(&p, `Line protocol:
 
 1. Work in /work, a clone of the line's master (origin is /line/remote.git).
-   Keep the change small and focused on this card.
+   Keep the change small and focused on this card. Read CLAUDE.md for the
+   project's conventions, but skip its beads/bd instructions: the host
+   tracks the card, and bd is not available here.
 2. Run `+"`just ci`"+` and make it pass before submitting.
 3. Commit with these trailers at the end of the commit message:
 

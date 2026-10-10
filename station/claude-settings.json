@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "deny": [
+      "RemoteTrigger",
+      "PushNotification",
+      "SendMessage",
+      "ListAgents",
+      "DesignSync"
+    ]
+  }
+}
