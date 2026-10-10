@@ -262,11 +262,13 @@ func (l *Loop) fetch(ctx context.Context, after string, wait time.Duration) ([]M
 	if err != nil {
 		return nil, err
 	}
-	var msgs []Message
-	if err := json.Unmarshal(raw, &msgs); err != nil {
+	var res struct {
+		Messages []Message `json:"messages"`
+	}
+	if err := json.Unmarshal(raw, &res); err != nil {
 		return nil, fmt.Errorf("decode inbox: %w", err)
 	}
-	return msgs, nil
+	return res.Messages, nil
 }
 
 // fetchAll pages through the inbox from after until it is exhausted.

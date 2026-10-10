@@ -447,9 +447,9 @@ func TestViceroyRun(t *testing.T) {
 			_, _ = w.Write([]byte(`{"master":"abc123"}`))
 		case "/v1/channel/inbox":
 			if r.URL.Query().Get("after") == "" {
-				_, _ = w.Write([]byte(`[{"id":"42","author":"k","author_id":"1","principal":"king","text":"hi viceroy","ts":"t"}]`))
+				_, _ = w.Write([]byte(`{"messages":[{"id":"42","author":"k","author_id":"1","principal":"king","text":"hi viceroy","ts":"t"}]}`))
 			} else {
-				_, _ = w.Write([]byte(`[]`))
+				_, _ = w.Write([]byte(`{"messages":[]}`))
 			}
 		case "/v1/testament":
 			if r.Method == http.MethodPut {
@@ -546,7 +546,7 @@ func TestViceroyRunChecksInWithPredecessor(t *testing.T) {
 		case "/v1/status":
 			_, _ = w.Write([]byte(`{"master":"abc"}`))
 		case "/v1/channel/inbox":
-			_, _ = w.Write([]byte(`[]`))
+			_, _ = w.Write([]byte(`{"messages":[]}`))
 		case "/v1/testament":
 			w.WriteHeader(http.StatusNoContent)
 		default:
@@ -597,7 +597,7 @@ func TestViceroyRunNoCheckinWhenStartupFails(t *testing.T) {
 		case "/v1/status":
 			_, _ = w.Write([]byte(`{"master":"abc"}`))
 		case "/v1/channel/inbox":
-			_, _ = w.Write([]byte(`[]`))
+			_, _ = w.Write([]byte(`{"messages":[]}`))
 		case "/v1/testament":
 			w.WriteHeader(http.StatusNoContent)
 		default:

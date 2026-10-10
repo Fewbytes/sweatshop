@@ -34,7 +34,7 @@ func (f *fakeLine) ChannelInbox(ctx context.Context, after string, wait time.Dur
 	if len(out) == 0 && wait > 0 {
 		sleep(ctx, min(wait, 5*time.Millisecond))
 	}
-	return json.Marshal(out)
+	return json.Marshal(map[string]any{"messages": out})
 }
 func (f *fakeLine) Status(context.Context) (station.Status, error) {
 	f.mu.Lock()
@@ -261,3 +261,33 @@ func TestCheckinOnlyAfterStartupRunSucceeds(t *testing.T) {
 		}
 	}
 }
+
+// The station serves {"messages":[station.InboxMessage...]}; the loop must
+// decode exactly that.
+func TestFetchDecodesStationInboxShape(t *testing.T) {
+	want := station.InboxMessage{ID: "7", Author: "a", AuthorID: "9", Principal: "king", Text: "hi", TS: "t"}
+	raw, err := json.Marshal(map[string]any{"messages": []station.InboxMessage{want}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := &Loop{Line: rawInbox(raw)}
+	got, err := l.fetch(context.Background(), "", 0)
+	if err != nil || len(got) != 1 || got[0] != (Message(want)) {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	empty, err := (&Loop{Line: rawInbox(`{"messages":[]}`)}).fetch(context.Background(), "", 0)
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("empty: %+v, %v", empty, err)
+	}
+}
+
+type rawInbox []byte
+
+func (r rawInbox) ChannelInbox(context.Context, string, time.Duration) ([]byte, error) {
+	return r, nil
+}
+func (rawInbox) Status(context.Context) (station.Status, error) { return station.Status{}, nil }
+func (rawInbox) TestamentGet(context.Context) ([]byte, bool, error) {
+	return nil, false, nil
+}
+func (rawInbox) TestamentPut(context.Context, []byte) error { return nil }
