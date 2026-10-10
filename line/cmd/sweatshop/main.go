@@ -21,6 +21,7 @@ import (
 
 	"github.com/Fewbytes/sweatshop/line/andon"
 	"github.com/Fewbytes/sweatshop/line/attest"
+	"github.com/Fewbytes/sweatshop/line/gitx"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/linedir"
 	"github.com/Fewbytes/sweatshop/line/maker"
@@ -283,6 +284,13 @@ func lineSubmit(cmd string, args []string, stdout io.Writer) error {
 	var attestation witness.AttestResult
 	var outcome error
 	if cmd == "merge" {
+		// In a Maker station the runner names the card; refuse a commit
+		// whose trailers would not let the runner see that it landed.
+		if bead := os.Getenv("SWEATSHOP_BEAD"); bead != "" {
+			if err := maker.CheckTrailers(ctx, gitx.Repo{Dir: *repo}, *rev, bead, os.Getenv("SWEATSHOP_ANDON_EVENT")); err != nil {
+				return err
+			}
+		}
 		res, err := c.Merge(ctx, *repo, *rev)
 		if err != nil {
 			return err

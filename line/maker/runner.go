@@ -219,6 +219,9 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 	env["SWEATSHOP_BEAD"] = b.ID
 	env["SWEATSHOP_AGENT_ID"] = r.Station.AgentID
 	env["SWEATSHOP_PROMPT"] = Prompt(b, AndonEvent(b))
+	if ev := AndonEvent(b); ev != "" {
+		env["SWEATSHOP_ANDON_EVENT"] = ev
+	}
 	spec := ContainerSpec{
 		Image:  r.Line.Image,
 		Name:   unsafeNameChars.ReplaceAllString("sweatshop-"+r.Station.Name+"-"+b.ID, "_"),

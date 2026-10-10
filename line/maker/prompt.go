@@ -48,7 +48,8 @@ func Prompt(b Bead, andonEvent string) string {
    project's conventions, but skip its beads/bd instructions: the host
    tracks the card, and bd is not available here.
 2. Run `+"`just ci`"+` and make it pass before submitting.
-3. Commit with these trailers at the end of the commit message:
+3. Commit with these trailers as the last paragraph of the commit message,
+   with nothing after them (no Co-Authored-By paragraph):
 
 %s
 
