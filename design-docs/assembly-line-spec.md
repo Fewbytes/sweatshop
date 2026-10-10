@@ -79,9 +79,22 @@ and *to* the king, never *as* the king.
   other agents for debug information. Asking is a request (P1): the agent may
   decline, and the witness's evidence store is preferred over asking.
 
-**Authority.** By default the viceroy holds the powers every agent holds, plus
-creating, prioritizing and offering cards. It holds no sovereign power. A
-king's decision (a constitution change, an approval gate, an out-of-bounds
+**Authority.** The constitution decides how much the viceroy may decide. That
+covers offering cards to the line without the king, answering agents'
+questions, and letting other humans file cards or answer questions. The
+bootstrap constitution is a dictatorship: the viceroy drafts, and the king
+approves each card before it is offered and each answer before it reaches an
+agent. Other humans have no standing until the constitution names them as
+principals.
+
+The line encourages delegation. The viceroy keeps a record of its drafts and
+of the king's verdicts. When a class of decisions is approved unchanged often
+enough, it files a proposal card to delegate that class. The card carries the
+record as evidence and the bounds it proposes, such as a priority ceiling, a
+goal family, a spend cap, or an expiry. The king decides. Withdrawing a
+delegation is a constitution change like any other.
+
+The viceroy never holds sovereign power. A king's decision (a constitution change, an approval gate, an out-of-bounds
 proposal) is valid only when the king's own authenticated reply on the channel
 carries it, and the guard verifies that reply. The viceroy's word that "the
 king said yes" is never enough. The constitution may delegate bounded powers
@@ -250,8 +263,10 @@ Sections:
 - **governance** — sovereign (default: king = owner); meta-rules listing
   parameters agents may self-amend and their bounds (default: none, i.e.
   absolute monarchy). The sovereign may amend the constitution into a
-  constitutional monarchy or any other form. Delegations to the viceroy are
-  meta-rules here (default: none beyond card shaping and the human channel).
+  constitutional monarchy or any other form. Delegations to the viceroy and the
+  standing of other humans are meta-rules here (default: none; the viceroy
+  drafts, the king decides). The line encourages delegation through
+  evidence-backed proposals (see [Viceroy](#viceroy)).
 - **trust** — witness public keys; verification level.
 - **roles** — definitions, witness-held credentials, flame minimum, lifetime
   limits, death triggers, reproduction rules, immigrant fraction, variation
