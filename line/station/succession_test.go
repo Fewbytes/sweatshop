@@ -255,6 +255,9 @@ func TestBootstrap(t *testing.T) {
 		s.Env["SWEATSHOP_PREDECESSOR"] != "" || s.Memory != constitution.DefaultMemory || s.Pids != constitution.DefaultPids {
 		t.Fatalf("spec %+v", s)
 	}
+	if len(s.Mounts) != 1 || s.Mounts[0] != (Mount{Host: r.line.Remote, Container: "/line/remote.git", ReadOnly: true}) {
+		t.Fatalf("mounts %+v", s.Mounts)
+	}
 	cur, have, err := r.sup.current()
 	if err != nil || !have || cur.Gen != 1 || cur.Commit != r.c1 {
 		t.Fatalf("current %+v %v %v", cur, have, err)
@@ -531,4 +534,32 @@ func TestViceroyRoutesRoleAndMethod(t *testing.T) {
 	defer ts.Close()
 	_, err = Client{URL: ts.URL, Token: "vt"}.ViceroyCheckin(r.ctx)
 	wantErr(t, err, "503")
+}
+
+func TestCLIEngineStartMounts(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "argv")
+	bin := filepath.Join(dir, "fakedocker")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + out + "\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e := CLIEngine{Bin: bin}
+	spec := ContainerSpec{Image: "img", Name: "n", Mounts: []Mount{{Host: "/srv/remote.git", Container: "/line/remote.git", ReadOnly: true}}}
+	if err := e.Start(context.Background(), spec); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "-v\n/srv/remote.git:/line/remote.git:ro\n") {
+		t.Fatalf("argv %q", b)
+	}
+	for _, m := range []Mount{{Host: "rel", Container: "/c"}, {Host: "/a:b", Container: "/c"}, {Host: "/a", Container: "c"}} {
+		spec.Mounts = []Mount{m}
+		if err := e.Start(context.Background(), spec); err == nil {
+			t.Fatalf("mount %+v accepted", m)
+		}
+	}
 }

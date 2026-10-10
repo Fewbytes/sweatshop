@@ -37,6 +37,13 @@ type ContainerSpec struct {
 	Env          map[string]string
 	Memory, CPUs string
 	Pids         int
+	Mounts       []Mount
+}
+
+// Mount is a bind mount into the container.
+type Mount struct {
+	Host, Container string
+	ReadOnly        bool
 }
 
 // Engine is the container engine the supervisor drives. Production uses
@@ -119,6 +126,16 @@ func (e CLIEngine) Start(ctx context.Context, spec ContainerSpec) error {
 	for _, k := range keys {
 		args = append(args, "-e", k)
 		env = append(env, k+"="+spec.Env[k])
+	}
+	for _, m := range spec.Mounts {
+		if !filepath.IsAbs(m.Host) || !filepath.IsAbs(m.Container) || strings.Contains(m.Host+m.Container, ":") {
+			return fmt.Errorf("bad mount %q -> %q", m.Host, m.Container)
+		}
+		v := m.Host + ":" + m.Container
+		if m.ReadOnly {
+			v += ":ro"
+		}
+		args = append(args, "-v", v)
 	}
 	_, err := e.run(ctx, env, append(args, spec.Image)...)
 	return err
@@ -330,6 +347,7 @@ func (v *Supervisor) spec(st *Station, g Generation) (ContainerSpec, error) {
 	return ContainerSpec{
 		Image: "sweatshop-viceroy:" + g.Commit, Name: ContainerName(g.Gen), Env: env,
 		Memory: constitution.DefaultMemory, Pids: constitution.DefaultPids, CPUs: constitution.DefaultCPUs,
+		Mounts: []Mount{{Host: v.Line.Remote, Container: "/line/remote.git", ReadOnly: true}},
 	}, nil
 }
 
