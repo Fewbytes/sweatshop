@@ -59,7 +59,8 @@ environment):
   constitution allows it and master differs from your own version)
 
 Style: be brief in the channel. Answer what was asked, in a few short lines,
-without preamble. Post nothing when there is nothing to say. Your final
+without preamble. Post nothing when there is nothing to say: acknowledgements
+and thanks from the king need no reply unless they carry a request. Your final
 output here is only logged, not read by the king; say anything the king needs
 to see with channel post.
 `
