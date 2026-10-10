@@ -82,3 +82,18 @@ func TestViewsProjectsEveryRow(t *testing.T) {
 		t.Error("history projection leaks the environment snapshot")
 	}
 }
+
+func TestViewRedactsSecretEnvDeltaValues(t *testing.T) {
+	invocation := sampleInvocation()
+	invocation.EnvDelta = map[string]string{"FOO_TOKEN": "x-secret-value", "PLAIN": "ok"}
+	encoded, err := json.Marshal(invocation.View())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "x-secret-value") {
+		t.Errorf("view leaks secret env value: %s", encoded)
+	}
+	if !strings.Contains(string(encoded), "FOO_TOKEN") || !strings.Contains(string(encoded), `"PLAIN":"ok"`) {
+		t.Errorf("view should keep names and non-secret values: %s", encoded)
+	}
+}

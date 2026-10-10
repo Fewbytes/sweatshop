@@ -1,6 +1,9 @@
 package storage
 
-import "time"
+import (
+	"regexp"
+	"time"
+)
 
 type InvocationState string
 
@@ -75,9 +78,27 @@ func (i Invocation) View() View {
 		ID: i.ID, Session: i.Session, Command: i.Command, State: i.State, PID: i.PID,
 		ExitCode: i.ExitCode, Reason: i.Reason, Signal: i.Signal,
 		StartedAt: i.StartedAt, EndedAt: i.EndedAt, DurationMS: i.DurationMS,
-		CWD: i.CWD, CWDAfter: i.CWDAfter, EnvDelta: i.EnvDelta,
+		CWD: i.CWD, CWDAfter: i.CWDAfter, EnvDelta: redactEnvDelta(i.EnvDelta),
 		Stdout: i.Stdout, Stderr: i.Stderr, Summary: i.Summary,
 	}
+}
+
+var secretName = regexp.MustCompile(`(?i)(token|secret|key|pass|cred|auth)`)
+
+// redactEnvDelta keeps the names of changed variables but hides the values of
+// secret-looking ones, so an exported credential never reaches the transcript.
+func redactEnvDelta(delta map[string]string) map[string]string {
+	if delta == nil {
+		return nil
+	}
+	out := make(map[string]string, len(delta))
+	for name, value := range delta {
+		if secretName.MatchString(name) {
+			value = "[redacted]"
+		}
+		out[name] = value
+	}
+	return out
 }
 
 func Views(invocations []Invocation) []View {
