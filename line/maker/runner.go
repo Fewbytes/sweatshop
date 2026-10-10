@@ -382,15 +382,12 @@ func (b BeadsCLI) Close(ctx context.Context, id, reason string) error {
 }
 
 // Release reopens the card for another run (clearing the assignee) and
-// leaves the note as a comment so the next worker sees what happened.
+// records the note (bd unclaim --reason comments it) for the next worker.
 func (b BeadsCLI) Release(ctx context.Context, id, note string) error {
 	if err := checkID(id); err != nil {
 		return err
 	}
-	if _, err := b.bd(ctx, "unclaim", id, "--reason", note); err != nil {
-		return err
-	}
-	_, err := b.bd(ctx, "comments", "add", id, note)
+	_, err := b.bd(ctx, "unclaim", id, "--reason", note)
 	return err
 }
 

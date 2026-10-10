@@ -474,7 +474,6 @@ func TestBeadsCLI(t *testing.T) {
 		"update b-1 --claim --actor maker-1",
 		"close b-1 --reason landed via line --actor maker-1",
 		"unclaim b-1 --reason no luck --actor maker-1",
-		"comments add b-1 no luck --actor maker-1",
 		"label add b-1 " + GaveUpLabel + " --actor maker-1",
 	}
 	if got := calls(t, logFile); !reflect.DeepEqual(got, want) {
