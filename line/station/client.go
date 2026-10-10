@@ -182,3 +182,41 @@ func (c Client) Status(ctx context.Context) (Status, error) {
 func (c Client) Evidence(ctx context.Context, id string) ([]byte, error) {
 	return c.do(ctx, http.MethodGet, "/v1/evidence/"+url.PathEscape(id), nil, nil, nil)
 }
+
+// CardsList lists cards as the host's bd reports them (JSON).
+func (c Client) CardsList(ctx context.Context, f ListFilter) ([]byte, error) {
+	q := url.Values{}
+	for k, v := range map[string]string{"status": f.Status, "label": f.Label, "parent": f.Parent} {
+		if v != "" {
+			q.Set(k, v)
+		}
+	}
+	return c.do(ctx, http.MethodGet, "/v1/cards", q, nil, nil)
+}
+
+func (c Client) CardShow(ctx context.Context, id string) ([]byte, error) {
+	return c.do(ctx, http.MethodGet, "/v1/cards/"+url.PathEscape(id), nil, nil, nil)
+}
+
+func (c Client) postJSON(ctx context.Context, path string, v any) ([]byte, error) {
+	body, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	return c.do(ctx, http.MethodPost, path, nil, bytes.NewReader(body), nil)
+}
+
+// CardCreate creates a card (viceroy only).
+func (c Client) CardCreate(ctx context.Context, nc NewCard) ([]byte, error) {
+	return c.postJSON(ctx, "/v1/cards", nc)
+}
+
+// CardComment adds a comment (viceroy only).
+func (c Client) CardComment(ctx context.Context, id, text string) ([]byte, error) {
+	return c.postJSON(ctx, "/v1/cards/"+url.PathEscape(id)+"/comments", map[string]string{"text": text})
+}
+
+// CardOffer labels the card for the line or proposes it (viceroy only).
+func (c Client) CardOffer(ctx context.Context, id string) ([]byte, error) {
+	return c.do(ctx, http.MethodPost, "/v1/cards/"+url.PathEscape(id)+"/offer", nil, nil, nil)
+}

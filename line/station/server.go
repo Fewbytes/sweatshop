@@ -50,6 +50,7 @@ type Server struct {
 	Guard       guard.Guard
 	EvidenceDir func(st *Station) string // where LogRunner wrote evidence for that station
 	MaxBundle   int64                    // default 256 << 20
+	Cards       Cards                    // nil: the cards routes return 503
 
 	// busy admits one check-running request (attest, merge, attest-line) at a
 	// time across all stations, so several tokens cannot run checks in
@@ -212,6 +213,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 			return "", err
 		}
 		return s.status(w, r)
+	case path == "/v1/cards" || strings.HasPrefix(path, "/v1/cards/"):
+		return s.routeCards(w, r, st)
 	case strings.HasPrefix(path, "/v1/evidence/"):
 		if err := method(http.MethodGet); err != nil {
 			return "", err

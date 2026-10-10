@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -37,7 +38,7 @@ const usage = `usage:
                                         create a line directory seeded from S's master
   sweatshop line station add --dir D --name NAME --role ROLE
                                         add a station (key, token, trusted key) to the line in D; restart line serve
-  sweatshop line serve --dir D [--addr 127.0.0.1:PORT] [--unsafe-listen]
+  sweatshop line serve --dir D [--addr 127.0.0.1:PORT] [--unsafe-listen] [--beads DIR]
                                         serve the station API for the line in D
   sweatshop line attest [--rev HEAD] [--repo .]
                                         have this station's witness check rev
@@ -45,6 +46,8 @@ const usage = `usage:
                                         check rev and submit it to the merge guard
   sweatshop line status                 print the line's master and andon state
   sweatshop line evidence ID            print a check log
+  sweatshop line cards list [--status S] [--label L] [--parent ID] | show ID | create --title T --type TYPE --priority N [--parent ID] [--acceptance A] (description on stdin) | comment ID (text on stdin) | offer ID
+                                        read and (viceroy only) write cards; output is JSON
   sweatshop line andon --beads DIR [--interval 30s]
                                         watch master; pull/clear the andon cord (andon station token)
   sweatshop line maker --dir D --station NAME --beads DIR [--once] [--engine E] [--url URL] [--timeout 2h] [--max-attempts 3] [--memory 4g] [--pids 1024] [--cpus 2]
@@ -80,6 +83,8 @@ func run(args []string, stdout io.Writer) error {
 		return lineSubmit(args[1], args[2:], stdout)
 	case len(args) == 2 && args[0] == "line" && args[1] == "status":
 		return lineStatus(stdout)
+	case len(args) >= 2 && args[0] == "line" && args[1] == "cards":
+		return lineCards(args[2:], os.Stdin, stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "andon":
 		return lineAndon(args[2:])
 	case len(args) >= 2 && args[0] == "line" && args[1] == "maker":
@@ -179,6 +184,7 @@ func lineServe(args []string, stdout io.Writer) error {
 	dir := fs.String("dir", "", "line directory")
 	addr := fs.String("addr", "", "listen address (default 127.0.0.1:<port from line.toml>)")
 	unsafe := fs.Bool("unsafe-listen", false, "allow a non-loopback listen address")
+	beads := fs.String("beads", "", "beads workspace for the cards routes (default: routes return 503)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -199,6 +205,9 @@ func lineServe(args []string, stdout io.Writer) error {
 	srv, err := station.NewFromLine(l)
 	if err != nil {
 		return err
+	}
+	if *beads != "" {
+		srv.Cards = station.BeadsCards{Dir: *beads}
 	}
 	fmt.Fprintf(stdout, "station api for %s on %s\n", l.Dir, *addr)
 	// No write timeout: attest and merge run the line's checks synchronously.
@@ -399,4 +408,75 @@ func lineStatus(stdout io.Writer) error {
 			e.Commit, e.Check, e.ExitCode, e.EvidenceID, e.AgentID, e.Role, e.PulledAt.Format(time.RFC3339))
 	}
 	return nil
+}
+
+// lineCards implements `line cards`; stdin carries descriptions and comments.
+func lineCards(args []string, stdin io.Reader, stdout io.Writer) error {
+	if len(args) == 0 {
+		return errors.New(usage)
+	}
+	cmd, args := args[0], args[1:]
+	fs := flag.NewFlagSet("line cards "+cmd, flag.ContinueOnError)
+	var f station.ListFilter
+	var nc station.NewCard
+	switch cmd {
+	case "list":
+		fs.StringVar(&f.Status, "status", "", "filter by status")
+		fs.StringVar(&f.Label, "label", "", "filter by label")
+		fs.StringVar(&f.Parent, "parent", "", "filter by parent card")
+	case "create":
+		fs.StringVar(&nc.Title, "title", "", "card title")
+		fs.StringVar(&nc.Type, "type", "", "bug|feature|task|epic|chore")
+		fs.IntVar(&nc.Priority, "priority", 2, "priority 0..4")
+		fs.StringVar(&nc.Parent, "parent", "", "parent card")
+		fs.StringVar(&nc.Acceptance, "acceptance", "", "acceptance criteria")
+	case "show", "comment", "offer":
+	default:
+		return errors.New(usage)
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	wantArgs := 0
+	if cmd == "show" || cmd == "comment" || cmd == "offer" {
+		wantArgs = 1
+	}
+	if fs.NArg() != wantArgs {
+		return errors.New(usage)
+	}
+	c, err := lineClient()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	var out []byte
+	switch cmd {
+	case "list":
+		out, err = c.CardsList(ctx, f)
+	case "show":
+		out, err = c.CardShow(ctx, fs.Arg(0))
+	case "create":
+		desc, rerr := io.ReadAll(io.LimitReader(stdin, 1<<20))
+		if rerr != nil {
+			return rerr
+		}
+		nc.Description = strings.TrimRight(string(desc), "\n")
+		out, err = c.CardCreate(ctx, nc)
+	case "comment":
+		text, rerr := io.ReadAll(io.LimitReader(stdin, 1<<20))
+		if rerr != nil {
+			return rerr
+		}
+		out, err = c.CardComment(ctx, fs.Arg(0), strings.TrimRight(string(text), "\n"))
+	case "offer":
+		out, err = c.CardOffer(ctx, fs.Arg(0))
+	}
+	if err != nil {
+		return err
+	}
+	_, err = stdout.Write(bytes.TrimRight(out, "\n"))
+	if err == nil {
+		_, err = io.WriteString(stdout, "\n")
+	}
+	return err
 }

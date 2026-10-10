@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -280,5 +282,50 @@ func TestLineStationAdd(t *testing.T) {
 		if err := run(args, &bytes.Buffer{}); err == nil {
 			t.Errorf("run(%v) succeeded", args)
 		}
+	}
+}
+
+func TestLineCards(t *testing.T) {
+	var got []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		got = append(got, r.Method+" "+r.URL.RequestURI()+" "+string(body))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer ts.Close()
+	t.Setenv("SWEATSHOP_LINE_URL", ts.URL)
+	t.Setenv("SWEATSHOP_LINE_TOKEN", "tok")
+	cases := []struct {
+		args  []string
+		stdin string
+		want  string
+	}{
+		{[]string{"list", "--status", "open", "--label", "line", "--parent", "x-1"}, "", "GET /v1/cards?label=line&parent=x-1&status=open "},
+		{[]string{"show", "x-1.2"}, "", "GET /v1/cards/x-1.2 "},
+		{[]string{"create", "--title", "T", "--type", "task", "--priority", "1", "--parent", "x-1"}, "desc\n", `POST /v1/cards {"title":"T","description":"desc","type":"task","priority":1,"parent":"x-1"}`},
+		{[]string{"comment", "x-1"}, "hi\n", `POST /v1/cards/x-1/comments {"text":"hi"}`},
+		{[]string{"offer", "x-1"}, "", "POST /v1/cards/x-1/offer "},
+	}
+	for _, tc := range cases {
+		got = nil
+		var out bytes.Buffer
+		if err := lineCards(tc.args, strings.NewReader(tc.stdin), &out); err != nil {
+			t.Fatalf("%v: %v", tc.args, err)
+		}
+		if len(got) != 1 || got[0] != tc.want {
+			t.Fatalf("%v: request %q, want %q", tc.args, got, tc.want)
+		}
+		if strings.TrimSpace(out.String()) != `{"ok":true}` {
+			t.Fatalf("%v: output %q", tc.args, out.String())
+		}
+	}
+	for _, bad := range [][]string{{}, {"nope"}, {"show"}, {"offer", "a", "b"}} {
+		if err := lineCards(bad, strings.NewReader(""), &bytes.Buffer{}); err == nil {
+			t.Fatalf("%v accepted", bad)
+		}
+	}
+	if err := run([]string{"line", "cards", "show", "x-1"}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("run dispatch: %v", err)
 	}
 }
