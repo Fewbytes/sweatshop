@@ -50,6 +50,8 @@ const usage = `usage:
                                         read and (viceroy only) write cards; output is JSON
   sweatshop line channel inbox [--after ID] [--wait 30s] | post (text on stdin)
                                         read the king's channel / post to it (viceroy only)
+  sweatshop line testament get | put (notes on stdin)
+                                        read / replace the viceroy's testament, <= 64 KiB (viceroy only)
   sweatshop line andon --beads DIR [--interval 30s]
                                         watch master; pull/clear the andon cord (andon station token)
   sweatshop line maker --dir D --station NAME --beads DIR [--once] [--engine E] [--url URL] [--timeout 2h] [--max-attempts 3] [--memory 4g] [--pids 1024] [--cpus 2]
@@ -89,6 +91,8 @@ func run(args []string, stdout io.Writer) error {
 		return lineCards(args[2:], os.Stdin, stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "channel":
 		return lineChannel(args[2:], os.Stdin, stdout)
+	case len(args) >= 2 && args[0] == "line" && args[1] == "testament":
+		return lineTestament(args[2:], os.Stdin, stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "andon":
 		return lineAndon(args[2:])
 	case len(args) >= 2 && args[0] == "line" && args[1] == "maker":
@@ -575,4 +579,33 @@ func lineChannel(args []string, stdin io.Reader, stdout io.Writer) error {
 		_, err = io.WriteString(stdout, "\n")
 	}
 	return err
+}
+
+// lineTestament implements `line testament get|put`; put reads stdin.
+func lineTestament(args []string, stdin io.Reader, stdout io.Writer) error {
+	if len(args) != 1 || (args[0] != "get" && args[0] != "put") {
+		return errors.New(usage)
+	}
+	c, err := lineClient()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	if args[0] == "get" {
+		body, _, err := c.TestamentGet(ctx)
+		if err != nil {
+			return err
+		}
+		_, err = stdout.Write(body)
+		return err
+	}
+	const max = 64 << 10
+	body, err := io.ReadAll(io.LimitReader(stdin, max+1))
+	if err != nil {
+		return err
+	}
+	if len(body) > max {
+		return fmt.Errorf("line testament put: input exceeds %d bytes", max)
+	}
+	return c.TestamentPut(ctx, body)
 }

@@ -379,3 +379,46 @@ func TestLineChannel(t *testing.T) {
 		t.Fatalf("run dispatch: %v", err)
 	}
 }
+
+func TestLineTestament(t *testing.T) {
+	var stored []byte
+	have := false
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPut:
+			stored, _ = io.ReadAll(r.Body)
+			have = true
+			_, _ = w.Write([]byte(`{}`))
+		case http.MethodGet:
+			if !have {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			_, _ = w.Write(stored)
+		}
+	}))
+	defer ts.Close()
+	t.Setenv("SWEATSHOP_LINE_URL", ts.URL)
+	t.Setenv("SWEATSHOP_LINE_TOKEN", "tok")
+	var out bytes.Buffer
+	if err := lineTestament([]string{"get"}, strings.NewReader(""), &out); err != nil || out.Len() != 0 {
+		t.Fatalf("empty get: %q %v", out.String(), err)
+	}
+	if err := lineTestament([]string{"put"}, strings.NewReader("my notes\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := lineTestament([]string{"get"}, strings.NewReader(""), &out); err != nil || out.String() != "my notes\n" {
+		t.Fatalf("get: %q %v", out.String(), err)
+	}
+	if err := lineTestament([]string{"put"}, strings.NewReader(strings.Repeat("x", 64<<10+1)), &out); err == nil {
+		t.Fatal("oversized put accepted")
+	}
+	for _, bad := range [][]string{{}, {"nope"}, {"get", "x"}} {
+		if err := lineTestament(bad, strings.NewReader(""), &out); err == nil {
+			t.Fatalf("%v accepted", bad)
+		}
+	}
+	if err := run([]string{"line", "testament", "get"}, &out); err != nil {
+		t.Fatalf("run dispatch: %v", err)
+	}
+}

@@ -253,3 +253,33 @@ func (r Repo) DeleteRef(ctx context.Context, ref string) error {
 	_, err := r.Git(ctx, "update-ref", "-d", "--end-of-options", ref)
 	return err
 }
+
+// WriteTreeWithBlob stores a tree holding the single file name -> blob and
+// returns the tree's object ID.
+func (r Repo) WriteTreeWithBlob(ctx context.Context, name, blob string) (string, error) {
+	if !trailerKey.MatchString(name) {
+		return "", fmt.Errorf("invalid file name %q", name)
+	}
+	return r.gitStdin(ctx, []byte("100644 blob "+blob+"\t"+name+"\n"), "mktree")
+}
+
+// CommitTree creates a commit of tree with the given parent ("" for none) and
+// message, authored as who, and returns its object ID. It does not move any ref.
+func (r Repo) CommitTree(ctx context.Context, tree, parent, message, who string) (string, error) {
+	if err := rejectOptionInjection(tree); err != nil {
+		return "", err
+	}
+	if err := rejectOptionInjection(parent); err != nil {
+		return "", err
+	}
+	args := []string{"commit-tree", tree, "-m", message}
+	if parent != "" {
+		args = append(args, "-p", parent)
+	}
+	cmd := r.command(ctx, args)
+	email := who + "@line.local"
+	cmd.Env = append(cmd.Env,
+		"GIT_AUTHOR_NAME="+who, "GIT_AUTHOR_EMAIL="+email,
+		"GIT_COMMITTER_NAME="+who, "GIT_COMMITTER_EMAIL="+email)
+	return runGit(cmd, true, args)
+}

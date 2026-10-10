@@ -308,3 +308,40 @@ func TestOptionInjectionChangedPaths(t *testing.T) {
 		t.Fatal("ChangedPaths accepted option-like argument in second position")
 	}
 }
+
+func TestTreeAndCommitTree(t *testing.T) {
+	dir := t.TempDir()
+	r := Repo{Dir: dir}
+	ctx := context.Background()
+	if _, err := r.Git(ctx, "init", "--quiet", "--bare"); err != nil {
+		t.Fatal(err)
+	}
+	blob, err := r.WriteBlob(ctx, []byte("notes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := r.WriteTreeWithBlob(ctx, "testament", blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c1, err := r.CommitTree(ctx, tree, "", "one", "viceroy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c2, err := r.CommitTree(ctx, tree, c1, "two", "viceroy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ps, err := r.Parents(ctx, c2); err != nil || len(ps) != 1 || ps[0] != c1 {
+		t.Fatalf("parents %v %v", ps, err)
+	}
+	if got, err := r.ReadBlob(ctx, c2+":testament"); err != nil || string(got) != "notes" {
+		t.Fatalf("blob %q %v", got, err)
+	}
+	if _, err := r.WriteTreeWithBlob(ctx, "a/b", blob); err == nil {
+		t.Fatal("bad name accepted")
+	}
+	if _, err := r.CommitTree(ctx, "-x", "", "m", "v"); err == nil {
+		t.Fatal("option accepted")
+	}
+}

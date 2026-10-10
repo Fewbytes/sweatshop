@@ -216,6 +216,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 		return s.status(w, r)
 	case path == "/v1/cards" || strings.HasPrefix(path, "/v1/cards/"):
 		return s.routeCards(w, r, st)
+	case path == "/v1/testament":
+		return s.routeTestament(w, r, st)
 	case strings.HasPrefix(path, "/v1/channel/"):
 		return s.routeChannel(w, r, st)
 	case strings.HasPrefix(path, "/v1/evidence/"):

@@ -239,3 +239,41 @@ func (c Client) ChannelPost(ctx context.Context, text string) error {
 	_, err := c.postJSON(ctx, "/v1/channel/post", map[string]string{"text": text})
 	return err
 }
+
+// TestamentGet returns the viceroy's latest testament; ok is false when none
+// has been stored.
+func (c Client) TestamentGet(ctx context.Context) (body []byte, ok bool, err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(c.URL, "/")+"/v1/testament", nil)
+	if err != nil {
+		return nil, false, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	resp, err := c.http().Do(req)
+	if err != nil {
+		return nil, false, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, false, err
+	}
+	switch {
+	case resp.StatusCode == http.StatusNoContent:
+		return nil, false, nil
+	case resp.StatusCode < 200 || resp.StatusCode > 299:
+		var e struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(data, &e) == nil && e.Error != "" {
+			return nil, false, fmt.Errorf("station GET /v1/testament: %s: %s", resp.Status, e.Error)
+		}
+		return nil, false, fmt.Errorf("station GET /v1/testament: %s", resp.Status)
+	}
+	return data, true, nil
+}
+
+// TestamentPut stores a new testament version (viceroy only).
+func (c Client) TestamentPut(ctx context.Context, body []byte) error {
+	_, err := c.do(ctx, http.MethodPut, "/v1/testament", nil, bytes.NewReader(body), nil)
+	return err
+}
