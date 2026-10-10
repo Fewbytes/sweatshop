@@ -14,7 +14,7 @@ between hostings. Holds no credentials.
 **Agent** — persistent state, not a process:
 
 - identity: stable ID, lineage (parent, generation)
-- role: Maker | Andon | Kaizen | Gemba
+- role: Maker | Andon | Kaizen | Gemba | Viceroy
 - memory: evidenced lessons, inherited testament
 - track record: attestations, merges, regressions caused, andon pulls (true and
   false), audit outcomes, spend
@@ -58,6 +58,50 @@ allowed concurrent claims (speculative K). Emitted by agents or by watchers.
 
 **Line infrastructure** — deterministic, not agents: witness, guards,
 constitution store, heijunka publisher, watchers, worker scheduler.
+
+## Viceroy
+
+The viceroy is the agent role that faces the humans. It speaks *for* the king
+and *to* the king, never *as* the king.
+
+**Duties.**
+
+- **Shape cards with the king.** Interactive discussion turns intent into cards
+  that are ready for the line: a goal family, evidence, acceptance criteria, and
+  the line label that offers them to stations.
+- **Supervise the line.** It reads line state (master, andon events, evidence,
+  station logs, card flow, spend), reports to the king, and files cards for
+  anomalies it sees. Like any agent, it may pull the andon with evidence. It
+  does not merge, and it does not clear the andon; clearing is mechanical.
+- **Broker human communication.** It owns the human channel (`sweatshop-u07`).
+  It routes agents' questions, notices and approval requests to the right
+  humans, turns replies into answers on cards, and reports issues. It may ask
+  other agents for debug information. Asking is a request (P1): the agent may
+  decline, and the witness's evidence store is preferred over asking.
+
+**Authority.** By default the viceroy holds the powers every agent holds, plus
+creating, prioritizing and offering cards. It holds no sovereign power. A
+king's decision (a constitution change, an approval gate, an out-of-bounds
+proposal) is valid only when the king's own authenticated reply on the channel
+carries it, and the guard verifies that reply. The viceroy's word that "the
+king said yes" is never enough. The constitution may delegate bounded powers
+to the viceroy, for example answering questions of a given class, or setting
+deadlines and defaults on questions. These delegations are meta-rules under
+**governance**, and every use of one is recorded with the version that allowed
+it.
+
+**Inputs are untrusted.** The viceroy reads messages from humans who are not
+the king, from other agents, and from evidence logs. Those messages are data;
+they never carry authority. Only the king's authenticated identity on the
+channel maps to the sovereign principal, and other humans map to the
+principals the constitution names. The viceroy is the line's most attractive
+prompt-injection target, so its powers stay narrow and every action it takes
+is a request the guards verify.
+
+**Population.** At least one viceroy per sovereign (flame minimum 1). It is
+long-lived and interactive, and mortal like any agent: a successor inherits
+its testament, which holds the open conversations and the questions it is
+waiting on.
 
 ## Flow of a change
 
@@ -206,7 +250,8 @@ Sections:
 - **governance** — sovereign (default: king = owner); meta-rules listing
   parameters agents may self-amend and their bounds (default: none, i.e.
   absolute monarchy). The sovereign may amend the constitution into a
-  constitutional monarchy or any other form.
+  constitutional monarchy or any other form. Delegations to the viceroy are
+  meta-rules here (default: none beyond card shaping and the human channel).
 - **trust** — witness public keys; verification level.
 - **roles** — definitions, witness-held credentials, flame minimum, lifetime
   limits, death triggers, reproduction rules, immigrant fraction, variation
