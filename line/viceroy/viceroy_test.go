@@ -237,3 +237,27 @@ func TestCharterContent(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckinOnlyAfterStartupRunSucceeds(t *testing.T) {
+	for _, fail := range []bool{true, false} {
+		line := &fakeLine{status: station.Status{Master: "m"}}
+		var events []string
+		ag := &fakeAgent{hook: func(int) { events = append(events, "post") }}
+		if fail {
+			ag.err = errors.New("boom")
+		}
+		l := &Loop{Line: line, Agent: ag, Predecessor: "p", Poll: time.Millisecond, Heartbeat: time.Hour,
+			Checkin: func(context.Context) error { events = append(events, "checkin"); return nil }}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		l.OnRun = cancel
+		err := l.Run(ctx)
+		cancel()
+		got := strings.Join(events, ",")
+		if fail && (err == nil || got != "post") {
+			t.Errorf("failing run: err=%v events=%s", err, got)
+		}
+		if !fail && got != "post,checkin" {
+			t.Errorf("successful run: err=%v events=%s", err, got)
+		}
+	}
+}

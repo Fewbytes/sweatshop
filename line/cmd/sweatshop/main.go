@@ -644,17 +644,19 @@ func viceroyRun(args []string, agent viceroy.Agent) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	// A new generation checks in before it works, so the line retires its
-	// predecessor. The first generation has none.
-	if os.Getenv("SWEATSHOP_PREDECESSOR") != "" {
-		if _, err := c.ViceroyCheckin(ctx); err != nil {
-			return fmt.Errorf("check in: %w", err)
-		}
-	}
 	l := &viceroy.Loop{
 		Line: c, Agent: agent, Heartbeat: *heartbeat,
 		Gen: os.Getenv("SWEATSHOP_VICEROY_GEN"), Predecessor: os.Getenv("SWEATSHOP_PREDECESSOR"),
 		Log: log.New(os.Stderr, "viceroy: ", log.LstdFlags),
+	}
+	// A new generation checks in only after its startup run worked, so a
+	// broken successor fails before it retires its predecessor. The first
+	// generation has none.
+	if os.Getenv("SWEATSHOP_PREDECESSOR") != "" {
+		l.Checkin = func(ctx context.Context) error {
+			_, err := c.ViceroyCheckin(ctx)
+			return err
+		}
 	}
 	if err := l.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err

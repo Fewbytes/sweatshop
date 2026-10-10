@@ -91,6 +91,10 @@ type Loop struct {
 	Log         *log.Logger
 	Now         func() time.Time // default time.Now
 
+	// Checkin, if set, is called once after the startup run succeeds. A
+	// failed startup run ends Run with an error and Checkin is not called.
+	Checkin func(ctx context.Context) error
+
 	// OnRun, if set, is called after each completed run (for tests).
 	OnRun func()
 }
@@ -206,6 +210,15 @@ func (l *Loop) Run(ctx context.Context) error {
 			l.logf("claude: %v", runErr)
 		}
 		l.logf("run (%s, %d new messages) output:\n%s", wake, len(batch), strings.TrimSpace(out))
+
+		if wake == WakeStartup && l.Checkin != nil {
+			if runErr != nil {
+				return fmt.Errorf("startup run: %w", runErr)
+			}
+			if err := l.Checkin(context.WithoutCancel(ctx)); err != nil {
+				return fmt.Errorf("check in: %w", err)
+			}
+		}
 
 		// Record the batch as handled even if the run failed: a poison batch
 		// must not wedge the loop. The marker goes in the freshest testament,

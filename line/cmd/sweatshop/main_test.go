@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -542,6 +543,12 @@ func TestViceroyRunChecksInWithPredecessor(t *testing.T) {
 			checkins++
 			w.WriteHeader(http.StatusConflict)
 			_, _ = w.Write([]byte(`{"error":"no succession is pending"}`))
+		case "/v1/status":
+			_, _ = w.Write([]byte(`{"master":"abc"}`))
+		case "/v1/channel/inbox":
+			_, _ = w.Write([]byte(`[]`))
+		case "/v1/testament":
+			w.WriteHeader(http.StatusNoContent)
 		default:
 			http.NotFound(w, r)
 		}
@@ -574,5 +581,35 @@ func TestLineViceroyStartNeedsStation(t *testing.T) {
 	}
 	if err := run([]string{"line", "viceroy", "start", "--dir", dir}, &bytes.Buffer{}); err == nil {
 		t.Fatal("missing --commit accepted")
+	}
+}
+
+type failAgent struct{}
+
+func (failAgent) Run(context.Context, string) (string, error) { return "", errors.New("boom") }
+
+func TestViceroyRunNoCheckinWhenStartupFails(t *testing.T) {
+	var checkins int
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/viceroy/checkin":
+			checkins++
+		case "/v1/status":
+			_, _ = w.Write([]byte(`{"master":"abc"}`))
+		case "/v1/channel/inbox":
+			_, _ = w.Write([]byte(`[]`))
+		case "/v1/testament":
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+	t.Setenv("SWEATSHOP_LINE_URL", ts.URL)
+	t.Setenv("SWEATSHOP_LINE_TOKEN", "tok")
+	t.Setenv("SWEATSHOP_VICEROY_GEN", "2")
+	t.Setenv("SWEATSHOP_PREDECESSOR", "abc")
+	if err := viceroyRun(nil, failAgent{}); err == nil || checkins != 0 {
+		t.Fatalf("err=%v checkins=%d", err, checkins)
 	}
 }
