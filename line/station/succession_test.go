@@ -270,6 +270,19 @@ func TestBootstrap(t *testing.T) {
 	wantErr(t, err, "already has a viceroy generation")
 }
 
+func TestBootstrapReplacesCrashedGenerationOne(t *testing.T) {
+	r := newSuccRig(t, true)
+	r.bootstrap()
+	r.eng.running[ContainerName(1)] = false // generation 1 crashed
+	g, err := r.sup.Bootstrap(r.ctx, r.station("viceroy-1"), r.c1)
+	if err != nil || g.Gen != 1 {
+		t.Fatalf("bootstrap over crashed gen 1: %+v %v", g, err)
+	}
+	if len(r.eng.starts) != 2 || !r.eng.running[ContainerName(1)] {
+		t.Fatalf("starts=%d running=%v", len(r.eng.starts), r.eng.running)
+	}
+}
+
 func TestBootstrapRefusals(t *testing.T) {
 	r := newSuccRig(t, true)
 	_, err := r.sup.Bootstrap(r.ctx, r.station("viceroy-1"), strings.Repeat("a", 40))

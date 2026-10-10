@@ -402,10 +402,19 @@ func (v *Supervisor) Bootstrap(ctx context.Context, st *Station, commit string) 
 		return Generation{}, err
 	}
 	defer v.end()
-	if _, have, err := v.current(); err != nil {
+	if cur, have, err := v.current(); err != nil {
 		return Generation{}, err
 	} else if have {
-		return Generation{}, fail(http.StatusConflict, "the line already has a viceroy generation")
+		// Generation 1 has no predecessor to roll back to, so a recorded
+		// generation whose container is not running is replaced.
+		running, err := v.Engine.Running(ctx, ContainerName(cur.Gen))
+		if err != nil {
+			return Generation{}, fail(http.StatusBadGateway, "inspect generation %d: %v", cur.Gen, err)
+		}
+		if running || cur.Gen != 1 {
+			return Generation{}, fail(http.StatusConflict, "the line already has a viceroy generation")
+		}
+		v.logf("viceroy: replacing generation 1 (%s): its container is not running", cur.Commit)
 	}
 	if err := v.checkMaster(ctx, commit); err != nil {
 		return Generation{}, err
