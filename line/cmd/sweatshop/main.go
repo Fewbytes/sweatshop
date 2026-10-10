@@ -28,6 +28,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/linedir"
 	"github.com/Fewbytes/sweatshop/line/maker"
 	"github.com/Fewbytes/sweatshop/line/station"
+	"github.com/Fewbytes/sweatshop/line/viceroy"
 	"github.com/Fewbytes/sweatshop/line/witness"
 )
 
@@ -56,6 +57,8 @@ const usage = `usage:
                                         watch master; pull/clear the andon cord (andon station token)
   sweatshop line maker --dir D --station NAME --beads DIR [--once] [--engine E] [--url URL] [--timeout 2h] [--max-attempts 3] [--memory 4g] [--pids 1024] [--cpus 2]
                                         work ready "line" beads in station containers
+  sweatshop viceroy run [--heartbeat 6h]
+                                        the viceroy container's wake loop (reads SWEATSHOP_VICEROY_GEN, SWEATSHOP_PREDECESSOR)
 
 Client commands read SWEATSHOP_LINE_URL and SWEATSHOP_LINE_TOKEN.`
 
@@ -93,6 +96,8 @@ func run(args []string, stdout io.Writer) error {
 		return lineChannel(args[2:], os.Stdin, stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "testament":
 		return lineTestament(args[2:], os.Stdin, stdout)
+	case len(args) >= 2 && args[0] == "viceroy" && args[1] == "run":
+		return viceroyRun(args[2:], viceroy.ClaudeCLI{Dir: "/work", Timeout: viceroy.DefaultRunLimit})
 	case len(args) >= 2 && args[0] == "line" && args[1] == "andon":
 		return lineAndon(args[2:])
 	case len(args) >= 2 && args[0] == "line" && args[1] == "maker":
@@ -608,4 +613,32 @@ func lineTestament(args []string, stdin io.Reader, stdout io.Writer) error {
 		return fmt.Errorf("line testament put: input exceeds %d bytes", max)
 	}
 	return c.TestamentPut(ctx, body)
+}
+
+// viceroyRun implements `viceroy run`; the agent is a parameter so tests can
+// swap the claude invocation.
+func viceroyRun(args []string, agent viceroy.Agent) error {
+	fs := flag.NewFlagSet("viceroy run", flag.ContinueOnError)
+	heartbeat := fs.Duration("heartbeat", viceroy.DefaultHeartbeat, "status summary to the king at least this often")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 || *heartbeat <= 0 {
+		return errors.New(usage)
+	}
+	c, err := lineClient()
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	l := &viceroy.Loop{
+		Line: c, Agent: agent, Heartbeat: *heartbeat,
+		Gen: os.Getenv("SWEATSHOP_VICEROY_GEN"), Predecessor: os.Getenv("SWEATSHOP_PREDECESSOR"),
+		Log: log.New(os.Stderr, "viceroy: ", log.LstdFlags),
+	}
+	if err := l.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
+	return nil
 }

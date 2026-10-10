@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/pelletier/go-toml/v2"
@@ -420,5 +421,70 @@ func TestLineTestament(t *testing.T) {
 	}
 	if err := run([]string{"line", "testament", "get"}, &out); err != nil {
 		t.Fatalf("run dispatch: %v", err)
+	}
+}
+
+type stubAgent struct{ prompts []string }
+
+func (a *stubAgent) Run(_ context.Context, p string) (string, error) {
+	a.prompts = append(a.prompts, p)
+	// Stop the loop the way the container's supervisor would.
+	_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+	return "done", nil
+}
+
+func TestViceroyRun(t *testing.T) {
+	var testament string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			http.Error(w, "no", http.StatusUnauthorized)
+			return
+		}
+		switch r.URL.Path {
+		case "/v1/status":
+			_, _ = w.Write([]byte(`{"master":"abc123"}`))
+		case "/v1/channel/inbox":
+			if r.URL.Query().Get("after") == "" {
+				_, _ = w.Write([]byte(`[{"id":"42","author":"k","author_id":"1","principal":"king","text":"hi viceroy","ts":"t"}]`))
+			} else {
+				_, _ = w.Write([]byte(`[]`))
+			}
+		case "/v1/testament":
+			if r.Method == http.MethodPut {
+				b, _ := io.ReadAll(r.Body)
+				testament = string(b)
+				return
+			}
+			if testament == "" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			_, _ = w.Write([]byte(testament))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+	t.Setenv("SWEATSHOP_LINE_URL", ts.URL)
+	t.Setenv("SWEATSHOP_LINE_TOKEN", "tok")
+	t.Setenv("SWEATSHOP_VICEROY_GEN", "3")
+	ag := &stubAgent{}
+	if err := viceroyRun([]string{"--heartbeat", "1h"}, ag); err != nil {
+		t.Fatal(err)
+	}
+	if len(ag.prompts) != 1 || !strings.Contains(ag.prompts[0], "Generation: 3") || !strings.Contains(ag.prompts[0], "hi viceroy") {
+		t.Fatalf("prompts: %q", ag.prompts)
+	}
+	if !strings.Contains(testament, "last-handled-message: 42") {
+		t.Fatalf("testament %q", testament)
+	}
+	for _, bad := range [][]string{{"extra"}, {"--heartbeat", "0s"}} {
+		if err := viceroyRun(bad, ag); err == nil {
+			t.Fatalf("%v accepted", bad)
+		}
+	}
+	t.Setenv("SWEATSHOP_LINE_TOKEN", "")
+	if err := run([]string{"viceroy", "run"}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "SWEATSHOP_LINE_TOKEN") {
+		t.Fatalf("missing token: %v", err)
 	}
 }
