@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
@@ -145,24 +146,11 @@ func Init(ctx context.Context, opts InitOptions) (Line, error) {
 	var cons strings.Builder
 	cons.WriteString("[trust]\nlevel = \"attest\"\n")
 	for _, s := range l.Stations {
-		if err := os.MkdirAll(s.StateDir, 0o700); err != nil {
-			return Line{}, err
-		}
-		if err := os.Chmod(filepath.Dir(s.KeyFile), 0o700); err != nil {
-			return Line{}, err
-		}
-		pub, err := attest.GenerateKeyFile(s.KeyFile)
+		pub, err := createStation(s)
 		if err != nil {
 			return Line{}, err
 		}
-		raw := make([]byte, 32)
-		if _, err := rand.Read(raw); err != nil {
-			return Line{}, err
-		}
-		if err := os.WriteFile(s.TokenFile, []byte(hex.EncodeToString(raw)+"\n"), 0o600); err != nil {
-			return Line{}, err
-		}
-		fmt.Fprintf(&cons, "\n[[trust.keys]]\nname = %q\npublic_key = %q\nroles = [%q]\n", s.Name, attest.EncodePublicKey(pub), s.Role)
+		fmt.Fprintf(&cons, "\n[[trust.keys]]\nname = %q\npublic_key = %q\nroles = [%q]\n", s.Name, pub, s.Role)
 	}
 	fmt.Fprintf(&cons, "\n[runner]\nkind = \"container\"\nengine = %q\nimage = %q\n", opts.Engine, opts.Image)
 	fmt.Fprintf(&cons, "\n[[checks.required]]\nname = \"ci\"\ncommand = %q\n", opts.Check)
@@ -195,6 +183,126 @@ func Init(ctx context.Context, opts InitOptions) (Line, error) {
 		return Line{}, err
 	}
 	return l, nil
+}
+
+// createStation makes the station's directory, key (0600), token (0600) and
+// station.toml, and returns its encoded public key.
+func createStation(s Station) (string, error) {
+	if err := os.MkdirAll(s.StateDir, 0o700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(filepath.Dir(s.KeyFile), 0o700); err != nil {
+		return "", err
+	}
+	pub, err := attest.GenerateKeyFile(s.KeyFile)
+	if err != nil {
+		return "", err
+	}
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(s.TokenFile, []byte(hex.EncodeToString(raw)+"\n"), 0o600); err != nil {
+		return "", err
+	}
+	data, err := toml.Marshal(stationFile{Name: s.Name, Role: s.Role, AgentID: s.AgentID})
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(s.KeyFile), "station.toml"), data, 0o644); err != nil {
+		return "", err
+	}
+	return attest.EncodePublicKey(pub), nil
+}
+
+// replaceFile writes data to path through a temporary file and a rename.
+func replaceFile(path string, data []byte, mode os.FileMode) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, mode); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// AddStation adds a station to an existing line directory: its key and token,
+// station.toml, a line.toml entry and a trusted key bound to role in the
+// constitution. A running `line serve` picks it up on restart.
+func AddStation(dir string, spec StationSpec) (Station, error) {
+	if !safeName.MatchString(spec.Name) {
+		return Station{}, fmt.Errorf("station add: bad station name %q", spec.Name)
+	}
+	if !slices.Contains(constitution.Roles, spec.Role) {
+		return Station{}, fmt.Errorf("station add: unknown role %q (want one of %s)", spec.Role, strings.Join(constitution.Roles, ", "))
+	}
+	l, err := Load(dir)
+	if err != nil {
+		return Station{}, err
+	}
+	for _, s := range l.Stations {
+		if s.Name == spec.Name {
+			return Station{}, fmt.Errorf("station add: station %q already exists", spec.Name)
+		}
+	}
+	lineToml := filepath.Join(l.Dir, "line.toml")
+	data, err := os.ReadFile(lineToml)
+	if err != nil {
+		return Station{}, err
+	}
+	var lf lineFile
+	if err := toml.Unmarshal(data, &lf); err != nil {
+		return Station{}, fmt.Errorf("%s: %w", lineToml, err)
+	}
+	consData, err := os.ReadFile(l.Constitution)
+	if err != nil {
+		return Station{}, err
+	}
+	sd := filepath.Join(l.Dir, "stations", spec.Name)
+	if _, err := os.Lstat(sd); err == nil {
+		return Station{}, fmt.Errorf("station add: %s already exists", sd)
+	}
+	lf.Stations = append(lf.Stations, stationFile{Name: spec.Name, Role: spec.Role, AgentID: spec.Name})
+	st := newLine(l.Dir, lf).Stations[len(lf.Stations)-1]
+
+	pub, err := createStation(st)
+	if err == nil {
+		err = l.addTrust(consData, st, pub, lf, lineToml)
+	}
+	if err != nil {
+		os.RemoveAll(sd)
+		return Station{}, err
+	}
+	return st, nil
+}
+
+// addTrust appends st's trusted key to the constitution and the station to
+// line.toml, checking that the new constitution still parses.
+func (l Line) addTrust(cons []byte, st Station, pub string, lf lineFile, lineToml string) error {
+	var b strings.Builder
+	b.Write(cons)
+	if len(cons) > 0 && cons[len(cons)-1] != '\n' {
+		b.WriteByte('\n')
+	}
+	fmt.Fprintf(&b, "\n[[trust.keys]]\nname = %q\npublic_key = %q\nroles = [%q]\n", st.Name, pub, st.Role)
+	if _, err := constitution.Parse([]byte(b.String())); err != nil {
+		return fmt.Errorf("station add: new constitution is invalid: %w", err)
+	}
+	out, err := toml.Marshal(lf)
+	if err != nil {
+		return err
+	}
+	if err := replaceFile(l.Constitution, []byte(b.String()), 0o644); err != nil {
+		return err
+	}
+	if err := replaceFile(lineToml, out, 0o644); err != nil {
+		// Put the constitution back so the line is not half-edited.
+		replaceFile(l.Constitution, cons, 0o644)
+		return err
+	}
+	return nil
 }
 
 // Load reads a line directory and checks that every station's secrets exist

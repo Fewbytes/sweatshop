@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Fewbytes/sweatshop/line/constitution"
@@ -160,5 +161,75 @@ func TestLoadRejectsMissingKey(t *testing.T) {
 	}
 	if _, err := Load(l.Dir); err == nil {
 		t.Fatal("Load accepted a missing key")
+	}
+}
+
+func TestAddStation(t *testing.T) {
+	l, _ := initLine(t)
+	st, err := AddStation(l.Dir, StationSpec{Name: "viceroy-1", Role: "viceroy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{st.KeyFile, st.TokenFile} {
+		if m := mode(t, f); m != 0o600 {
+			t.Errorf("%s mode = %o", f, m)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(l.Dir, "stations", "viceroy-1", "station.toml")); err != nil {
+		t.Error(err)
+	}
+	got, err := Load(l.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Stations) != 3 || got.Stations[2].Name != "viceroy-1" || got.Stations[2].Role != "viceroy" || got.Stations[2].AgentID != "viceroy-1" {
+		t.Fatalf("stations = %+v", got.Stations)
+	}
+	c, _, err := constitution.Load(l.Constitution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roles, err := c.KeyRoles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Trust.Keys) != 3 {
+		t.Fatalf("keys = %+v", c.Trust.Keys)
+	}
+	k := c.Trust.Keys[2]
+	if k.Name != "viceroy-1" || len(k.Roles) != 1 || k.Roles[0] != "viceroy" || len(roles) != 3 {
+		t.Fatalf("key = %+v roles = %v", k, roles)
+	}
+	pub, err := os.ReadFile(st.KeyFile + ".pub")
+	if err != nil || strings.TrimSpace(string(pub)) != k.PublicKey {
+		t.Fatalf("trusted key %q does not match %q (%v)", k.PublicKey, pub, err)
+	}
+}
+
+func TestAddStationRefusals(t *testing.T) {
+	l, _ := initLine(t)
+	before, err := os.ReadFile(l.Constitution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, spec := range []StationSpec{
+		{"maker-1", "maker"}, // existing name
+		{"x-1", "overlord"},  // unknown role
+		{"../evil", "maker"}, // bad name
+		{"", "maker"},
+	} {
+		if _, err := AddStation(l.Dir, spec); err == nil {
+			t.Errorf("AddStation(%+v) succeeded", spec)
+		}
+	}
+	after, _ := os.ReadFile(l.Constitution)
+	if string(before) != string(after) {
+		t.Error("constitution changed by refused adds")
+	}
+	if got, err := Load(l.Dir); err != nil || len(got.Stations) != 2 {
+		t.Fatalf("stations = %+v, %v", got.Stations, err)
+	}
+	if _, err := os.Stat(filepath.Join(l.Dir, "stations", "x-1")); err == nil {
+		t.Error("refused station left files behind")
 	}
 }

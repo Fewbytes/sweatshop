@@ -258,3 +258,27 @@ func TestLineInit(t *testing.T) {
 		t.Fatal("missing --source accepted")
 	}
 }
+
+func TestLineStationAdd(t *testing.T) {
+	dir, _ := initLine(t)
+	var out bytes.Buffer
+	if err := run([]string{"line", "station", "add", "--dir", dir, "--name", "viceroy-1", "--role", "viceroy"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "station viceroy-1 role viceroy key_id ") {
+		t.Fatalf("output = %q", out.String())
+	}
+	l, err := linedir.Load(dir)
+	if err != nil || len(l.Stations) != 3 {
+		t.Fatalf("stations = %+v, %v", l.Stations, err)
+	}
+	for _, args := range [][]string{
+		{"line", "station", "add", "--dir", dir, "--name", "viceroy-1", "--role", "viceroy"},
+		{"line", "station", "add", "--dir", dir, "--name", "z-1", "--role", "nope"},
+		{"line", "station", "add", "--dir", dir, "--name", "z-1"},
+	} {
+		if err := run(args, &bytes.Buffer{}); err == nil {
+			t.Errorf("run(%v) succeeded", args)
+		}
+	}
+}

@@ -35,6 +35,8 @@ const usage = `usage:
   sweatshop guard install-hooks REPO    install the merge guard's pre-receive hook in a bare repo
   sweatshop line init --dir D --source S [--engine E] [--image I] [--port P]
                                         create a line directory seeded from S's master
+  sweatshop line station add --dir D --name NAME --role ROLE
+                                        add a station (key, token, trusted key) to the line in D; restart line serve
   sweatshop line serve --dir D [--addr 127.0.0.1:PORT] [--unsafe-listen]
                                         serve the station API for the line in D
   sweatshop line attest [--rev HEAD] [--repo .]
@@ -70,6 +72,8 @@ func run(args []string, stdout io.Writer) error {
 		return guard.InstallHooks(args[2])
 	case len(args) >= 2 && args[0] == "line" && args[1] == "init":
 		return lineInit(args[2:], stdout)
+	case len(args) >= 3 && args[0] == "line" && args[1] == "station" && args[2] == "add":
+		return lineStationAdd(args[3:], stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "serve":
 		return lineServe(args[2:], stdout)
 	case len(args) >= 2 && args[0] == "line" && (args[1] == "attest" || args[1] == "merge"):
@@ -126,6 +130,33 @@ func lineInit(args []string, stdout io.Writer) error {
 		}
 		fmt.Fprintf(stdout, "station %s role %s key_id %s\n", s.Name, s.Role, attest.KeyID(key))
 	}
+	return nil
+}
+
+func lineStationAdd(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("line station add", flag.ContinueOnError)
+	dir := fs.String("dir", "", "line directory")
+	name := fs.String("name", "", "new station's name")
+	role := fs.String("role", "", "new station's role")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 || *dir == "" || *name == "" || *role == "" {
+		return errors.New(usage)
+	}
+	s, err := linedir.AddStation(*dir, linedir.StationSpec{Name: *name, Role: *role})
+	if err != nil {
+		return err
+	}
+	pub, err := os.ReadFile(s.KeyFile + ".pub")
+	if err != nil {
+		return err
+	}
+	key, err := attest.ParsePublicKey(strings.TrimSpace(string(pub)))
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "station %s role %s key_id %s\nrestart line serve to load it\n", s.Name, s.Role, attest.KeyID(key))
 	return nil
 }
 
