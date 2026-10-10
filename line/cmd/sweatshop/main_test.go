@@ -152,6 +152,8 @@ func TestLineClientNeedsEnv(t *testing.T) {
 }
 
 func TestLineMergeAndStatus(t *testing.T) {
+	t.Setenv("SWEATSHOP_BEAD", "")
+	t.Setenv("SWEATSHOP_ANDON_EVENT", "")
 	ctx := context.Background()
 	dir, agent := initLine(t)
 	serveLine(t, dir, "maker-1")
@@ -204,6 +206,29 @@ func TestLineMergeAndStatus(t *testing.T) {
 	}
 	if err := run([]string{"line", "evidence", "ev_0000000000000000"}, &bytes.Buffer{}); err == nil {
 		t.Fatal("missing evidence exited 0")
+	}
+}
+
+func TestLineMergeRefusesMissingTrailer(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("SWEATSHOP_BEAD", "x")
+	t.Setenv("SWEATSHOP_ANDON_EVENT", "")
+	dir, agent := initLine(t)
+	serveLine(t, dir, "maker-1")
+	if err := os.WriteFile(filepath.Join(agent.Dir, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "a.txt"}, {"commit", "--quiet", "-m", "a"}} {
+		if _, err := agent.Git(ctx, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	if err := run([]string{"line", "merge", "--repo", agent.Dir}, &out); err == nil {
+		t.Fatalf("merge without trailer exited 0:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "merged") {
+		t.Fatalf("commit merged despite missing trailer:\n%s", out.String())
 	}
 }
 
