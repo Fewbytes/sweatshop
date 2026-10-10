@@ -71,10 +71,19 @@ heijunka, Kaizen/Gemba, lifetimes), scoped andon, circuit breaker auto-revert.
   run (also on cancel), and resource ceilings from the constitution's optional
   runner fields `memory` (default `"4g"`), `pids` (1024) and `cpus` (`"2"`). The
   ceilings are not part of the runner ID, so tuning them keeps existing
-  attestations valid. A check that exceeds `checks.timeout` (default `"30m"`) or
-  is cancelled is a runner error: nothing is signed, so starving a check cannot
-  mint signed failure evidence. The station API runs one attest/merge per
-  station at a time (409 `{"error":"busy"}`). Check containers run as the
+  attestations valid. Maker containers get the same ceilings by default
+  (`sweatshop line maker --memory/--pids/--cpus`). A check that exceeds
+  `checks.timeout` (default `"30m"`) or is cancelled is a runner error: nothing
+  is signed. So are engine failures: exit 125 (the engine could not start the
+  container) and exit 137 unless `docker inspect` reports `OOMKilled=true`
+  (a kill by the engine or VM is not the check's fault; an OOM kill by the
+  check's own `--memory` limit is a genuine failure and is signed). The station
+  API runs one attest/merge per line at a time across all stations (409
+  `{"error":"busy"}`). **Not guaranteed:** disk is not limited, so an agent can
+  still fill the VM's disk and make a check fail for real (signed), and
+  resource ceilings do not stop other host-level starvation (e.g. many maker
+  containers together exceeding the VM). Treat a pulled andon as a claim to
+  verify, not proof. Check containers run as the
   image's user (`agent`, uid 1000, in the station image).
 
 ## Attestations

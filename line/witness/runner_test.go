@@ -129,3 +129,41 @@ func TestNewRunnerLocalIsHostRunner(t *testing.T) {
 		t.Fatalf("local runner wrapped the command: %q", inner.command)
 	}
 }
+
+type exitRunner struct{ code int }
+
+func (e exitRunner) Run(context.Context, string, string) (RunResult, error) {
+	return RunResult{ExitCode: e.code, EvidenceID: "inv_x"}, nil
+}
+
+func TestContainerRunnerEngineFailuresAreErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		code    int
+		oom     bool
+		oomErr  error
+		wantErr bool
+	}{
+		{"engine could not start", 125, false, nil, true},
+		{"killed by engine or VM", 137, false, nil, true},
+		{"inspect failed", 137, false, errors.New("no such container"), true},
+		{"oom by own limit", 137, true, nil, false},
+		{"plain failure", 1, false, nil, false},
+		{"pass", 0, false, nil, false},
+	} {
+		inspected := false
+		cr := ContainerRunner{Inner: exitRunner{tc.code}, Engine: "docker", Image: "ci:1",
+			Remove:    func(string) {},
+			OOMKilled: func(string) (bool, error) { inspected = true; return tc.oom, tc.oomErr }}
+		res, err := cr.Run(context.Background(), "/x", "true")
+		if (err != nil) != tc.wantErr {
+			t.Errorf("%s: err = %v, want error %v", tc.name, err, tc.wantErr)
+		}
+		if !tc.wantErr && res.ExitCode != tc.code {
+			t.Errorf("%s: result = %+v", tc.name, res)
+		}
+		if inspected != (tc.code == 137) {
+			t.Errorf("%s: inspected = %v", tc.name, inspected)
+		}
+	}
+}

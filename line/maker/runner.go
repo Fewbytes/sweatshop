@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -62,9 +63,17 @@ type ContainerSpec struct {
 	Env         map[string]string
 	Mounts      []Mount
 	Args        []string
+	// Resource ceilings in engine syntax (--memory, --pids-limit, --cpus);
+	// zero values are omitted.
+	Memory, CPUs string
+	Pids         int
 }
 
 type Runner struct {
+	// Memory, Pids and CPUs are the station container's resource ceilings.
+	Memory, CPUs string
+	Pids         int
+
 	Line    linedir.Line
 	Station linedir.Station
 	Beads   Beads
@@ -227,6 +236,7 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 		Name:   unsafeNameChars.ReplaceAllString("sweatshop-"+r.Station.Name+"-"+b.ID, "_"),
 		Env:    env,
 		Mounts: []Mount{{Host: r.Line.Remote, Container: "/line/remote.git", ReadOnly: true}},
+		Memory: r.Memory, CPUs: r.CPUs, Pids: r.Pids,
 	}
 	timeout := r.Timeout
 	if timeout <= 0 {
@@ -440,6 +450,15 @@ func (d DockerEngine) Run(ctx context.Context, spec ContainerSpec) (int, error) 
 	}
 	if spec.Name != "" {
 		args = append(args, "--name", spec.Name)
+	}
+	if spec.Memory != "" {
+		args = append(args, "--memory", spec.Memory)
+	}
+	if spec.Pids > 0 {
+		args = append(args, "--pids-limit", strconv.Itoa(spec.Pids))
+	}
+	if spec.CPUs != "" {
+		args = append(args, "--cpus", spec.CPUs)
 	}
 	keys := make([]string, 0, len(spec.Env))
 	for k := range spec.Env {

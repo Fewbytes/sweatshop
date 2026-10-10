@@ -251,7 +251,7 @@ func (g *gateRunner) Run(ctx context.Context, _, _ string) (witness.RunResult, e
 	}
 }
 
-func TestOneCheckInFlightPerStation(t *testing.T) {
+func TestOneCheckInFlightPerLine(t *testing.T) {
 	r := newRig(t)
 	master := r.master()
 	gate := &gateRunner{started: make(chan struct{}, 4), release: make(chan struct{})}
@@ -275,8 +275,9 @@ func TestOneCheckInFlightPerStation(t *testing.T) {
 			t.Fatalf("%s while busy: %d %s", route, code, body)
 		}
 	}
-	// Other stations and read-only routes are unaffected.
-	if code, body := r.raw("POST", "/v1/attest-line?commit="+master, r.token("andon-1"), nil); code != http.StatusOK {
+	// Other stations share the line's one slot; read-only routes are unaffected.
+	var e struct{ Error string }
+	if code, body := r.raw("POST", "/v1/attest-line?commit="+master, r.token("andon-1"), nil); code != http.StatusConflict || json.Unmarshal([]byte(body), &e) != nil || e.Error != "busy" {
 		t.Fatalf("andon attest-line while maker busy: %d %s", code, body)
 	}
 	if code, body := r.raw("GET", "/v1/status", makerTok, nil); code != http.StatusOK {

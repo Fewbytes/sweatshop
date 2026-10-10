@@ -54,11 +54,23 @@ func (ExecRunner) Run(ctx context.Context, dir, command string) (RunResult, erro
 // one check cannot starve the host (or another station's check into a signed
 // failure), and a unique name so it can be force-removed whatever ended the
 // run. The check runs as the image's user.
+//
+// Only the check's own outcome is a result. Exit 125 (the engine could not
+// start the container) and exit 137 without OOMKilled (the engine, the VM or
+// someone else SIGKILLed it) are runner errors: nothing is signed. A 137 from
+// the container's own --memory limit is a real check failure. Not guaranteed:
+// disk is not limited, so a check or maker can still fill the VM's disk and
+// make a check fail for real; and the engine can be starved in ways that
+// surface as ordinary non-zero exits of the check's own processes.
 type ContainerRunner struct {
 	Inner  Runner
 	Engine string
 	Image  string
 	Limits constitution.Limits // zero fields take the constitution defaults
+	// OOMKilled reports whether the named container was killed by its own
+	// memory limit; nil runs `<engine> inspect --format '{{.State.OOMKilled}}'`.
+	// It runs before Remove.
+	OOMKilled func(name string) (bool, error)
 	// Remove force-removes a check container after its run; nil runs
 	// `<engine> rm -f -- <name>`.
 	Remove func(name string)
@@ -86,6 +98,43 @@ func (c ContainerRunner) remove(name string) {
 	}
 }
 
+// Exit codes that mean something other than the check's own verdict.
+const (
+	exitEngineError = 125
+	exitSIGKILL     = 137
+)
+
+func (c ContainerRunner) oomKilled(name string) (bool, error) {
+	if c.OOMKilled != nil {
+		return c.OOMKilled(name)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), removeGrace)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, c.Engine, "inspect", "--format", "{{.State.OOMKilled}}", "--", name).Output()
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(string(out)) == "true", nil
+}
+
+// classify turns engine failures into errors so they are never signed as
+// check failures.
+func (c ContainerRunner) classify(name string, code int) error {
+	switch code {
+	case exitEngineError:
+		return fmt.Errorf("container engine could not start the check (exit %d)", code)
+	case exitSIGKILL:
+		oom, err := c.oomKilled(name)
+		if err != nil {
+			return fmt.Errorf("check container exited 137 and OOMKilled is unknown: %w", err)
+		}
+		if !oom {
+			return fmt.Errorf("check container was killed (exit 137) but not by its own memory limit")
+		}
+	}
+	return nil
+}
+
 func (c ContainerRunner) Run(ctx context.Context, dir, command string) (RunResult, error) {
 	raw := make([]byte, 8)
 	if _, err := rand.Read(raw); err != nil {
@@ -97,6 +146,9 @@ func (c ContainerRunner) Run(ctx context.Context, dir, command string) (RunResul
 		c.Engine, shellQuote(name), shellQuote(l.Memory), l.Pids, shellQuote(l.CPUs),
 		shellQuote(dir), shellQuote(c.Image), shellQuote(command))
 	res, err := c.Inner.Run(ctx, dir, wrapped)
+	if err == nil {
+		err = c.classify(name, res.ExitCode)
+	}
 	// Whatever ended the run (exit, timeout, cancel), no check container may
 	// outlive it.
 	c.remove(name)

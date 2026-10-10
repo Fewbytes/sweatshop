@@ -509,6 +509,14 @@ func TestDockerEngine(t *testing.T) {
 	if err != nil || string(seen) != "tok" {
 		t.Fatalf("token seen by engine = %q %v", seen, err)
 	}
+	// Limits reach the engine as flags.
+	if _, err := e.Run(context.Background(), ContainerSpec{Image: "img", Memory: "4g", Pids: 1024, CPUs: "2"}); err != nil {
+		t.Fatal(err)
+	}
+	got := calls(t, logFile)
+	if want := "run --rm --cap-drop=ALL --security-opt=no-new-privileges --memory 4g --pids-limit 1024 --cpus 2 img"; got[len(got)-1] != want {
+		t.Fatalf("docker call = %q, want %q", got[len(got)-1], want)
+	}
 	if _, err := e.Run(context.Background(), ContainerSpec{Image: "img", Mounts: []Mount{{Host: "/a:b", Container: "/c"}}}); err == nil {
 		t.Fatal("Run accepted a mount path containing ':'")
 	}

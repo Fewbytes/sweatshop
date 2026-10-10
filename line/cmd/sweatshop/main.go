@@ -21,6 +21,7 @@ import (
 
 	"github.com/Fewbytes/sweatshop/line/andon"
 	"github.com/Fewbytes/sweatshop/line/attest"
+	"github.com/Fewbytes/sweatshop/line/constitution"
 	"github.com/Fewbytes/sweatshop/line/gitx"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/linedir"
@@ -44,7 +45,7 @@ const usage = `usage:
   sweatshop line evidence ID            print a check log
   sweatshop line andon --beads DIR [--interval 30s]
                                         watch master; pull/clear the andon cord (andon station token)
-  sweatshop line maker --dir D --station NAME --beads DIR [--once] [--engine E] [--url URL] [--timeout 2h] [--max-attempts 3]
+  sweatshop line maker --dir D --station NAME --beads DIR [--once] [--engine E] [--url URL] [--timeout 2h] [--max-attempts 3] [--memory 4g] [--pids 1024] [--cpus 2]
                                         work ready "line" beads in station containers
 
 Client commands read SWEATSHOP_LINE_URL and SWEATSHOP_LINE_TOKEN.`
@@ -211,11 +212,17 @@ func lineMaker(args []string) error {
 	url := fs.String("url", "", "station API URL as seen from the container (default http://host.containers.internal:<port>)")
 	timeout := fs.Duration("timeout", maker.DefaultTimeout, "longest one card's container may run")
 	maxAttempts := fs.Int("max-attempts", maker.DefaultMaxAttempts, "runs one card gets before it is labelled "+maker.GaveUpLabel)
+	memory := fs.String("memory", constitution.DefaultMemory, "station container memory limit (engine --memory syntax)")
+	pids := fs.Int("pids", constitution.DefaultPids, "station container process limit")
+	cpus := fs.String("cpus", constitution.DefaultCPUs, "station container CPU limit")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 || *dir == "" || *name == "" || *beads == "" {
 		return errors.New(usage)
+	}
+	if *pids < 1 || *memory == "" || *cpus == "" {
+		return errors.New("--memory, --pids and --cpus must be set (limits cannot be disabled)")
 	}
 	if *maxAttempts < 1 {
 		return fmt.Errorf("--max-attempts %d: must be at least 1", *maxAttempts)
@@ -239,6 +246,7 @@ func lineMaker(args []string) error {
 	logger := log.New(os.Stderr, "maker: ", log.LstdFlags)
 	r := &maker.Runner{
 		Line: l, Station: *st, URL: *url, Timeout: *timeout, MaxAttempts: *maxAttempts,
+		Memory: *memory, Pids: *pids, CPUs: *cpus,
 		Beads:  maker.BeadsCLI{Dir: *beads, Actor: st.AgentID},
 		Engine: maker.DockerEngine{Bin: *engine, Log: logger},
 		Creds:  maker.HostCreds(os.LookupEnv),
