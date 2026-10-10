@@ -171,6 +171,11 @@ func (s *Server) routeCards(w http.ResponseWriter, r *http.Request, st *Station)
 		if err := requireViceroy(st); err != nil {
 			return "", err
 		}
+		if s.Viceroy != nil {
+			if err := s.Viceroy.Admit(r, false); err != nil {
+				return "", err
+			}
+		}
 	}
 	cards, err := s.cards()
 	if err != nil {

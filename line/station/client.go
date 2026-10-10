@@ -25,6 +25,7 @@ import (
 type Client struct {
 	URL   string // e.g. http://host.containers.internal:7468
 	Token string
+	Gen   string       // viceroy generation, sent as X-Sweatshop-Gen
 	HTTP  *http.Client // nil → default with 3h timeout (checks are slow)
 }
 
@@ -48,6 +49,9 @@ func (c Client) do(ctx context.Context, method, path string, query url.Values, b
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
+	if c.Gen != "" {
+		req.Header.Set(GenHeader, c.Gen)
+	}
 	resp, err := c.http().Do(req)
 	if err != nil {
 		return nil, err
@@ -276,4 +280,15 @@ func (c Client) TestamentGet(ctx context.Context) (body []byte, ok bool, err err
 func (c Client) TestamentPut(ctx context.Context, body []byte) error {
 	_, err := c.do(ctx, http.MethodPut, "/v1/testament", nil, bytes.NewReader(body), nil)
 	return err
+}
+
+// ViceroySucceed asks the line to start a new viceroy generation at commit
+// (viceroy only).
+func (c Client) ViceroySucceed(ctx context.Context, commit string) ([]byte, error) {
+	return c.do(ctx, http.MethodPost, "/v1/viceroy/succeed", url.Values{"commit": {commit}}, nil, nil)
+}
+
+// ViceroyCheckin reports that this generation is up (viceroy only).
+func (c Client) ViceroyCheckin(ctx context.Context) ([]byte, error) {
+	return c.do(ctx, http.MethodPost, "/v1/viceroy/checkin", nil, nil, nil)
 }

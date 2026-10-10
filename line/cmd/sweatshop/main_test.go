@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -486,5 +487,92 @@ func TestViceroyRun(t *testing.T) {
 	t.Setenv("SWEATSHOP_LINE_TOKEN", "")
 	if err := run([]string{"viceroy", "run"}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "SWEATSHOP_LINE_TOKEN") {
 		t.Fatalf("missing token: %v", err)
+	}
+}
+
+func TestViceroySucceedAndCheckinCommands(t *testing.T) {
+	var got []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.Method+" "+r.URL.Path+"?"+r.URL.RawQuery+" gen="+r.Header.Get("X-Sweatshop-Gen"))
+		switch r.URL.Path {
+		case "/v1/status":
+			_, _ = w.Write([]byte(`{"master":"abc123"}`))
+		case "/v1/viceroy/succeed":
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"gen":4}`))
+		case "/v1/viceroy/checkin":
+			_, _ = w.Write([]byte(`{"gen":4}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+	t.Setenv("SWEATSHOP_LINE_URL", ts.URL)
+	t.Setenv("SWEATSHOP_LINE_TOKEN", "tok")
+	t.Setenv("SWEATSHOP_VICEROY_GEN", "3")
+	var out bytes.Buffer
+	if err := run([]string{"viceroy", "succeed"}, &out); err != nil || !strings.Contains(out.String(), `"gen":4`) {
+		t.Fatalf("succeed: %q %v", out.String(), err)
+	}
+	if err := run([]string{"viceroy", "succeed", "--commit", "def456"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"viceroy", "checkin"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"GET /v1/status? gen=3",
+		"POST /v1/viceroy/succeed?commit=abc123 gen=3",
+		"POST /v1/viceroy/succeed?commit=def456 gen=3",
+		"POST /v1/viceroy/checkin? gen=3",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("requests:\n%s", strings.Join(got, "\n"))
+	}
+	if err := run([]string{"viceroy", "checkin", "extra"}, &out); err == nil {
+		t.Fatal("extra argument accepted")
+	}
+}
+
+func TestViceroyRunChecksInWithPredecessor(t *testing.T) {
+	var checkins int
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/viceroy/checkin":
+			checkins++
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"error":"no succession is pending"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+	t.Setenv("SWEATSHOP_LINE_URL", ts.URL)
+	t.Setenv("SWEATSHOP_LINE_TOKEN", "tok")
+	t.Setenv("SWEATSHOP_VICEROY_GEN", "2")
+	t.Setenv("SWEATSHOP_PREDECESSOR", "abc")
+	err := viceroyRun(nil, &stubAgent{})
+	if err == nil || !strings.Contains(err.Error(), "check in") || checkins != 1 {
+		t.Fatalf("err=%v checkins=%d", err, checkins)
+	}
+}
+
+func TestLineViceroyStartNeedsStation(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "line")
+	src := t.TempDir()
+	for _, args := range [][]string{{"init", "--quiet", "--initial-branch=master"}, {"-c", "user.name=t", "-c", "user.email=t@e", "commit", "--quiet", "--allow-empty", "-m", "seed"}} {
+		if out, err := exec.Command("git", append([]string{"-C", src}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	if err := run([]string{"line", "init", "--dir", dir, "--source", src}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	err := run([]string{"line", "viceroy", "start", "--dir", dir, "--commit", strings.Repeat("a", 40)}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "no viceroy station") {
+		t.Fatalf("err = %v", err)
+	}
+	if err := run([]string{"line", "viceroy", "start", "--dir", dir}, &bytes.Buffer{}); err == nil {
+		t.Fatal("missing --commit accepted")
 	}
 }

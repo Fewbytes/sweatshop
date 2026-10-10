@@ -461,6 +461,11 @@ func (s *Server) routeChannel(w http.ResponseWriter, r *http.Request, st *Statio
 		return "", fail(http.StatusServiceUnavailable, "channel is off (no discord.cred)")
 	}
 	if want == http.MethodPost {
+		if s.Viceroy != nil {
+			if err := s.Viceroy.Admit(r, true); err != nil {
+				return "", err
+			}
+		}
 		var body struct {
 			Text string `json:"text"`
 		}

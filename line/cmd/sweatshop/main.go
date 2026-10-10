@@ -53,6 +53,10 @@ const usage = `usage:
                                         read the king's channel / post to it (viceroy only)
   sweatshop line testament get | put (notes on stdin)
                                         read / replace the viceroy's testament, <= 64 KiB (viceroy only)
+  sweatshop line viceroy start --dir D --commit C [--engine E] [--url URL] [--station NAME]
+                                        owner: build and start viceroy generation 1 at master commit C
+  sweatshop viceroy succeed [--commit C] | checkin
+                                        viceroy: request succession to C (default: master) / report this generation is up
   sweatshop line andon --beads DIR [--interval 30s]
                                         watch master; pull/clear the andon cord (andon station token)
   sweatshop line maker --dir D --station NAME --beads DIR [--once] [--engine E] [--url URL] [--timeout 2h] [--max-attempts 3] [--memory 4g] [--pids 1024] [--cpus 2]
@@ -96,6 +100,10 @@ func run(args []string, stdout io.Writer) error {
 		return lineChannel(args[2:], os.Stdin, stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "testament":
 		return lineTestament(args[2:], os.Stdin, stdout)
+	case len(args) >= 3 && args[0] == "line" && args[1] == "viceroy" && args[2] == "start":
+		return lineViceroyStart(args[3:], stdout)
+	case len(args) >= 2 && args[0] == "viceroy" && (args[1] == "succeed" || args[1] == "checkin"):
+		return viceroyClient(args[1], args[2:], stdout)
 	case len(args) >= 2 && args[0] == "viceroy" && args[1] == "run":
 		return viceroyRun(args[2:], viceroy.ClaudeCLI{Dir: "/work", Timeout: viceroy.DefaultRunLimit})
 	case len(args) >= 2 && args[0] == "line" && args[1] == "andon":
@@ -227,6 +235,10 @@ func lineServe(args []string, stdout io.Writer) error {
 		return err
 	}
 	srv.Channel = ch
+	sup := station.NewSupervisor(srv, l, station.CLIEngine{Bin: l.Engine, Log: log.New(os.Stderr, "viceroy: ", log.LstdFlags)})
+	if err := sup.Resume(context.Background()); err != nil {
+		log.Printf("viceroy: resume: %v", err)
+	}
 	if ch != nil {
 		pollCtx, stopPoll := context.WithCancel(context.Background())
 		defer stopPoll()
@@ -325,7 +337,7 @@ func lineMaker(args []string) error {
 }
 
 func lineClient() (station.Client, error) {
-	c := station.Client{URL: os.Getenv("SWEATSHOP_LINE_URL"), Token: os.Getenv("SWEATSHOP_LINE_TOKEN")}
+	c := station.Client{URL: os.Getenv("SWEATSHOP_LINE_URL"), Token: os.Getenv("SWEATSHOP_LINE_TOKEN"), Gen: os.Getenv("SWEATSHOP_VICEROY_GEN")}
 	if c.URL == "" {
 		return c, errors.New("SWEATSHOP_LINE_URL is not set")
 	}
@@ -632,6 +644,13 @@ func viceroyRun(args []string, agent viceroy.Agent) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// A new generation checks in before it works, so the line retires its
+	// predecessor. The first generation has none.
+	if os.Getenv("SWEATSHOP_PREDECESSOR") != "" {
+		if _, err := c.ViceroyCheckin(ctx); err != nil {
+			return fmt.Errorf("check in: %w", err)
+		}
+	}
 	l := &viceroy.Loop{
 		Line: c, Agent: agent, Heartbeat: *heartbeat,
 		Gen: os.Getenv("SWEATSHOP_VICEROY_GEN"), Predecessor: os.Getenv("SWEATSHOP_PREDECESSOR"),
@@ -641,4 +660,89 @@ func viceroyRun(args []string, agent viceroy.Agent) error {
 		return err
 	}
 	return nil
+}
+
+// lineViceroyStart is the owner's bootstrap of viceroy generation 1.
+func lineViceroyStart(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("line viceroy start", flag.ContinueOnError)
+	dir := fs.String("dir", "", "line directory")
+	commit := fs.String("commit", "", "master commit to build (full hex)")
+	engine := fs.String("engine", "", "container engine CLI (default: the line's engine)")
+	url := fs.String("url", "", "station API URL as seen from the container (default http://host.containers.internal:<port>)")
+	name := fs.String("station", "", "viceroy station (default: the line's only viceroy station)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 || *dir == "" || *commit == "" {
+		return errors.New(usage)
+	}
+	l, err := linedir.Load(*dir)
+	if err != nil {
+		return err
+	}
+	srv, err := station.NewFromLine(l)
+	if err != nil {
+		return err
+	}
+	var st *station.Station
+	for _, s := range srv.Stations {
+		if s.Role == "viceroy" && (*name == "" || s.Name == *name) {
+			if st != nil {
+				return errors.New("several viceroy stations; choose one with --station")
+			}
+			st = s
+		}
+	}
+	if st == nil {
+		return fmt.Errorf("line %s has no viceroy station", l.Dir)
+	}
+	if *engine == "" {
+		*engine = l.Engine
+	}
+	sup := station.NewSupervisor(srv, l, station.CLIEngine{Bin: *engine, Log: log.New(os.Stderr, "viceroy: ", log.LstdFlags)})
+	sup.URL = *url
+	g, err := sup.Bootstrap(context.Background(), st, *commit)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "generation %d commit %s container %s\n", g.Gen, g.Commit, station.ContainerName(g.Gen))
+	return nil
+}
+
+// viceroyClient implements `viceroy succeed` and `viceroy checkin`.
+func viceroyClient(cmd string, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("viceroy "+cmd, flag.ContinueOnError)
+	var commit string
+	if cmd == "succeed" {
+		fs.StringVar(&commit, "commit", "", "commit to succeed to (default: the line's master)")
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return errors.New(usage)
+	}
+	c, err := lineClient()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	var out []byte
+	if cmd == "checkin" {
+		out, err = c.ViceroyCheckin(ctx)
+	} else {
+		if commit == "" {
+			st, serr := c.Status(ctx)
+			if serr != nil {
+				return serr
+			}
+			commit = st.Master
+		}
+		out, err = c.ViceroySucceed(ctx, commit)
+	}
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(stdout, strings.TrimRight(string(out), "\n"))
+	return err
 }

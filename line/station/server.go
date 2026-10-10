@@ -52,6 +52,7 @@ type Server struct {
 	MaxBundle   int64                    // default 256 << 20
 	Cards       Cards                    // nil: the cards routes return 503
 	Channel     *Channel                 // nil: the channel routes return 503
+	Viceroy     *Supervisor              // nil: the viceroy routes return 503, no generation guard
 
 	// busy admits one check-running request (attest, merge, attest-line) at a
 	// time across all stations, so several tokens cannot run checks in
@@ -218,6 +219,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 		return s.routeCards(w, r, st)
 	case path == "/v1/testament":
 		return s.routeTestament(w, r, st)
+	case strings.HasPrefix(path, "/v1/viceroy/"):
+		return s.routeViceroy(w, r, st)
 	case strings.HasPrefix(path, "/v1/channel/"):
 		return s.routeChannel(w, r, st)
 	case strings.HasPrefix(path, "/v1/evidence/"):
