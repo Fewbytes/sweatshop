@@ -20,9 +20,13 @@ const (
 	maxDesc     = 16 << 10
 	maxCardBody = 64 << 10
 	viceroyRole = "viceroy"
+	makerRole   = "maker"
 	// LabelLine puts a card on the line; LabelProposed asks the king to.
 	LabelLine     = "line"
 	LabelProposed = "line-proposed"
+	// LabelGaveUp marks a card a maker failed to land repeatedly. An operator
+	// removes it (`bd label remove <id> line-gave-up`) to retry.
+	LabelGaveUp = "line-gave-up"
 )
 
 var (
@@ -31,8 +35,12 @@ var (
 	cardTypes = []string{"bug", "feature", "task", "epic", "chore"}
 )
 
-// ListFilter selects cards; empty fields do not filter.
-type ListFilter struct{ Status, Label, Parent string }
+// ListFilter selects cards; empty fields do not filter. Ready lists only
+// unblocked, unclaimed cards (bd ready) and excludes LabelGaveUp.
+type ListFilter struct {
+	Status, Label, Parent string
+	Ready                 bool
+}
 
 // NewCard is the body of POST /v1/cards.
 type NewCard struct {
@@ -52,12 +60,24 @@ type Cards interface {
 	Create(ctx context.Context, c NewCard) (json.RawMessage, error)
 	Comment(ctx context.Context, id, text string) error
 	AddLabel(ctx context.Context, id, label string) error
+	// Claim, Release and Close act as the named agent: bd lets only the
+	// claim holder release a claim. Show reports the assignee.
+	Claim(ctx context.Context, id, agent string) error
+	Release(ctx context.Context, id, agent, note string) error
+	Close(ctx context.Context, id, reason string) error
 }
 
 // BeadsCards runs bd in Dir with fixed argv (no shell).
 type BeadsCards struct{ Dir string }
 
 func (b BeadsCards) bd(ctx context.Context, args ...string) ([]byte, error) {
+	return b.bdAs(ctx, "", args...)
+}
+
+func (b BeadsCards) bdAs(ctx context.Context, actor string, args ...string) ([]byte, error) {
+	if actor != "" {
+		args = append(args, "--actor", actor)
+	}
 	cmd := exec.CommandContext(ctx, "bd", args...)
 	cmd.Dir = b.Dir
 	var stderr bytes.Buffer
@@ -71,6 +91,9 @@ func (b BeadsCards) bd(ctx context.Context, args ...string) ([]byte, error) {
 
 func (b BeadsCards) List(ctx context.Context, f ListFilter) (json.RawMessage, error) {
 	args := []string{"list", "--limit", "0", "--json"}
+	if f.Ready {
+		args = []string{"ready", "--exclude-label", LabelGaveUp, "--limit", "0", "--json"}
+	}
 	if f.Status != "" {
 		args = append(args, "--status", f.Status)
 	}
@@ -111,16 +134,26 @@ func (b BeadsCards) AddLabel(ctx context.Context, id, label string) error {
 	return err
 }
 
+func (b BeadsCards) Claim(ctx context.Context, id, agent string) error {
+	_, err := b.bdAs(ctx, agent, "update", id, "--claim")
+	return err
+}
+
+// Release reopens the card, clearing the assignee, and records note as a
+// comment (bd unclaim --reason).
+func (b BeadsCards) Release(ctx context.Context, id, agent, note string) error {
+	_, err := b.bdAs(ctx, agent, "unclaim", id, "--reason", note)
+	return err
+}
+
+func (b BeadsCards) Close(ctx context.Context, id, reason string) error {
+	_, err := b.bd(ctx, "close", id, "--reason", reason)
+	return err
+}
+
 func validID(id string) error {
 	if !cardIDRe.MatchString(id) {
 		return fail(http.StatusBadRequest, "invalid card id %q", id)
-	}
-	return nil
-}
-
-func requireViceroy(st *Station) error {
-	if st.Role != viceroyRole {
-		return fail(http.StatusForbidden, "role %q may not write cards", st.Role)
 	}
 	return nil
 }
@@ -143,7 +176,18 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) error {
 	return nil
 }
 
-// routeCards handles /v1/cards and /v1/cards/{id}[/comments|/offer].
+// cardActions maps each POST /v1/cards/{id}/{action} to the roles allowed to
+// call it. Creating a card (POST /v1/cards) is viceroy-only.
+var cardActions = map[string][]string{
+	"comments": {viceroyRole},
+	"offer":    {viceroyRole},
+	"claim":    {makerRole},
+	"close":    {makerRole},
+	"release":  {makerRole},
+	"give-up":  {makerRole},
+}
+
+// routeCards handles /v1/cards and /v1/cards/{id}[/<action in cardActions>].
 func (s *Server) routeCards(w http.ResponseWriter, r *http.Request, st *Station) (string, error) {
 	rest := strings.TrimPrefix(r.URL.Path, "/v1/cards")
 	rest = strings.TrimPrefix(rest, "/")
@@ -158,7 +202,7 @@ func (s *Server) routeCards(w http.ResponseWriter, r *http.Request, st *Station)
 		}
 	case len(parts) == 1:
 		want = http.MethodGet
-	case len(parts) == 2 && (parts[1] == "comments" || parts[1] == "offer"):
+	case len(parts) == 2 && cardActions[parts[1]] != nil:
 		want = http.MethodPost
 	default:
 		return "", fail(http.StatusNotFound, "no route %s", r.URL.Path)
@@ -168,10 +212,14 @@ func (s *Server) routeCards(w http.ResponseWriter, r *http.Request, st *Station)
 		return "", fail(http.StatusMethodNotAllowed, "use %s for %s", want, r.URL.Path)
 	}
 	if r.Method == http.MethodPost {
-		if err := requireViceroy(st); err != nil {
-			return "", err
+		roles := []string{viceroyRole}
+		if rest != "" {
+			roles = cardActions[parts[1]]
 		}
-		if s.Viceroy != nil {
+		if !slices.Contains(roles, st.Role) {
+			return "", fail(http.StatusForbidden, "role %q may not write cards", st.Role)
+		}
+		if st.Role == viceroyRole && s.Viceroy != nil {
 			if err := s.Viceroy.Admit(r, false); err != nil {
 				return "", err
 			}
@@ -185,7 +233,7 @@ func (s *Server) routeCards(w http.ResponseWriter, r *http.Request, st *Station)
 	switch {
 	case rest == "" && r.Method == http.MethodGet:
 		q := r.URL.Query()
-		f := ListFilter{Status: q.Get("status"), Label: q.Get("label"), Parent: q.Get("parent")}
+		f := ListFilter{Status: q.Get("status"), Label: q.Get("label"), Parent: q.Get("parent"), Ready: q.Get("ready") == "true"}
 		for _, v := range []string{f.Status, f.Label} {
 			if v != "" && !wordRe.MatchString(v) {
 				return "", fail(http.StatusBadRequest, "invalid filter %q", v)
@@ -242,7 +290,55 @@ func (s *Server) routeCards(w http.ResponseWriter, r *http.Request, st *Station)
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return "comment " + id, nil
 	}
-	return s.offer(w, r, cards, id)
+	if parts[1] == "offer" {
+		return s.offer(w, r, cards, id)
+	}
+	return s.settle(w, r, cards, st, id, parts[1])
+}
+
+// settle runs a maker's claim, close, release or give-up. The caller must
+// hold the claim (give-up also runs after release, so an unclaimed card
+// passes): the station container holds the same maker token as its runner,
+// and must not touch other cards.
+func (s *Server) settle(w http.ResponseWriter, r *http.Request, cards Cards, st *Station, id, action string) (string, error) {
+	ctx := r.Context()
+	if action != "claim" {
+		raw, err := cards.Show(ctx, id)
+		if err != nil {
+			return "", err
+		}
+		holder := cardAssignee(raw)
+		if holder != st.AgentID && !(action == "give-up" && holder == "") {
+			return "", fail(http.StatusForbidden, "card %s is claimed by %q, not %q", id, holder, st.AgentID)
+		}
+	}
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	if action == "close" || action == "release" {
+		if err := decodeBody(w, r, &body); err != nil {
+			return "", err
+		}
+		if strings.TrimSpace(body.Reason) == "" || len(body.Reason) > maxDesc || !utf8.ValidString(body.Reason) {
+			return "", fail(http.StatusBadRequest, "reason must be 1..%d bytes of UTF-8", maxDesc)
+		}
+	}
+	var err error
+	switch action {
+	case "claim":
+		err = cards.Claim(ctx, id, st.AgentID)
+	case "close":
+		err = cards.Close(ctx, id, body.Reason)
+	case "release":
+		err = cards.Release(ctx, id, st.AgentID, body.Reason)
+	case "give-up":
+		err = cards.AddLabel(ctx, id, LabelGaveUp)
+	}
+	if err != nil {
+		return "", err
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	return action + " " + id, nil
 }
 
 func writeRaw(w http.ResponseWriter, out json.RawMessage) error {
@@ -297,21 +393,16 @@ func (s *Server) offer(w http.ResponseWriter, r *http.Request, cards Cards, id s
 }
 
 // cardLineage reads the issue type and ancestor IDs from `bd show --json`
-// output (an object or a one-element array). Ancestors come from the
+// output. Ancestors come from the
 // hierarchical ID (a.1.2 sits under a.1 and a) and an explicit parent field.
 func cardLineage(raw json.RawMessage, id string) (string, []string) {
 	var issue struct {
 		Type   string `json:"issue_type"`
 		Parent string `json:"parent"`
 	}
-	var many []json.RawMessage
-	if json.Unmarshal(raw, &many) == nil {
-		if len(many) == 0 {
-			return "", nil
-		}
-		raw = many[0]
+	if !unmarshalIssue(raw, &issue) {
+		return "", nil
 	}
-	_ = json.Unmarshal(raw, &issue)
 	var anc []string
 	for p := id; ; {
 		i := strings.LastIndex(p, ".")
@@ -325,4 +416,27 @@ func cardLineage(raw json.RawMessage, id string) (string, []string) {
 		anc = append(anc, issue.Parent)
 	}
 	return issue.Type, anc
+}
+
+// unmarshalIssue decodes `bd show --json` output (an object or a one-element
+// array) into v. It reports false when the array is empty.
+func unmarshalIssue(raw json.RawMessage, v any) bool {
+	var many []json.RawMessage
+	if json.Unmarshal(raw, &many) == nil {
+		if len(many) == 0 {
+			return false
+		}
+		raw = many[0]
+	}
+	_ = json.Unmarshal(raw, v)
+	return true
+}
+
+// cardAssignee returns who holds the card's claim ("" when unclaimed).
+func cardAssignee(raw json.RawMessage) string {
+	var issue struct {
+		Assignee string `json:"assignee"`
+	}
+	unmarshalIssue(raw, &issue)
+	return issue.Assignee
 }

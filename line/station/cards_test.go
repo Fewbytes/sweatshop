@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -37,6 +38,16 @@ func (f *fakeCards) Comment(_ context.Context, id, text string) error {
 func (f *fakeCards) AddLabel(_ context.Context, id, label string) error {
 	f.labels = append(f.labels, label)
 	return f.rec("label " + id + " " + label)
+}
+
+func (f *fakeCards) Claim(_ context.Context, id, agent string) error {
+	return f.rec("claim " + id + " " + agent)
+}
+func (f *fakeCards) Release(_ context.Context, id, agent, note string) error {
+	return f.rec("release " + id + " " + agent + " " + note)
+}
+func (f *fakeCards) Close(_ context.Context, id, reason string) error {
+	return f.rec("close " + id + " " + reason)
 }
 
 func cardsRig(t *testing.T, cards Cards) (*Server, *httptest.Server, Client, Client) {
@@ -202,5 +213,51 @@ func TestBeadsCardsRequiresBd(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	if _, err := (BeadsCards{Dir: t.TempDir()}).Show(context.Background(), "x-1"); err == nil {
 		t.Fatal("expected error without bd")
+	}
+}
+
+func TestCardsMakerSettlementRoutes(t *testing.T) {
+	f := &fakeCards{show: `[{"id":"x-1","assignee":"m"}]`}
+	srv, _, v, m := cardsRig(t, f)
+	srv.Stations[1].AgentID = "m"
+	ctx := context.Background()
+	if err := m.CardClaim(ctx, "x-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.CardRelease(ctx, "x-1", "again"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.CardClose(ctx, "x-1", "done"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.CardGiveUp(ctx, "x-1"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := m.CardsList(ctx, ListFilter{Label: "line", Ready: true}); err != nil || !strings.Contains(string(out), "x-1") {
+		t.Fatalf("ready list: %s %v", out, err)
+	}
+	if err := v.CardClaim(ctx, "x-1"); err == nil || !strings.Contains(err.Error(), "403") {
+		t.Fatalf("viceroy claim: %v", err)
+	}
+	if _, err := m.CardOffer(ctx, "x-1"); err == nil || !strings.Contains(err.Error(), "403") {
+		t.Fatalf("maker offer: %v", err)
+	}
+	want := []string{
+		"claim x-1 m", "show x-1", "release x-1 m again", "show x-1", "close x-1 done", "show x-1",
+		"label x-1 " + LabelGaveUp, "list /line/",
+	}
+	if !slices.Equal(f.calls, want) {
+		t.Fatalf("calls %q, want %q", f.calls, want)
+	}
+}
+
+func TestCardsMakerCannotSettleOthersCards(t *testing.T) {
+	f := &fakeCards{show: `{"id":"x-1","assignee":"other"}`}
+	_, _, _, m := cardsRig(t, f)
+	if err := m.CardClose(context.Background(), "x-1", "done"); err == nil || !strings.Contains(err.Error(), "403") {
+		t.Fatalf("close: %v", err)
+	}
+	if slices.Contains(f.calls, "close x-1 done") {
+		t.Fatalf("calls %q", f.calls)
 	}
 }

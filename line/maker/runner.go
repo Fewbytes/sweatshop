@@ -23,6 +23,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/gitx"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/linedir"
+	"github.com/Fewbytes/sweatshop/line/station"
 )
 
 type Bead struct {
@@ -41,9 +42,8 @@ type Beads interface {
 	GiveUp(ctx context.Context, id string) error
 }
 
-// GaveUpLabel marks a bead the maker failed to land MaxAttempts times. An
-// operator removes it (`bd label remove <id> line-gave-up`) to retry.
-const GaveUpLabel = "line-gave-up"
+// GaveUpLabel marks a bead the maker failed to land MaxAttempts times.
+const GaveUpLabel = station.LabelGaveUp
 
 // DefaultMaxAttempts caps the runs one bead gets before the maker gives up.
 const DefaultMaxAttempts = 3
@@ -78,7 +78,9 @@ type Runner struct {
 	Station linedir.Station
 	Beads   Beads
 	Engine  Engine
-	URL     string            // as seen from inside the container; default http://host.containers.internal:<port>
+	URL     string // as seen from inside the container; default http://host.containers.internal:<port>
+	// Token is the station's bearer token; empty reads Station.TokenFile.
+	Token   string
 	Creds   map[string]string // model credentials passed through to the container
 	Timeout time.Duration     // bounds one container run; default DefaultTimeout
 	// MaxAttempts caps the runs one bead gets (default DefaultMaxAttempts).
@@ -201,9 +203,12 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 	if !found {
 		return false, nil
 	}
-	token, err := r.Station.Token()
-	if err != nil {
-		return false, fmt.Errorf("station %s token: %w", r.Station.Name, err)
+	token := r.Token
+	if token == "" {
+		var err error
+		if token, err = r.Station.Token(); err != nil {
+			return false, fmt.Errorf("station %s token: %w", r.Station.Name, err)
+		}
 	}
 	// Only commits added after this point can show that the run landed.
 	pre, err := gitx.Repo{Dir: r.Line.Remote}.Ref(ctx, "refs/heads/master")
@@ -359,6 +364,11 @@ func (b BeadsCLI) Ready(ctx context.Context, label string) ([]Bead, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseBeads(out)
+}
+
+// parseBeads decodes the JSON array `bd ready --json` prints.
+func parseBeads(out []byte) ([]Bead, error) {
 	var rows []struct {
 		ID          string   `json:"id"`
 		Title       string   `json:"title"`
@@ -367,7 +377,7 @@ func (b BeadsCLI) Ready(ctx context.Context, label string) ([]Bead, error) {
 		Labels      []string `json:"labels"`
 	}
 	if err := json.Unmarshal(out, &rows); err != nil {
-		return nil, fmt.Errorf("bd ready: parse output: %w", err)
+		return nil, fmt.Errorf("parse ready cards: %w", err)
 	}
 	beads := make([]Bead, 0, len(rows))
 	for _, r := range rows {
@@ -411,6 +421,36 @@ func (b BeadsCLI) GiveUp(ctx context.Context, id string) error {
 	}
 	_, err := b.bd(ctx, "label", "add", id, GaveUpLabel)
 	return err
+}
+
+// APICards works cards through the line's /v1/cards routes, so the maker
+// never opens the beads database. The server claims and releases as the
+// agent of Client's station token.
+type APICards struct{ Client station.Client }
+
+func (a APICards) Ready(ctx context.Context, label string) ([]Bead, error) {
+	out, err := a.Client.CardsList(ctx, station.ListFilter{Label: label, Ready: true})
+	if err != nil {
+		return nil, err
+	}
+	return parseBeads(out)
+}
+
+// Claim ignores agent: the server takes it from the station token.
+func (a APICards) Claim(ctx context.Context, id, _ string) error {
+	return a.Client.CardClaim(ctx, id)
+}
+
+func (a APICards) Close(ctx context.Context, id, reason string) error {
+	return a.Client.CardClose(ctx, id, reason)
+}
+
+func (a APICards) Release(ctx context.Context, id, note string) error {
+	return a.Client.CardRelease(ctx, id, note)
+}
+
+func (a APICards) GiveUp(ctx context.Context, id string) error {
+	return a.Client.CardGiveUp(ctx, id)
 }
 
 // DockerEngine runs station containers with a docker-compatible CLI.

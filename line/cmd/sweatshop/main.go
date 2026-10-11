@@ -69,7 +69,7 @@ const usage = `usage:
                                         watch master; pull/clear the andon cord (andon station token)
   sweatshop line heijunka --dir D --beads DIR [--interval 5m] [--min-agents 1] [--max-agents 4]
                                         level flow: publish agent and WIP-limit levels to D/heijunka.json (SIGUSR1 wakes it now)
-  sweatshop line maker --dir D --station NAME --beads DIR [--once] [--engine E] [--url URL] [--timeout 2h] [--max-attempts 3] [--memory 4g] [--pids 1024] [--cpus 2]
+  sweatshop line maker --dir D --station NAME (--beads DIR | --cards api) [--once] [--engine E] [--url URL] [--timeout 2h] [--max-attempts 3] [--memory 4g] [--pids 1024] [--cpus 2]
                                         work ready "line" beads in station containers
   sweatshop viceroy run [--heartbeat 6h]
                                         the viceroy container's wake loop (reads SWEATSHOP_VICEROY_GEN, SWEATSHOP_PREDECESSOR)
@@ -369,7 +369,8 @@ func lineMaker(args []string) error {
 	fs := flag.NewFlagSet("line maker", flag.ContinueOnError)
 	dir := fs.String("dir", "", "line directory")
 	name := fs.String("station", "", "maker station name (e.g. maker-1)")
-	beads := fs.String("beads", "", "directory whose beads database holds the cards")
+	beads := fs.String("beads", "", "directory whose beads database holds the cards (--cards beads)")
+	cardsMode := fs.String("cards", "beads", "how to reach cards: beads (bd in --beads) or api (line serve, via SWEATSHOP_LINE_URL and SWEATSHOP_LINE_TOKEN; never opens .beads)")
 	once := fs.Bool("once", false, "work at most one card, then exit")
 	engine := fs.String("engine", "", "container engine CLI (default: the line's engine)")
 	url := fs.String("url", "", "station API URL as seen from the container (default http://host.containers.internal:<port>)")
@@ -381,8 +382,11 @@ func lineMaker(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *dir == "" || *name == "" || *beads == "" {
+	if fs.NArg() != 0 || *dir == "" || *name == "" || (*cardsMode == "beads") != (*beads != "") {
 		return errors.New(usage)
+	}
+	if *cardsMode != "beads" && *cardsMode != "api" {
+		return fmt.Errorf("--cards %q: want beads or api", *cardsMode)
 	}
 	if *pids < 1 || *memory == "" || *cpus == "" {
 		return errors.New("--memory, --pids and --cpus must be set (limits cannot be disabled)")
@@ -407,10 +411,19 @@ func lineMaker(args []string) error {
 		*engine = l.Engine
 	}
 	logger := log.New(os.Stderr, "maker: ", log.LstdFlags)
+	var cards maker.Beads = maker.BeadsCLI{Dir: *beads, Actor: st.AgentID}
+	var token string
+	if *cardsMode == "api" {
+		c, err := lineClient()
+		if err != nil {
+			return err
+		}
+		cards, token = maker.APICards{Client: c}, c.Token
+	}
 	r := &maker.Runner{
 		Line: l, Station: *st, URL: *url, Timeout: *timeout, MaxAttempts: *maxAttempts,
-		Memory: *memory, Pids: *pids, CPUs: *cpus,
-		Beads:  maker.BeadsCLI{Dir: *beads, Actor: st.AgentID},
+		Memory: *memory, Pids: *pids, CPUs: *cpus, Token: token,
+		Beads:  cards,
 		Engine: maker.DockerEngine{Bin: *engine, Log: logger},
 		Creds:  maker.HostCreds(os.LookupEnv),
 		Log:    logger,

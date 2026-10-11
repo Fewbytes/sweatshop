@@ -240,6 +240,9 @@ func (c Client) CardsList(ctx context.Context, f ListFilter) ([]byte, error) {
 			q.Set(k, v)
 		}
 	}
+	if f.Ready {
+		q.Set("ready", "true")
+	}
 	return c.do(ctx, http.MethodGet, "/v1/cards", q, nil, nil)
 }
 
@@ -260,9 +263,34 @@ func (c Client) CardCreate(ctx context.Context, nc NewCard) ([]byte, error) {
 	return c.postJSON(ctx, "/v1/cards", nc)
 }
 
-// CardComment adds a comment (viceroy only).
+// CardComment adds a comment (viceroy or maker).
 func (c Client) CardComment(ctx context.Context, id, text string) ([]byte, error) {
 	return c.postJSON(ctx, "/v1/cards/"+url.PathEscape(id)+"/comments", map[string]string{"text": text})
+}
+
+func (c Client) cardAction(ctx context.Context, id, action string, body any) error {
+	_, err := c.postJSON(ctx, "/v1/cards/"+url.PathEscape(id)+"/"+action, body)
+	return err
+}
+
+// CardClaim claims the card for the calling station's agent (maker only).
+func (c Client) CardClaim(ctx context.Context, id string) error {
+	return c.cardAction(ctx, id, "claim", struct{}{})
+}
+
+// CardClose closes a card the station holds (maker only).
+func (c Client) CardClose(ctx context.Context, id, reason string) error {
+	return c.cardAction(ctx, id, "close", map[string]string{"reason": reason})
+}
+
+// CardRelease reopens a card the station holds, recording reason (maker only).
+func (c Client) CardRelease(ctx context.Context, id, reason string) error {
+	return c.cardAction(ctx, id, "release", map[string]string{"reason": reason})
+}
+
+// CardGiveUp labels a card the station holds LabelGaveUp (maker only).
+func (c Client) CardGiveUp(ctx context.Context, id string) error {
+	return c.cardAction(ctx, id, "give-up", struct{}{})
 }
 
 // CardOffer labels the card for the line or proposes it (viceroy only).

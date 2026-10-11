@@ -87,6 +87,27 @@ sweatshop line maker --dir ~/line --station maker-1 --beads /path/to/repo [--onc
 - **Offering work.** Beads labelled `line` that are ready are offered to the Maker, andon cards first; while the line is stopped, only andon cards. The maker claims the bead on the host, runs the agent in a container, and closes it when a commit carrying `Bead: <id>` lands on master during that run; otherwise it unclaims the bead with a note. After `--max-attempts` failed runs (per runner process) the bead is labelled `line-gave-up` and no longer offered; `bd label remove <id> line-gave-up` offers it again.
 - **Andon.** `line andon` attests each new master. A failing signed attestation pulls the cord: merges stop except fixes with an `Andon-Event: <id>` trailer, and a P0 bead labelled `line` and `andon` is filed whose description has a line `event: <id>`. While the line stays stopped the watcher keeps one open or in-progress card for the event, filing a fresh one if a fix landed but master still fails. Clearing needs a passing attestation of a master newer than the failing commit; a flake needs one trivial commit carrying the trailer.
 - **Containers.** Run with `--cap-drop=ALL` and `no-new-privileges`, the line remote mounted read-only, and the station API reached through `host.containers.internal` (the API listens on loopback only; `line maker --url` overrides).
+- **Supervised service.** `line maker --cards api` reaches cards only through `line serve --beads` (`/v1/cards`: ready, claim, release, close, give-up; role `maker`, and only on cards the station has claimed), so the maker never opens `.beads` and needs no `bd`. Its token comes from `SWEATSHOP_LINE_TOKEN` and the API from `SWEATSHOP_LINE_URL`. Run it from an image carrying sweatshop and the podman remote client (no `bd`; the image target and a `just` recipe are not in the tree yet: `justfile` and `station/**` are gemba-gated) as `podman run -d --name sweatshop-maker-1 --restart=always ... --dir LINE --station maker-1` with the station token and model credential as podman secrets, `CONTAINER_HOST` pointing at the podman API socket (so it starts station containers), and the line dir mounted read-only at its host path. The equivalent quadlet (`~/.config/containers/systemd/sweatshop-maker-1.container`):
+
+  ```ini
+  [Container]
+  Image=localhost/sweatshop-maker:dev
+  ContainerName=sweatshop-maker-1
+  Exec=--dir /home/me/line --station maker-1
+  Secret=sweatshop-maker-1-token,type=env,target=SWEATSHOP_LINE_TOKEN
+  Secret=sweatshop-model-cred,type=env,target=CLAUDE_CODE_OAUTH_TOKEN
+  Environment=SWEATSHOP_LINE_URL=http://host.containers.internal:7468
+  Environment=CONTAINER_HOST=unix:///run/podman/podman.sock
+  Volume=%t/podman/podman.sock:/run/podman/podman.sock
+  Volume=/home/me/line:/home/me/line:ro
+  SecurityLabelDisable=true
+
+  [Service]
+  Restart=always
+
+  [Install]
+  WantedBy=default.target
+  ```
 - **Check runs.** Each check container also gets a unique name (force-removed after the run), and ceilings from the constitution's optional `[runner]` fields `memory` (default `"4g"`), `pids` (`1024`) and `cpus` (`"2"`); `[checks] timeout` (default `"30m"`) bounds each check, and a timed-out check signs nothing. A station runs one attest/merge at a time; a concurrent request gets 409 `{"error":"busy"}`.
 - **Inside a station.** `sweatshop line attest|merge [--rev HEAD] [--repo .]` submit a commit as a git bundle; `line status` shows master and andon state; `line evidence ID` prints a check log.
 
