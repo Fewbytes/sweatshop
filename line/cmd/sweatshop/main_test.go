@@ -588,7 +588,7 @@ func TestViceroyRunChecksInWithPredecessor(t *testing.T) {
 func TestLineViceroyStartNeedsStation(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "line")
 	src := t.TempDir()
-	for _, args := range [][]string{{"init", "--quiet", "--initial-branch=master"}, {"-c", "user.name=t", "-c", "user.email=t@e", "commit", "--quiet", "--allow-empty", "-m", "seed"}} {
+	for _, args := range [][]string{{"init", "--quiet", "--initial-branch=master"}, {"-c", "user.name=t", "-c", "user.email=t@e", "-c", "commit.gpgsign=false", "commit", "--quiet", "--allow-empty", "-m", "seed"}} {
 		if out, err := exec.Command("git", append([]string{"-C", src}, args...)...).CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v %s", args, err, out)
 		}
