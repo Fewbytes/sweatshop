@@ -1,6 +1,7 @@
 package viceroy
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -74,6 +75,13 @@ output here is only logged, not read by the king; say anything the king needs
 to see with channel post.
 `
 
+// Context is the viceroy's standing background: the line's principles, roles,
+// architecture and code of conduct. Every wake prompt carries it, before the
+// testament. The markdown file is the only copy.
+//
+//go:embed context.md
+var Context string
+
 // Wake is why the loop started a run.
 type Wake string
 
@@ -100,6 +108,8 @@ type PromptInput struct {
 func Prompt(in PromptInput) string {
 	var p strings.Builder
 	p.WriteString(Charter)
+	p.WriteString("\n== Context (the line's principles, roles, architecture and conduct) ==\n")
+	p.WriteString(strings.TrimRight(Context, "\n") + "\n")
 	fmt.Fprintf(&p, "\n== This run ==\nWake reason: %s\n", in.Wake)
 	if in.Gen != "" {
 		fmt.Fprintf(&p, "Generation: %s\n", in.Gen)

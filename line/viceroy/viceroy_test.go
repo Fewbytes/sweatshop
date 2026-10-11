@@ -261,6 +261,18 @@ func TestCharterContent(t *testing.T) {
 	}
 }
 
+func TestPromptCarriesContextBeforeTestament(t *testing.T) {
+	p := Prompt(PromptInput{Wake: WakeHeartbeat, Testament: "TESTAMENT-BODY"})
+	for _, want := range []string{"## Principles", "## Roles", "## Line architecture", "## Code of conduct"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("prompt lacks context section %q", want)
+		}
+	}
+	if strings.Index(p, "## Code of conduct") > strings.Index(p, "TESTAMENT-BODY") {
+		t.Error("context must come before the testament")
+	}
+}
+
 func TestCheckinOnlyAfterStartupRunSucceeds(t *testing.T) {
 	for _, fail := range []bool{true, false} {
 		line := &fakeLine{status: station.Status{Master: "m"}}
