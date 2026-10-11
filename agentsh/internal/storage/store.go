@@ -334,6 +334,13 @@ func countQuery(ctx context.Context) {
 	}
 }
 
+// quoteFTSPhrase turns user text into a single FTS5 phrase so characters that
+// are FTS5 query syntax ("-", ":", "*", AND/OR/NOT, quotes) match literally
+// instead of failing with "no such column".
+func quoteFTSPhrase(text string) string {
+	return `"` + strings.ReplaceAll(text, `"`, `""`) + `"`
+}
+
 func (s *Store) History(ctx context.Context, session, command, since string, exit *int, limit int) ([]Invocation, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 100
@@ -348,7 +355,7 @@ func (s *Store) History(ctx context.Context, session, command, since string, exi
 	}
 	if command != "" {
 		query += ` AND id IN (SELECT id FROM invocation_commands WHERE invocation_commands MATCH ?)`
-		args = append(args, command)
+		args = append(args, quoteFTSPhrase(command))
 	}
 	if exit != nil {
 		query += ` AND exit_code=?`

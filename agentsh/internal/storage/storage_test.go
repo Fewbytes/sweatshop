@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"path/filepath"
 	"testing"
@@ -168,5 +169,45 @@ func TestLogTemplatesStorageAndPriorLookup(t *testing.T) {
 	}
 	if priorCounts["tmpl_ping"] != 50 || priorCounts["tmpl_warn"] != 3 {
 		t.Errorf("unexpected prior counts: %+v", priorCounts)
+	}
+}
+
+func TestHistoryCommandFilterTreatsFTSSyntaxAsLiteralText(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, Config{Path: filepath.Join(t.TempDir(), "history.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	commands := []string{"sweatshop-qms", "git log --format=a:b", `echo "quoted"`, "cat /usr/local/bin/tool"}
+	for i, command := range commands {
+		inv := Invocation{ID: fmt.Sprintf("inv_%08d", i), Session: "default", Argv: []string{"bash", "-c", command}, Command: command, CWD: "/tmp", State: StateRunning, StartedAt: time.Now().UTC()}
+		if err := store.CreateInvocation(ctx, inv); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tests := []struct {
+		name, query string
+		want        int
+	}{
+		{"hyphen", "sweatshop-qms", 1},
+		{"colon", "a:b", 1},
+		{"quote", `"quoted"`, 1},
+		{"unbalanced quote", `"`, 0},
+		{"path with slashes", "/usr/local/bin/tool", 1},
+		{"operator word", "NOT", 0},
+		{"wildcard", "*", 0},
+		{"empty string", "", len(commands)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := store.History(ctx, "", tc.query, "", nil, 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != tc.want {
+				t.Fatalf("History(%q) returned %d rows, want %d", tc.query, len(got), tc.want)
+			}
+		})
 	}
 }
