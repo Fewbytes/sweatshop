@@ -55,6 +55,9 @@ type fakeCards struct {
 	live     map[string]bool // event -> has a live card
 	failures int             // Raise calls that fail before it starts succeeding
 	calls    int
+
+	resolved   []string // events passed to Resolve
+	resolveErr error
 }
 
 func (c *fakeCards) Raise(_ context.Context, event string, _ guard.AndonEvent, master string) (string, error) {
@@ -73,6 +76,12 @@ func (c *fakeCards) Raise(_ context.Context, event string, _ guard.AndonEvent, m
 	c.events = append(c.events, event)
 	c.masters = append(c.masters, master)
 	return "card-new", nil
+}
+
+func (c *fakeCards) Resolve(_ context.Context, event, _ string) error {
+	c.resolved = append(c.resolved, event)
+	delete(c.live, event)
+	return c.resolveErr
 }
 
 // closeAll closes every card, as Landed does when a fix lands.
@@ -432,5 +441,55 @@ func TestAttestErrorOnStoppedLineStillCards(t *testing.T) {
 	}
 	if cards.calls != 2 || len(cards.events) != 2 || cards.masters[0] != "bbb" {
 		t.Fatalf("raise calls=%d cards=%v masters=%v", cards.calls, cards.events, cards.masters)
+	}
+}
+
+func TestClearResolvesCards(t *testing.T) {
+	api := &fakeAPI{
+		status:   station.Status{Master: "bbb"},
+		passed:   map[string]bool{"ccc": true},
+		pullRes:  guard.Result{Status: guard.Stopped, Event: "ev1"},
+		clearRes: guard.Result{Status: guard.Cleared},
+	}
+	w, cards := newWatcher(api)
+	step(t, w)
+	api.status = station.Status{Master: "ccc", Event: "ev1"}
+	step(t, w)
+	if len(cards.resolved) != 1 || cards.resolved[0] != "ev1" || cards.live["ev1"] {
+		t.Fatalf("resolved=%v live=%v", cards.resolved, cards.live)
+	}
+}
+
+func TestResolveFailureDoesNotFailStep(t *testing.T) {
+	api := &fakeAPI{
+		status:   station.Status{Master: "ccc", Event: "ev1"},
+		passed:   map[string]bool{"ccc": true},
+		clearRes: guard.Result{Status: guard.Cleared},
+	}
+	w, cards := newWatcher(api)
+	cards.resolveErr = errors.New("bd down")
+	step(t, w)
+	if api.clears != 1 || len(cards.resolved) != 1 {
+		t.Fatalf("clears=%d resolved=%v", api.clears, cards.resolved)
+	}
+}
+
+func TestBeadCardsResolveClosesLiveCards(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "closed")
+	script := "#!/bin/sh\nif [ \"$1\" = list ]; then cat <<'EOF'\n" +
+		`[{"id":"c1","description":"event: ev1"},{"id":"c2","description":"event: ev2"},{"id":"c3","description":"x\nevent: ev1"}]` +
+		"\nEOF\nexit 0; fi\nprintf '%s\\n' \"$@\" >> " + log + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "bd"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := (BeadCards{Dir: t.TempDir()}).Resolve(context.Background(), "ev1", "mmm"); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(log)
+	got := string(raw)
+	if !strings.Contains(got, "close\nc1\n") || !strings.Contains(got, "close\nc3\n") || strings.Contains(got, "c2") {
+		t.Fatalf("bd close calls = %q", got)
 	}
 }

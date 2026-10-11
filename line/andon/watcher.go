@@ -35,6 +35,14 @@ type Cards interface {
 	Raise(ctx context.Context, event string, ev guard.AndonEvent, master string) (string, error)
 }
 
+// Resolver is implemented by Cards that can retire cards once their event is
+// cleared. It is optional: Cards without it are left alone.
+type Resolver interface {
+	// Resolve closes every live andon card naming event, noting that master
+	// passed and cleared the line.
+	Resolve(ctx context.Context, event string, master string) error
+}
+
 // Watcher observes the line's master.
 type Watcher struct {
 	API      API
@@ -140,8 +148,10 @@ func (w *Watcher) Step(ctx context.Context) error {
 	switch {
 	case cr.Status == guard.Cleared:
 		w.logf("master %s passes; andon cleared (event %s)", st.Master, st.Event)
+		w.resolveCards(ctx, st.Event, st.Master)
 	case cr.Reason == guard.ReasonNotStopped:
 		w.logf("andon already cleared")
+		w.resolveCards(ctx, st.Event, st.Master)
 	default:
 		// Not retried blindly: clearing the failing commit itself is refused,
 		// and a newer master will be attested on its own.
@@ -154,6 +164,19 @@ func (w *Watcher) Step(ctx context.Context) error {
 			w.ensureCard(ctx, st.Event, stoppedEvent(), st.Master))
 	}
 	return nil
+}
+
+// resolveCards closes the cards of a cleared event that are still live, so a
+// cleared line leaves no stale andon card behind. The line is already clear, so
+// a failure is only logged: it must not undo or repeat the clear.
+func (w *Watcher) resolveCards(ctx context.Context, event, master string) {
+	r, ok := w.Cards.(Resolver)
+	if !ok {
+		return
+	}
+	if err := r.Resolve(ctx, event, master); err != nil {
+		w.logf("resolve cards for event %s: %v", event, err)
+	}
 }
 
 // ensureCard makes sure event has a live card; Raise is idempotent. master is
@@ -219,27 +242,56 @@ type BeadCards struct{ Dir string } // runs `bd create` in Dir
 // a fixer has claimed never yields a duplicate. A closed card does not count:
 // if the line is still stopped, its fix did not work.
 func (b BeadCards) existing(ctx context.Context, event string) (string, error) {
+	ids, err := b.live(ctx, event)
+	if err != nil || len(ids) == 0 {
+		return "", err
+	}
+	return ids[0], nil
+}
+
+// live returns the IDs of every live andon card naming event.
+func (b BeadCards) live(ctx context.Context, event string) ([]string, error) {
 	cmd := exec.CommandContext(ctx, "bd", "list", "--label", "andon", "--status", "open,in_progress", "--limit", "0", "--json")
 	cmd.Dir = b.Dir
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("bd list: %w", err)
+		return nil, fmt.Errorf("bd list: %w", err)
 	}
 	var issues []struct {
 		ID          string `json:"id"`
 		Description string `json:"description"`
 	}
 	if err := json.Unmarshal(out, &issues); err != nil {
-		return "", fmt.Errorf("bd list: parse output: %w", err)
+		return nil, fmt.Errorf("bd list: parse output: %w", err)
 	}
+	var ids []string
 	for _, is := range issues {
 		for _, line := range strings.Split(is.Description, "\n") {
 			if line == "event: "+event {
-				return is.ID, nil
+				ids = append(ids, is.ID)
+				break
 			}
 		}
 	}
-	return "", nil
+	return ids, nil
+}
+
+// Resolve closes every live andon card naming event with `bd close`.
+func (b BeadCards) Resolve(ctx context.Context, event, master string) error {
+	ids, err := b.live(ctx, event)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, id := range ids {
+		cmd := exec.CommandContext(ctx, "bd", "close", id, "--reason",
+			fmt.Sprintf("andon event %s cleared: master %s passes its checks", event, master))
+		cmd.Dir = b.Dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			errs = append(errs, fmt.Errorf("bd close %s: %w: %s", id, err, strings.TrimSpace(string(out))))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // Raise runs `bd create` and returns the new issue's ID. The description
