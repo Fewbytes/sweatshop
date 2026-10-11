@@ -397,7 +397,7 @@ func TestOnceContainerSpec(t *testing.T) {
 
 func TestPrompt(t *testing.T) {
 	plain := Prompt(Bead{ID: "b-1", Title: "Add a flag", Description: "Make it so."}, "")
-	for _, want := range []string{"b-1", "Add a flag", "Make it so.", "Bead: b-1", "/work", "just ci", "sweatshop line merge", "base_moved", "checks_failed", "RESULT: merged", "RESULT: gave-up"} {
+	for _, want := range []string{"b-1", "Add a flag", "Make it so.", "Bead: b-1", "/work", "just ci", "sweatshop line merge", "sweatshop line cards show", "sweatshop line cards list", "base_moved", "checks_failed", "RESULT: merged", "RESULT: gave-up"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("prompt lacks %q", want)
 		}

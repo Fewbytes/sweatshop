@@ -49,7 +49,13 @@ func Prompt(b Bead, andonEvent string) string {
    Keep the change small and focused on this card, and follow the code
    quality guide at the end of this prompt. Read CLAUDE.md for the
    project's conventions, but skip its beads/bd instructions: the host
-   tracks the card, and bd is not available here.
+   tracks the card, and bd is not available here. You may read the line's
+   cards for more context: `+"`sweatshop line cards show <id>`"+` (description,
+   comments, dependencies, parent) and
+   `+"`sweatshop line cards list [--parent ID] [--label L] [--status S]`"+`.
+   Read the cards this one depends on or descends from when it refers to
+   them or leaves something unclear. Reading is optional; you cannot write
+   cards.
 2. Run `+"`just ci`"+` and make it pass before submitting.
 3. Commit with these trailers as the last paragraph of the commit message,
    with nothing after them (no Co-Authored-By paragraph):
