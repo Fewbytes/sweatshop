@@ -656,3 +656,29 @@ func TestLineConstitutionClient(t *testing.T) {
 		t.Fatal("bogus accepted")
 	}
 }
+
+func TestLineInitGovernanceFlags(t *testing.T) {
+	src := gitx.Repo{Dir: t.TempDir()}
+	for _, args := range [][]string{
+		{"init", "--quiet", "--initial-branch=master"},
+		{"config", "user.name", "t"}, {"config", "user.email", "t@example.com"},
+		{"commit", "--quiet", "--allow-empty", "-m", "seed"},
+	} {
+		if _, err := src.Git(context.Background(), args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir := filepath.Join(t.TempDir(), "line")
+	err := run([]string{"line", "init", "--dir", dir, "--source", src.Dir,
+		"--sovereign-name", "alice", "--sovereign-discord", "123", "--channel", "456"}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _, err := constitution.Load(filepath.Join(dir, "constitution.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Sovereign.Name != "alice" || c.Sovereign.Discord != "123" || c.Channel.Channel != "456" || c.Channel.Kind != "discord" {
+		t.Fatalf("got %+v %+v", c.Sovereign, c.Channel)
+	}
+}

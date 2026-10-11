@@ -1,0 +1,67 @@
+# A fully annotated line constitution. `line init` writes a subset of this;
+# every section below is parsed by constitution.Parse (see TestExampleParses).
+
+# trust: who may sign evidence.
+[trust]
+# "none": signatures are verified but checks may run host-locally.
+# "attest": checks must run in a container runner (see [runner]).
+level = "attest"
+
+# One entry per witness/station key. roles limits what the key may attest as
+# (maker, andon, kaizen, gemba, viceroy); empty or absent means any role.
+[[trust.keys]]
+name = "maker-1"
+public_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="   # base64 ed25519 public key (placeholder here)
+roles = ["maker"]
+
+# runner: where required checks run.
+[runner]
+kind = "container"        # "local" or "container"
+engine = "docker"         # container only; default docker
+image = "sweatshop-station:dev"  # required for kind = "container"
+# Optional resource ceilings for container runs.
+memory = "4g"
+pids = 1024
+cpus = "2"
+
+# checks.required: every check must pass before the merge guard lands a commit.
+[checks]
+timeout = "30m"           # per-check bound; default 30m
+
+[[checks.required]]
+name = "ci"
+command = "just ci"
+
+# guards.paths: paths only the listed roles may change. First match wins;
+# a trailing /** matches a directory and everything beneath it.
+[[guards.paths]]
+pattern = "justfile"
+roles = ["gemba"]
+
+[[guards.paths]]
+pattern = "station/**"
+roles = ["gemba"]
+
+# sovereign: the king, the only identity whose channel messages carry authority.
+[sovereign]
+name = "alice"
+discord = "123456789012345678"   # Discord user ID (digits only)
+
+# channel: where the king and the viceroy talk.
+[channel]
+kind = "discord"
+channel = "223456789012345678"   # Discord channel ID (digits only)
+
+# viceroy: what the viceroy may do on its own.
+[viceroy]
+succession = true   # a successor viceroy may take over from its predecessor
+
+# A delegation lets the viceroy offer matching cards without the king. A card
+# matches by issue type, or by having parent in its ancestor chain.
+[[viceroy.delegations]]
+offer = "line"
+types = ["bug", "chore"]
+
+[[viceroy.delegations]]
+offer = "line"
+parent = "sweatshop-0mw"

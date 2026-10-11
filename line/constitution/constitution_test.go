@@ -326,3 +326,16 @@ func TestDelegates(t *testing.T) {
 		t.Error("empty constitution delegates")
 	}
 }
+
+func TestExampleParses(t *testing.T) {
+	c, _, err := Load("testdata/example.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Trust.Level != "attest" || len(c.Trust.Keys) != 1 || c.Runner.Kind != "container" ||
+		len(c.Checks.Required) != 1 || len(c.Guards.Paths) != 2 ||
+		c.Sovereign.Discord == "" || c.Channel.Kind != "discord" ||
+		!c.Viceroy.Succession || len(c.Viceroy.Delegations) != 2 {
+		t.Fatalf("example parsed unexpectedly: %+v", c)
+	}
+}

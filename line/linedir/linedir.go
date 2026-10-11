@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -25,13 +26,17 @@ import (
 type StationSpec struct{ Name, Role string }
 
 type InitOptions struct {
-	Dir      string        // line directory; must not exist or be empty
-	Source   string        // git repo whose master seeds the line
-	Engine   string        // default "docker"
-	Image    string        // default "sweatshop-station:dev"
-	Port     int           // default 7468
-	Check    string        // default "just ci"
-	Stations []StationSpec // default: {maker-1, maker}, {andon-1, andon}
+	Dir    string // line directory; must not exist or be empty
+	Source string // git repo whose master seeds the line
+	Engine string // default "docker"
+	Image  string // default "sweatshop-station:dev"
+	Port   int    // default 7468
+	Check  string // default "just ci"
+	// Optional governance: written to the constitution when set.
+	SovereignName    string        // the king's name
+	SovereignDiscord string        // the king's Discord user ID
+	Channel          string        // Discord channel ID for king/viceroy talk
+	Stations         []StationSpec // default: {maker-1, maker}, {andon-1, andon}
 }
 
 type Line struct {
@@ -113,6 +118,12 @@ func Init(ctx context.Context, opts InitOptions) (Line, error) {
 	if len(opts.Stations) == 0 {
 		opts.Stations = []StationSpec{{"maker-1", "maker"}, {"andon-1", "andon"}}
 	}
+	if (opts.SovereignName == "") != (opts.SovereignDiscord == "") {
+		return Line{}, errors.New("line init: sovereign name and discord ID go together")
+	}
+	if strings.ContainsFunc(opts.SovereignName, unicode.IsControl) {
+		return Line{}, fmt.Errorf("line init: bad sovereign name %q", opts.SovereignName)
+	}
 	seen := map[string]bool{}
 	for _, s := range opts.Stations {
 		if !safeName.MatchString(s.Name) || !safeName.MatchString(s.Role) || seen[s.Name] {
@@ -161,6 +172,12 @@ func Init(ctx context.Context, opts InitOptions) (Line, error) {
 	// Tests themselves stay agent-editable until acceptance paths exist.
 	cons.WriteString("\n[[guards.paths]]\npattern = \"justfile\"\nroles = [\"gemba\"]\n")
 	cons.WriteString("\n[[guards.paths]]\npattern = \"station/**\"\nroles = [\"gemba\"]\n")
+	if opts.SovereignName != "" {
+		fmt.Fprintf(&cons, "\n[sovereign]\nname = %q\ndiscord = %q\n", opts.SovereignName, opts.SovereignDiscord)
+	}
+	if opts.Channel != "" {
+		fmt.Fprintf(&cons, "\n[channel]\nkind = \"discord\"\nchannel = %q\n", opts.Channel)
+	}
 	if err := os.WriteFile(l.Constitution, []byte(cons.String()), 0o644); err != nil {
 		return Line{}, err
 	}

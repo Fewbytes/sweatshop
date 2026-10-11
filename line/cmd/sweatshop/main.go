@@ -36,6 +36,7 @@ const usage = `usage:
   sweatshop keygen PATH                 generate a witness signing key (PATH, PATH.pub)
   sweatshop guard install-hooks REPO    install the merge guard's pre-receive hook in a bare repo
   sweatshop line init --dir D --source S [--engine E] [--image I] [--port P]
+                  [--sovereign-name N --sovereign-discord ID] [--channel ID]
                                         create a line directory seeded from S's master
   sweatshop line station add --dir D --name NAME --role ROLE
                                         add a station (key, token, trusted key) to the line in D; restart line serve
@@ -138,6 +139,9 @@ func lineInit(args []string, stdout io.Writer) error {
 	fs.StringVar(&opts.Engine, "engine", "", "container engine (default docker)")
 	fs.StringVar(&opts.Image, "image", "", "station image (default sweatshop-station:dev)")
 	fs.IntVar(&opts.Port, "port", 0, "station API port (default 7468)")
+	fs.StringVar(&opts.SovereignName, "sovereign-name", "", "the king's name (needs --sovereign-discord)")
+	fs.StringVar(&opts.SovereignDiscord, "sovereign-discord", "", "the king's Discord user ID")
+	fs.StringVar(&opts.Channel, "channel", "", "Discord channel ID for king/viceroy talk")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

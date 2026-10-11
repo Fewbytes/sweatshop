@@ -233,3 +233,27 @@ func TestAddStationRefusals(t *testing.T) {
 		t.Error("refused station left files behind")
 	}
 }
+
+func TestInitWritesGovernance(t *testing.T) {
+	src := sourceRepo(t)
+	l, err := Init(context.Background(), InitOptions{
+		Dir: filepath.Join(t.TempDir(), "line"), Source: src.Dir,
+		SovereignName: "alice", SovereignDiscord: "123", Channel: "456",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _, err := constitution.Load(l.Constitution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Sovereign != (constitution.Sovereign{Name: "alice", Discord: "123"}) ||
+		c.Channel != (constitution.Channel{Kind: "discord", Channel: "456"}) {
+		t.Fatalf("governance = %+v %+v", c.Sovereign, c.Channel)
+	}
+	if _, err := Init(context.Background(), InitOptions{
+		Dir: filepath.Join(t.TempDir(), "line"), Source: src.Dir, SovereignName: "alice",
+	}); err == nil {
+		t.Fatal("sovereign name without discord ID accepted")
+	}
+}
