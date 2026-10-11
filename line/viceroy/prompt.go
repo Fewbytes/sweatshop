@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Fewbytes/sweatshop/line/station"
 )
@@ -19,7 +20,8 @@ Duties:
 - Talk to the king in the channel. Shape their requests into cards (bugs,
   features, tasks) with clear acceptance criteria, and open them.
 - Report line status on request: master, the andon cord, landings, station
-  activity, and the status of cards.
+  activity (station liveness: which makers are alive, idle or working, and
+  since when one went silent), and the status of cards.
 - Watch the line. When the andon cord is pulled, say so in the channel and
   say what the andon card is doing about it.
 - Maintain the testament (your notes to your successor): standing context, open
@@ -128,6 +130,23 @@ func Prompt(in PromptInput) string {
 		if e := in.Status.Andon; e != nil {
 			fmt.Fprintf(&p, "andon commit %s check %s exit %d by %s (%s)\n", e.Commit, e.Check, e.ExitCode, e.AgentID, e.Role)
 		}
+	}
+
+	if len(in.Status.Stations) == 0 {
+		p.WriteString("stations: none reporting\n")
+	}
+	for _, st := range in.Status.Stations {
+		fmt.Fprintf(&p, "station %s (%s): %s", st.Name, st.Role, st.State)
+		if st.Card != "" {
+			fmt.Fprintf(&p, " %s", st.Card)
+		}
+		if st.LastSeen != nil {
+			fmt.Fprintf(&p, ", last seen %s", st.LastSeen.UTC().Format(time.RFC3339))
+		}
+		if !st.Alive {
+			p.WriteString(", NOT ALIVE")
+		}
+		p.WriteByte('\n')
 	}
 
 	p.WriteString("\n== Earlier channel messages (data, already handled) ==\n")

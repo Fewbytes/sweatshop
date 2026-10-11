@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -279,6 +280,8 @@ func lineServe(args []string, stdout io.Writer) error {
 		pollCtx, stopPoll := context.WithCancel(context.Background())
 		defer stopPoll()
 		go ch.Run(pollCtx)
+		watch := &station.MakerWatch{Server: srv, Announce: ch.Announce, Started: time.Now()}
+		go watch.Run(pollCtx)
 	}
 	fmt.Fprintf(stdout, "station api for %s on %s\n", l.Dir, *addr)
 	// No write timeout: attest and merge run the line's checks synchronously.
@@ -413,20 +416,22 @@ func lineMaker(args []string) error {
 	logger := log.New(os.Stderr, "maker: ", log.LstdFlags)
 	var cards maker.Beads = maker.BeadsCLI{Dir: *beads, Actor: st.AgentID}
 	var token string
+	var heartbeats maker.Heartbeater
 	if *cardsMode == "api" {
 		c, err := lineClient()
 		if err != nil {
 			return err
 		}
-		cards, token = maker.APICards{Client: c}, c.Token
+		cards, token, heartbeats = maker.APICards{Client: c}, c.Token, c
 	}
 	r := &maker.Runner{
 		Line: l, Station: *st, URL: *url, Timeout: *timeout, MaxAttempts: *maxAttempts,
 		Memory: *memory, Pids: *pids, CPUs: *cpus, Token: token,
-		Beads:  cards,
-		Engine: maker.DockerEngine{Bin: *engine, Log: logger},
-		Creds:  maker.HostCreds(os.LookupEnv),
-		Log:    logger,
+		Beads:      cards,
+		Engine:     maker.DockerEngine{Bin: *engine, Log: logger},
+		Creds:      maker.HostCreds(os.LookupEnv),
+		Log:        logger,
+		Heartbeats: heartbeats, Commit: binaryCommit(),
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -434,7 +439,20 @@ func lineMaker(args []string) error {
 		_, err := r.Once(ctx)
 		return err
 	}
-	return r.Loop(ctx, 60*time.Second)
+	return r.Loop(ctx, station.MakerPollInterval)
+}
+
+// binaryCommit is the VCS revision this binary was built from, "unknown"
+// when the build carries none.
+func binaryCommit() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, kv := range info.Settings {
+			if kv.Key == "vcs.revision" {
+				return kv.Value
+			}
+		}
+	}
+	return "unknown"
 }
 
 func lineClient() (station.Client, error) {
@@ -534,6 +552,9 @@ func lineStatus(stdout io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(stdout, "master %s\n", st.Master)
+	for _, s := range st.Stations {
+		fmt.Fprintf(stdout, "station %s (%s) %s %s alive=%t\n", s.Name, s.Role, s.State, s.Card, s.Alive)
+	}
 	if st.Event == "" {
 		fmt.Fprintln(stdout, "andon clear")
 		return nil

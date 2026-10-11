@@ -227,6 +227,12 @@ func (c Client) Status(ctx context.Context) (Status, error) {
 	return st, err
 }
 
+// Heartbeat tells the line this station is alive and what it is doing.
+func (c Client) Heartbeat(ctx context.Context, hb Heartbeat) error {
+	_, err := c.postJSON(ctx, "/v1/stations/heartbeat", hb)
+	return err
+}
+
 // Evidence returns the check log recorded under id.
 func (c Client) Evidence(ctx context.Context, id string) ([]byte, error) {
 	return c.do(ctx, http.MethodGet, "/v1/evidence/"+url.PathEscape(id), nil, nil, nil)

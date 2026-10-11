@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/Fewbytes/sweatshop/line/gitx"
@@ -63,6 +64,8 @@ type Server struct {
 	// time across all stations, so several tokens cannot run checks in
 	// parallel to exhaust the host.
 	busy atomic.Bool
+
+	liveness liveness
 }
 
 // acquire claims the line's single check slot; release with s.busy.Store(false).
@@ -72,6 +75,9 @@ type Status struct {
 	Master string            `json:"master"`
 	Event  string            `json:"event,omitempty"`
 	Andon  *guard.AndonEvent `json:"andon,omitempty"`
+	// Stations is every maker's liveness, plus any other station that has sent
+	// a heartbeat.
+	Stations []StationStatus `json:"stations"`
 }
 
 // NewFromLine builds the server for a line directory: one witness per
@@ -239,6 +245,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 			return "", err
 		}
 		return s.status(w, r)
+	case path == "/v1/stations/heartbeat":
+		return s.heartbeat(w, r, st)
 	case path == "/v1/runs":
 		if err := method(http.MethodGet); err != nil {
 			return "", err
@@ -391,7 +399,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	writeJSON(w, http.StatusOK, Status{Master: master, Event: id, Andon: event})
+	writeJSON(w, http.StatusOK, Status{Master: master, Event: id, Andon: event, Stations: s.liveness.snapshot(s.Stations, time.Now())})
 	return "master=" + master + " event=" + id, nil
 }
 

@@ -48,6 +48,12 @@ const GaveUpLabel = station.LabelGaveUp
 // DefaultMaxAttempts caps the runs one bead gets before the maker gives up.
 const DefaultMaxAttempts = 3
 
+// Heartbeater is the slice of the station client the maker reports liveness
+// through.
+type Heartbeater interface {
+	Heartbeat(ctx context.Context, hb station.Heartbeat) error
+}
+
 type Engine interface {
 	// Run starts the station container and waits for it; returns exit code.
 	Run(ctx context.Context, spec ContainerSpec) (int, error)
@@ -88,6 +94,10 @@ type Runner struct {
 	// by interruption do not count against the bead.
 	MaxAttempts int
 	Log         *log.Logger
+	// Heartbeats tells the line this maker is alive; nil sends none. Commit is
+	// the maker binary's commit, reported with each heartbeat.
+	Heartbeats Heartbeater
+	Commit     string
 
 	attempts map[string]int
 }
@@ -188,9 +198,41 @@ func (r *Runner) maxAttempts() int {
 	return DefaultMaxAttempts
 }
 
+// beat sends one heartbeat; a line that cannot be reached must not stop the
+// maker, so a failure is only logged.
+func (r *Runner) beat(ctx context.Context, state station.StationState, card string) {
+	if r.Heartbeats == nil {
+		return
+	}
+	if err := r.Heartbeats.Heartbeat(ctx, station.Heartbeat{State: state, Card: card, Commit: r.Commit}); err != nil && ctx.Err() == nil {
+		r.logf("heartbeat: %v", err)
+	}
+}
+
+// beatWhileWorking heartbeats "working card" every station.MakerPollInterval
+// until the returned stop is called: a run lasts far longer than the line's
+// silence limit.
+func (r *Runner) beatWhileWorking(ctx context.Context, card string) (stop func()) {
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			r.beat(ctx, station.StateWorking, card)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(station.MakerPollInterval):
+			}
+		}
+	}()
+	return func() { cancel(); <-done }
+}
+
 // Once works one card: pick → claim → run → settle. It reports whether there
 // was a card to work.
 func (r *Runner) Once(ctx context.Context) (bool, error) {
+	r.beat(ctx, station.StateIdle, "")
 	ready, err := r.Beads.Ready(ctx, "line")
 	if err != nil {
 		return false, fmt.Errorf("ready beads: %w", err)
@@ -248,7 +290,9 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 		timeout = DefaultTimeout
 	}
 	runCtx, cancelRun := context.WithTimeout(ctx, timeout)
+	stopBeating := r.beatWhileWorking(ctx, b.ID)
 	code, runErr := r.Engine.Run(runCtx, spec)
+	stopBeating()
 	timedOut := errors.Is(runCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
 	cancelRun()
 	r.logf("%s: container exited %d (err %v)", b.ID, code, runErr)

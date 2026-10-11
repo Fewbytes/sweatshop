@@ -9,12 +9,14 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/Fewbytes/sweatshop/line/gitx"
 	"github.com/Fewbytes/sweatshop/line/guidance"
 	"github.com/Fewbytes/sweatshop/line/linedir"
+	"github.com/Fewbytes/sweatshop/line/station"
 )
 
 func ok(t *testing.T) func(string, error) {
@@ -555,5 +557,35 @@ func TestDockerEngineCancelRemovesContainer(t *testing.T) {
 	got := calls(t, logFile)
 	if len(got) != 2 || got[1] != "rm -f -- maker-1-b-1" {
 		t.Fatalf("docker calls = %q, want run then rm -f", got)
+	}
+}
+
+type fakeHeartbeats struct {
+	mu   sync.Mutex
+	beat []station.Heartbeat
+}
+
+func (f *fakeHeartbeats) Heartbeat(_ context.Context, hb station.Heartbeat) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.beat = append(f.beat, hb)
+	return nil
+}
+
+func TestOnceHeartbeatsIdleThenWorkingTheCard(t *testing.T) {
+	bare, _ := remote(t)
+	fb := &fakeBeads{ready: []Bead{{ID: "b-1", Priority: 1}}}
+	hb := &fakeHeartbeats{}
+	r := newRunner(t, bare, fb, &fakeEngine{})
+	r.Heartbeats, r.Commit = hb, "abc123"
+	if _, err := r.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := []station.Heartbeat{
+		{State: station.StateIdle, Commit: "abc123"},
+		{State: station.StateWorking, Card: "b-1", Commit: "abc123"},
+	}
+	if !reflect.DeepEqual(hb.beat, want) {
+		t.Fatalf("heartbeats %+v, want %+v", hb.beat, want)
 	}
 }

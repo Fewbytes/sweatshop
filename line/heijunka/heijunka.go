@@ -28,10 +28,11 @@ type Levels struct {
 
 // Snapshot is what the worker sees of the line at one wake.
 type Snapshot struct {
-	Ready      int  // open cards no one has claimed
-	InProgress int  // claimed cards
-	Stopped    bool // the andon cord is pulled
-	Current    Levels
+	Ready       int  // open cards no one has claimed
+	InProgress  int  // claimed cards
+	Stopped     bool // the andon cord is pulled
+	MakersAlive int  // maker stations that heartbeated recently
+	Current     Levels
 }
 
 // Policy bounds and shapes the levels. Zero values are invalid; use
@@ -115,8 +116,8 @@ func (w *Worker) Step(ctx context.Context) (Levels, error) {
 		return snap.Current, fmt.Errorf("apply %+v: %w", want, err)
 	}
 	if w.Log != nil {
-		w.Log.Printf("ready=%d in_progress=%d stopped=%t: %+v -> %+v",
-			snap.Ready, snap.InProgress, snap.Stopped, snap.Current, want)
+		w.Log.Printf("ready=%d in_progress=%d stopped=%t makers_alive=%d: %+v -> %+v",
+			snap.Ready, snap.InProgress, snap.Stopped, snap.MakersAlive, snap.Current, want)
 	}
 	return want, nil
 }
@@ -183,7 +184,7 @@ func (b BeadsObserver) Observe(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	return Snapshot{Ready: len(ready), InProgress: len(rows), Stopped: st.Event != "", Current: cur}, nil
+	return Snapshot{Ready: len(ready), InProgress: len(rows), Stopped: st.Event != "", MakersAlive: st.MakersAlive(), Current: cur}, nil
 }
 
 // LevelsFile publishes the levels as JSON for the actuators that run makers

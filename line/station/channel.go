@@ -314,6 +314,11 @@ func OpenChannel(lineDir string, c constitution.Constitution, cards Cards) (*Cha
 	return ch, nil
 }
 
+// Announce posts text to the channel as the line itself, without a viceroy footer.
+func (c *Channel) Announce(ctx context.Context, text string) error {
+	return c.Discord.Post(ctx, c.ChannelID, text)
+}
+
 func (c *Channel) inboxPath() string { return filepath.Join(c.Dir, "inbox.jsonl") }
 func (c *Channel) lastPath() string  { return filepath.Join(c.Dir, "last_id") }
 
