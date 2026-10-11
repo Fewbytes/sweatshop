@@ -156,6 +156,19 @@ func TestLineClientNeedsEnv(t *testing.T) {
 	}
 }
 
+func TestLineClientTrimsTokenWhitespace(t *testing.T) {
+	t.Setenv("SWEATSHOP_LINE_URL", "http://127.0.0.1:1")
+	t.Setenv("SWEATSHOP_LINE_TOKEN", " tok\n")
+	c, err := lineClient()
+	if err != nil || c.Token != "tok" {
+		t.Fatalf("lineClient token = %q, err = %v; want %q", c.Token, err, "tok")
+	}
+	t.Setenv("SWEATSHOP_LINE_TOKEN", "\n")
+	if _, err := lineClient(); err == nil || !strings.Contains(err.Error(), "SWEATSHOP_LINE_TOKEN is empty") {
+		t.Fatalf("whitespace-only token: %v", err)
+	}
+}
+
 func TestLineMergeAndStatus(t *testing.T) {
 	t.Setenv("SWEATSHOP_BEAD", "")
 	t.Setenv("SWEATSHOP_ANDON_EVENT", "")
