@@ -103,3 +103,19 @@ func TestFSStore(t *testing.T) {
 		}
 	}
 }
+
+func TestJSONLRunStoreAppends(t *testing.T) {
+	s := &JSONLRunStore{Path: filepath.Join(t.TempDir(), "sub", "runs.jsonl")}
+	for i := 0; i < 2; i++ {
+		if err := s.RecordRun(context.Background(), Stats{Commit: "abc", Checks: i}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b, err := os.ReadFile(s.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(b), "\n"); n != 2 {
+		t.Fatalf("want 2 lines, got %d: %q", n, b)
+	}
+}

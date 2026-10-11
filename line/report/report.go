@@ -10,6 +10,7 @@ package report
 
 import (
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -233,4 +235,33 @@ func (s FSStore) Put(_ context.Context, key, _ string, data []byte) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o600)
+}
+
+// JSONLRunStore appends each run's statistics as one JSON line to Path. It is
+// the dependency-free RunStore until the line has a database driver; Kaizen
+// and andon workers (or an importer into the master database) read the file.
+type JSONLRunStore struct {
+	Path string
+	mu   sync.Mutex
+}
+
+func (s *JSONLRunStore) RecordRun(_ context.Context, st Stats) error {
+	line, err := json.Marshal(st)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := os.MkdirAll(filepath.Dir(s.Path), 0o700); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(s.Path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(append(line, '\n')); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }

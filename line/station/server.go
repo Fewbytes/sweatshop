@@ -24,6 +24,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/gitx"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/linedir"
+	"github.com/Fewbytes/sweatshop/line/report"
 	"github.com/Fewbytes/sweatshop/line/witness"
 )
 
@@ -83,6 +84,13 @@ func NewFromLine(l linedir.Line) (*Server, error) {
 			return filepath.Join(st.StateDir, "evidence")
 		},
 	}
+	// Every run's JUnit/HTML go to the object store (S3 when SWEATSHOP_S3_BUCKET
+	// is set, else <line>/reports) and its stats to <line>/runs.jsonl.
+	objects, err := report.ObjectStoreFromEnv(filepath.Join(l.Dir, "reports"))
+	if err != nil {
+		return nil, err
+	}
+	reporter := &report.Reporter{Objects: objects, Runs: &report.JSONLRunStore{Path: filepath.Join(l.Dir, "runs.jsonl")}}
 	tokens := map[string]string{}
 	for _, ls := range l.Stations {
 		key, err := attest.LoadPrivateKey(ls.KeyFile)
@@ -110,6 +118,7 @@ func NewFromLine(l linedir.Line) (*Server, error) {
 				Runner:   witness.NewRunner(c.Runner, witness.LogRunner{Dir: filepath.Join(ls.StateDir, "evidence")}),
 				CacheDir: filepath.Join(ls.StateDir, "cache.git"),
 				Upstream: l.Remote,
+				Reporter: reporter,
 			},
 		})
 	}
