@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -30,6 +31,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/Fewbytes/sweatshop/line/constitution"
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/report"
 )
 
 type Witness struct {
@@ -49,6 +51,10 @@ type Witness struct {
 	// witness only reads it, except to push candidates in MergeBundle.
 	Upstream string
 	Now      func() time.Time
+	// Reporter, when set, publishes each completed run's JUnit/HTML reports
+	// and records its duration and statistics. Failures are logged only: they
+	// never change the verdict.
+	Reporter *report.Reporter
 
 	mu         sync.Mutex
 	gitChecked bool
@@ -252,10 +258,14 @@ func (w *Witness) run(ctx context.Context, commit, tree, checkout string) (Attes
 		Constitution: w.ConstitutionDigest, Runner: w.Constitution.Runner.ID(),
 	}
 	passed := true
+	started := w.now()
+	var timings []report.Check
 	timeout := w.Constitution.Checks.TimeoutDuration()
 	for _, check := range w.Constitution.Checks.Required {
 		checkCtx, cancel := context.WithTimeoutCause(ctx, timeout, errCheckTimeout)
+		checkStart := w.now()
 		run, err := w.Runner.Run(checkCtx, checkout, check.Command)
+		elapsed := w.now().Sub(checkStart)
 		cut := checkCtx.Err() != nil
 		cancel()
 		// A check that timed out or was cancelled is a runner error, never a
@@ -273,6 +283,10 @@ func (w *Witness) run(ctx context.Context, commit, tree, checkout string) (Attes
 		predicate.Checks = append(predicate.Checks, attest.CheckResult{
 			Name: check.Name, Command: check.Command, ExitCode: run.ExitCode, EvidenceID: run.EvidenceID,
 		})
+		timings = append(timings, report.Check{
+			Name: check.Name, Command: check.Command, ExitCode: run.ExitCode,
+			Duration: elapsed, EvidenceID: run.EvidenceID,
+		})
 		if run.ExitCode != 0 {
 			passed = false
 			break
@@ -287,7 +301,20 @@ func (w *Witness) run(ctx context.Context, commit, tree, checkout string) (Attes
 	if err != nil {
 		return AttestResult{}, err
 	}
+	w.publish(ctx, report.Run{
+		Commit: commit, Tree: tree, Role: w.Role, AgentID: w.AgentID, Runner: predicate.Runner,
+		StartedAt: started, FinishedAt: predicate.FinishedAt, Checks: timings,
+	})
 	return AttestResult{Commit: commit, Passed: passed, Statement: statement, Envelope: &env}, nil
+}
+
+func (w *Witness) publish(ctx context.Context, run report.Run) {
+	if w.Reporter == nil {
+		return
+	}
+	if err := w.Reporter.Publish(context.WithoutCancel(ctx), run); err != nil {
+		log.Printf("witness: report %s: %v", run.Commit, err)
+	}
 }
 
 // prepare serializes access to the shared cache: fetch, resolve, and check

@@ -13,6 +13,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/Fewbytes/sweatshop/line/constitution"
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/report"
 )
 
 type source struct {
@@ -210,5 +211,36 @@ func TestAttestResolvesBranchesAndRejectsUnknownRevisions(t *testing.T) {
 	}
 	if _, err := w.Attest(s.ctx, s.repo.Dir, "--upload-pack=touch /tmp/x"); err == nil {
 		t.Fatal("accepted an option-shaped revision")
+	}
+}
+
+type reportObjects map[string][]byte
+
+func (m reportObjects) Put(_ context.Context, key, _ string, data []byte) error {
+	m[key] = data
+	return nil
+}
+
+type reportRuns []report.Stats
+
+func (m *reportRuns) RecordRun(_ context.Context, s report.Stats) error {
+	*m = append(*m, s)
+	return nil
+}
+
+func TestAttestPublishesReportAndStats(t *testing.T) {
+	s := newSource(t)
+	w, _ := newWitness(t)
+	objs, runs := reportObjects{}, &reportRuns{}
+	w.Reporter = &report.Reporter{Objects: objs, Runs: runs}
+	head := s.commit("src/a.go", "package a")
+	if _, err := w.Attest(s.ctx, s.repo.Dir, "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+	if len(*runs) != 1 || (*runs)[0].Commit != head || !(*runs)[0].Passed || (*runs)[0].Checks != 1 {
+		t.Fatalf("runs = %+v", *runs)
+	}
+	if len(objs) != 2 {
+		t.Fatalf("objects = %d, want junit + html", len(objs))
 	}
 }
