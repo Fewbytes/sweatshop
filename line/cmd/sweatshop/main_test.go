@@ -426,12 +426,20 @@ func TestLineTestament(t *testing.T) {
 	}
 }
 
-type stubAgent struct{ prompts []string }
+type stubAgent struct {
+	prompts []string
+	// keepRunning skips the self-SIGTERM, for tests where viceroyRun returns
+	// on its own: the signal could land after its handler is unregistered
+	// and kill the test binary.
+	keepRunning bool
+}
 
 func (a *stubAgent) Run(_ context.Context, p string) (string, error) {
 	a.prompts = append(a.prompts, p)
 	// Stop the loop the way the container's supervisor would.
-	_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+	if !a.keepRunning {
+		_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+	}
 	return "done", nil
 }
 
@@ -558,7 +566,7 @@ func TestViceroyRunChecksInWithPredecessor(t *testing.T) {
 	t.Setenv("SWEATSHOP_LINE_TOKEN", "tok")
 	t.Setenv("SWEATSHOP_VICEROY_GEN", "2")
 	t.Setenv("SWEATSHOP_PREDECESSOR", "abc")
-	err := viceroyRun(nil, &stubAgent{})
+	err := viceroyRun(nil, &stubAgent{keepRunning: true})
 	if err == nil || !strings.Contains(err.Error(), "check in") || checkins != 1 {
 		t.Fatalf("err=%v checkins=%d", err, checkins)
 	}
