@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -587,5 +588,39 @@ func TestOnceHeartbeatsIdleThenWorkingTheCard(t *testing.T) {
 	}
 	if !reflect.DeepEqual(hb.beat, want) {
 		t.Fatalf("heartbeats %+v, want %+v", hb.beat, want)
+	}
+}
+
+func TestOnceSignalLogsExitAndReleasesClaim(t *testing.T) {
+	bare, _ := remote(t)
+	fb := &fakeBeads{ready: []Bead{{ID: "b-1", Priority: 1}}}
+	r := newRunner(t, bare, fb, &fakeEngine{block: true})
+	var logs bytes.Buffer
+	r.Log = log.New(&logs, "", 0)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	time.AfterFunc(50*time.Millisecond, func() { cancel(SignalCause(syscall.SIGTERM)) })
+	if err := r.Loop(ctx, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if last := fb.calls[len(fb.calls)-1]; !strings.HasPrefix(last, "release b-1 ") || !strings.Contains(last, "interrupted by terminated") {
+		t.Fatalf("last call = %q, want a release naming the signal", last)
+	}
+	if want := "exiting on terminated: releasing b-1"; !strings.Contains(logs.String(), want) {
+		t.Fatalf("log = %q, want %q", logs.String(), want)
+	}
+}
+
+func TestLoopLogsSignalWhenIdle(t *testing.T) {
+	bare, _ := remote(t)
+	r := newRunner(t, bare, &fakeBeads{}, &fakeEngine{})
+	var logs bytes.Buffer
+	r.Log = log.New(&logs, "", 0)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	time.AfterFunc(50*time.Millisecond, func() { cancel(SignalCause(syscall.SIGINT)) })
+	if err := r.Loop(ctx, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if want := "exiting on interrupt\n"; !strings.Contains(logs.String(), want) {
+		t.Fatalf("log = %q, want %q", logs.String(), want)
 	}
 }

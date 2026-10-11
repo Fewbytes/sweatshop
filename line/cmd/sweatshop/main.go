@@ -433,11 +433,25 @@ func lineMaker(args []string) error {
 		Log:        logger,
 		Heartbeats: heartbeats, Commit: binaryCommit(),
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	// The signal becomes the context's cause so the runner can log it.
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigs)
+	go func() {
+		if sig, ok := <-sigs; ok {
+			cancel(maker.SignalCause(sig))
+		}
+	}()
 	if *once {
-		_, err := r.Once(ctx)
-		return err
+		worked, err := r.Once(ctx)
+		if err != nil {
+			logger.Printf("exiting on error: %v", err)
+			return err
+		}
+		logger.Printf("exiting: --once done (card worked: %t)", worked)
+		return nil
 	}
 	return r.Loop(ctx, station.MakerPollInterval)
 }

@@ -175,6 +175,10 @@ func Landed(ctx context.Context, remote gitx.Repo, beadID, pre string) (bool, er
 	return false, nil
 }
 
+// SignalCause is the context cause to cancel with when a signal ends the
+// maker; its text is the signal's name, which the runner logs.
+func SignalCause(sig os.Signal) error { return errors.New(sig.String()) }
+
 func (r *Runner) logf(format string, args ...any) {
 	if r.Log != nil {
 		r.Log.Printf(format, args...)
@@ -303,7 +307,8 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 	case timedOut:
 		note = fmt.Sprintf("maker run timed out after %s without landing (exit %d)", timeout, code)
 	case ctx.Err() != nil:
-		note = fmt.Sprintf("maker run interrupted without landing (exit %d)", code)
+		r.logf("exiting on %v: releasing %s", context.Cause(ctx), b.ID)
+		note = fmt.Sprintf("maker run interrupted by %v without landing (exit %d)", context.Cause(ctx), code)
 		counts = false
 	case runErr == nil && code == EngineErrorExit:
 		// docker/podman exit 125 when they could not run the container at
@@ -355,7 +360,8 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 }
 
 // Loop runs Once until ctx ends, sleeping idle between empty polls and after
-// errors so a broken setup does not spin.
+// errors so a broken setup does not spin. It logs why it stopped: the cause
+// of ctx (the signal, when cancelled with one).
 func (r *Runner) Loop(ctx context.Context, idle time.Duration) error {
 	for {
 		worked, err := r.Once(ctx)
@@ -363,6 +369,7 @@ func (r *Runner) Loop(ctx context.Context, idle time.Duration) error {
 			r.logf("once: %v", err)
 		}
 		if ctx.Err() != nil {
+			r.logf("exiting on %v", context.Cause(ctx))
 			return nil
 		}
 		if worked && err == nil {
@@ -370,6 +377,7 @@ func (r *Runner) Loop(ctx context.Context, idle time.Duration) error {
 		}
 		select {
 		case <-ctx.Done():
+			r.logf("exiting on %v", context.Cause(ctx))
 			return nil
 		case <-time.After(idle):
 		}
