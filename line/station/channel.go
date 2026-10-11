@@ -178,6 +178,10 @@ type Channel struct {
 	Discord   Discord
 	Cards     Cards // nil: approve replies that cards are off
 	Interval  time.Duration
+	// Constitution applies `approve constitution <n>`; Restart then makes
+	// serve reload. Nil: the command replies that it is off.
+	Constitution func(ctx context.Context, n int, msgID string) error
+	Restart      func()
 
 	mu     sync.Mutex
 	me     string
@@ -371,6 +375,10 @@ func (c *Channel) append(m InboxMessage) error {
 
 // command applies a king message. The caller has already checked the author.
 func (c *Channel) command(ctx context.Context, m InboxMessage) {
+	if sub := approveConstitutionRe.FindStringSubmatch(m.Text); sub != nil {
+		c.approveConstitution(ctx, m, sub[1])
+		return
+	}
 	sub := approveRe.FindStringSubmatch(m.Text)
 	if sub == nil {
 		return
@@ -394,6 +402,32 @@ func (c *Channel) command(ctx context.Context, m InboxMessage) {
 		log.Printf("channel: approve %s comment: %v", id, err)
 	}
 	reply("approved %s", id)
+}
+
+func (c *Channel) approveConstitution(ctx context.Context, m InboxMessage, num string) {
+	reply := func(format string, args ...any) {
+		if err := c.Discord.Post(ctx, c.ChannelID, fmt.Sprintf(format, args...)); err != nil {
+			log.Printf("channel: reply: %v", err)
+		}
+	}
+	// Defence in depth: Poll only calls command for the king.
+	if c.King == "" || m.AuthorID != c.King {
+		return
+	}
+	n, _ := strconv.Atoi(num)
+	if c.Constitution == nil {
+		reply("cannot approve constitution %d: not configured", n)
+		return
+	}
+	if err := c.Constitution(ctx, n, m.ID); err != nil {
+		log.Printf("channel: approve constitution %d: %v", n, err)
+		reply("could not approve constitution %d: %v", n, err)
+		return
+	}
+	reply("constitution proposal %d approved; reloading", n)
+	if c.Restart != nil {
+		c.Restart()
+	}
 }
 
 // Since returns inbox messages with ID after `after`, oldest first, waiting up

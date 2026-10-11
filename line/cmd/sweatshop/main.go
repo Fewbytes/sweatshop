@@ -53,6 +53,8 @@ const usage = `usage:
                                         read the king's channel / post to it (viceroy only)
   sweatshop line testament get | put (notes on stdin)
                                         read / replace the viceroy's testament, <= 64 KiB (viceroy only)
+  sweatshop line constitution get | propose (TOML on stdin) | log
+                                        read the constitution / propose a full replacement for the king to approve (viceroy only) / list its history
   sweatshop line viceroy start --dir D --commit C [--engine E] [--url URL] [--station NAME]
                                         owner: build and start viceroy generation 1 at master commit C
   sweatshop viceroy succeed [--commit C] | checkin
@@ -98,6 +100,8 @@ func run(args []string, stdout io.Writer) error {
 		return lineCards(args[2:], os.Stdin, stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "channel":
 		return lineChannel(args[2:], os.Stdin, stdout)
+	case len(args) >= 2 && args[0] == "line" && args[1] == "constitution":
+		return lineConstitution(args[2:], os.Stdin, stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "testament":
 		return lineTestament(args[2:], os.Stdin, stdout)
 	case len(args) >= 3 && args[0] == "line" && args[1] == "viceroy" && args[2] == "start":
@@ -235,6 +239,16 @@ func lineServe(args []string, stdout io.Writer) error {
 		return err
 	}
 	srv.Channel = ch
+	reload := make(chan struct{}, 1)
+	if ch != nil {
+		ch.Constitution = srv.ApproveConstitution
+		ch.Restart = func() {
+			select {
+			case reload <- struct{}{}:
+			default:
+			}
+		}
+	}
 	sup := station.NewSupervisor(srv, l, station.CLIEngine{Bin: l.Engine, Log: log.New(os.Stderr, "viceroy: ", log.LstdFlags)})
 	if err := sup.Resume(context.Background()); err != nil {
 		log.Printf("viceroy: resume: %v", err)
@@ -247,7 +261,17 @@ func lineServe(args []string, stdout io.Writer) error {
 	fmt.Fprintf(stdout, "station api for %s on %s\n", l.Dir, *addr)
 	// No write timeout: attest and merge run the line's checks synchronously.
 	hs := &http.Server{Addr: *addr, Handler: srv, ReadHeaderTimeout: 10 * time.Second}
-	return hs.ListenAndServe()
+	go func() {
+		<-reload
+		// Exit cleanly so the supervisor (launchd) restarts serve with the
+		// approved constitution.
+		log.Printf("constitution changed; exiting to reload")
+		_ = hs.Shutdown(context.Background())
+	}()
+	if err := hs.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
 }
 
 // lineAndon runs the andon watcher until interrupted. It needs the andon
@@ -626,6 +650,51 @@ func lineTestament(args []string, stdin io.Reader, stdout io.Writer) error {
 		return fmt.Errorf("line testament put: input exceeds %d bytes", max)
 	}
 	return c.TestamentPut(ctx, body)
+}
+
+// lineConstitution implements `line constitution get|propose|log`; propose
+// reads the full new TOML from stdin.
+func lineConstitution(args []string, stdin io.Reader, stdout io.Writer) error {
+	if len(args) != 1 || (args[0] != "get" && args[0] != "propose" && args[0] != "log") {
+		return errors.New(usage)
+	}
+	c, err := lineClient()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	switch args[0] {
+	case "get":
+		body, err := c.ConstitutionGet(ctx)
+		if err != nil {
+			return err
+		}
+		_, err = stdout.Write(body)
+		return err
+	case "log":
+		entries, err := c.ConstitutionLog(ctx)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			fmt.Fprintf(stdout, "%s %s\n", e.Commit[:min(len(e.Commit), 12)], e.Message)
+		}
+		return nil
+	}
+	const max = 256 << 10
+	body, err := io.ReadAll(io.LimitReader(stdin, max+1))
+	if err != nil {
+		return err
+	}
+	if len(body) > max {
+		return fmt.Errorf("line constitution propose: input exceeds %d bytes", max)
+	}
+	n, err := c.ConstitutionPropose(ctx, body)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "proposal %d posted to the channel; waiting for the king to approve\n", n)
+	return nil
 }
 
 // viceroyRun implements `viceroy run`; the agent is a parameter so tests can

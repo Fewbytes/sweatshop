@@ -330,6 +330,36 @@ func (c Client) TestamentPut(ctx context.Context, body []byte) error {
 	return err
 }
 
+// ConstitutionGet returns the current constitution TOML.
+func (c Client) ConstitutionGet(ctx context.Context) ([]byte, error) {
+	return c.do(ctx, http.MethodGet, "/v1/constitution", nil, nil, nil)
+}
+
+// ConstitutionEntry is one commit in the constitution's history.
+type ConstitutionEntry struct {
+	Commit  string `json:"commit"`
+	Message string `json:"message"`
+}
+
+// ConstitutionLog lists the constitution's history, newest first.
+func (c Client) ConstitutionLog(ctx context.Context) ([]ConstitutionEntry, error) {
+	var out struct {
+		Entries []ConstitutionEntry `json:"entries"`
+	}
+	_, err := c.do(ctx, http.MethodGet, "/v1/constitution/log", nil, nil, &out)
+	return out.Entries, err
+}
+
+// ConstitutionPropose submits a full new constitution for the king's approval
+// (viceroy only) and returns the proposal number.
+func (c Client) ConstitutionPropose(ctx context.Context, toml []byte) (int, error) {
+	var out struct {
+		Proposal int `json:"proposal"`
+	}
+	_, err := c.do(ctx, http.MethodPost, "/v1/constitution/proposals", nil, bytes.NewReader(toml), &out)
+	return out.Proposal, err
+}
+
 // ViceroySucceed asks the line to start a new viceroy generation at commit
 // (viceroy only).
 func (c Client) ViceroySucceed(ctx context.Context, commit string) ([]byte, error) {

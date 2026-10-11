@@ -44,3 +44,16 @@ func TestInstallHooksIsIdempotentAndRefusesForeignHook(t *testing.T) {
 		t.Fatal("overwrote a foreign pre-receive hook")
 	}
 }
+
+func TestHookRejectsConstitutionRefPushes(t *testing.T) {
+	f := newFixture(t)
+	if err := InstallHooks(f.remote.Dir); err != nil {
+		t.Fatal(err)
+	}
+	commit := f.commit("constitution", "x")
+	for _, ref := range []string{"refs/line/constitution", "refs/line/constitution-proposals/1"} {
+		if _, err := f.work.Git(f.ctx, "push", "origin", commit+":"+ref); err == nil {
+			t.Errorf("push to %s accepted", ref)
+		}
+	}
+}

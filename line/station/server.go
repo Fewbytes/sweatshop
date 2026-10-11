@@ -5,6 +5,7 @@
 package station
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -20,7 +21,6 @@ import (
 	"sync/atomic"
 
 	"github.com/Fewbytes/sweatshop/line/attest"
-	"github.com/Fewbytes/sweatshop/line/constitution"
 	"github.com/Fewbytes/sweatshop/line/gitx"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/linedir"
@@ -72,12 +72,13 @@ type Status struct {
 // NewFromLine builds the server for a line directory: one witness per
 // station, all pushing to and guarded on the line's remote.
 func NewFromLine(l linedir.Line) (*Server, error) {
-	c, digest, err := constitution.Load(l.Constitution)
+	repo := gitx.Repo{Dir: l.Remote}
+	c, digest, err := LoadConstitution(context.Background(), repo, l.Constitution)
 	if err != nil {
 		return nil, err
 	}
 	s := &Server{
-		Guard: guard.Guard{Repo: gitx.Repo{Dir: l.Remote}, Ref: "refs/heads/master", Constitution: c, ConstitutionDigest: digest},
+		Guard: guard.Guard{Repo: repo, Ref: "refs/heads/master", Constitution: c, ConstitutionDigest: digest},
 		EvidenceDir: func(st *Station) string {
 			return filepath.Join(st.StateDir, "evidence")
 		},
@@ -217,6 +218,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 		return s.status(w, r)
 	case path == "/v1/cards" || strings.HasPrefix(path, "/v1/cards/"):
 		return s.routeCards(w, r, st)
+	case path == "/v1/constitution" || strings.HasPrefix(path, "/v1/constitution/"):
+		return s.routeConstitution(w, r, st)
 	case path == "/v1/testament":
 		return s.routeTestament(w, r, st)
 	case strings.HasPrefix(path, "/v1/viceroy/"):

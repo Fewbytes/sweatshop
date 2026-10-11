@@ -621,3 +621,38 @@ func TestViceroyRunNoCheckinWhenStartupFails(t *testing.T) {
 		t.Fatalf("err=%v checkins=%d", err, checkins)
 	}
 }
+
+func TestLineConstitutionClient(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/constitution":
+			_, _ = w.Write([]byte("toml\n"))
+		case "/v1/constitution/log":
+			_, _ = w.Write([]byte(`{"entries":[{"commit":"abcdef0123456789","message":"m"}]}`))
+		case "/v1/constitution/proposals":
+			b, _ := io.ReadAll(r.Body)
+			if string(b) != "new" {
+				w.WriteHeader(http.StatusBadRequest)
+			}
+			_, _ = w.Write([]byte(`{"proposal":4}`))
+		}
+	}))
+	defer ts.Close()
+	t.Setenv("SWEATSHOP_LINE_URL", ts.URL)
+	t.Setenv("SWEATSHOP_LINE_TOKEN", "tok")
+	var out bytes.Buffer
+	if err := lineConstitution([]string{"get"}, nil, &out); err != nil || out.String() != "toml\n" {
+		t.Fatalf("get %q %v", out.String(), err)
+	}
+	out.Reset()
+	if err := lineConstitution([]string{"log"}, nil, &out); err != nil || out.String() != "abcdef012345 m\n" {
+		t.Fatalf("log %q %v", out.String(), err)
+	}
+	out.Reset()
+	if err := lineConstitution([]string{"propose"}, strings.NewReader("new"), &out); err != nil || !strings.Contains(out.String(), "proposal 4") {
+		t.Fatalf("propose %q %v", out.String(), err)
+	}
+	if err := lineConstitution([]string{"bogus"}, nil, &out); err == nil {
+		t.Fatal("bogus accepted")
+	}
+}
