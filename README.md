@@ -25,21 +25,29 @@ Sweatshop is a collection of high-performance tools, plugins, execution runtimes
 A high-performance Go-based daemon (`agentshd`), client CLI (`agentsh`), and MCP server providing isolated, supervised, out-of-context command execution, full command history, process trees, and stream inspection.
 *See [`design-docs/agentsh-spec.md`](design-docs/agentsh-spec.md)*.
 
-### 2. Issue Tracking & Workflow (`beads` / `bd`)
-Embedded issue tracking with Dolt backend, providing branch-safe, cross-agent task assignment, atomic claims, and structured session close protocols.
+### 2. `bughunt` — Automated Bug Hunter
+Finds bugs, proves each one with a failing test, fixes it, and turns it into a permanent static rule, so `bughunt scan` catches the same class from then on without an LLM. Findings and triage verdicts are tracked in a shared database, so false-positive rates build up across a team. `bughunt scan --diff <rev>` gates commits (`just bughunt-hook` installs the pre-commit hook).
+*See [`design-docs/bughunt-spec.md`](design-docs/bughunt-spec.md)*.
 
-### 3. `line` — Assembly Line Primitives
+### 3. `depmaint` — Dependency Maintenance
+Expands a repository's full transitive dependency graph, packages and runtimes alike. It caches the graph with external metadata (versions, advisories, EOL dates, licenses), then runs bounded campaigns: it analyzes what blocks an upgrade, issues work orders to agents and records the verdicts, so nothing analyzed or rejected once is redone. Today it builds and snapshots the graph (`depmaint graph`); campaigns are designed but not built.
+*See [`design-docs/depmaint-spec.md`](design-docs/depmaint-spec.md)*.
+
+### 4. `line` — Assembly Line Primitives
 Witness attestations (DSSE/in-toto, Ed25519), the constitution (line rules), and the merge guard that fast-forwards the guarded branch only for trusted, passing attestations. agentsh embeds the witness; `sweatshop` administers keys and the guard's repository hook.
 
 **Limitation:** the witness only protects its key and state from agents that run sandboxed apart from it. In the agentsh dev path (`line_attest`/`line_merge`) the agent and the witness share a host user (trust level `none`), so a malicious agent can read the witness key and alter witness state. The M1 deployment (below) runs the witness on the host in `sweatshop line serve` and the agent in a container. Agent commands are not witnessed yet.
 
 **Limitation:** the witness's clean-room check run executes the candidate's own check definition (`just ci` from its `justfile`, in the image built from `station/`). `line init` gates `justfile` and `station/**` to role `gemba`, and M1 has no gemba station, so only the owner changes them, directly on the host. The tests themselves stay agent-editable: a maker can weaken tests in the commit they judge. Reviewing landed test changes is the operator's job until acceptance paths and a gemba station exist.
 
-*See [`design-docs/assembly-line-spec.md`](design-docs/assembly-line-spec.md)*.
+*See [`design-docs/assembly-line-spec.md`](design-docs/assembly-line-spec.md), and [`design-docs/roles-and-responsibilities.md`](design-docs/roles-and-responsibilities.md) for who does what on the line*.
 
-### 4. Agent Skills & Extensions
+### 5. Agent Skills & Extensions
 - **Claude Code**: Agent skills under `.agents/skills/` and `.claude/`.
 - **pi.dev**: Extensions and skills compatible with pi agent harness.
+
+### External dependency: beads (`bd`)
+[beads](https://github.com/gastownhall/beads) is a separate project, not part of sweatshop. It is a Dolt-backed issue tracker with atomic claims. The line uses it as its kanban: cards, claims and escalations live in beads, `line serve --beads` serves them to stations, and bughunt and depmaint escalate to it. This repository also tracks its own work in beads (`.beads/`). Install `bd` from its repository.
 
 ---
 
@@ -48,6 +56,8 @@ Witness attestations (DSSE/in-toto, Ed25519), the constitution (line rules), and
 ```text
 sweatshop/
 ├── agentsh/           # Go implementation of agentsh daemon, client, and MCP server
+├── bughunt/           # Bug hunter: detectors, rules, findings database
+├── depmaint/          # Dependency maintenance: graph expansion, campaigns
 ├── line/              # Assembly line: witness attestations, constitution, merge guard
 ├── design-docs/       # Technical specs (agentsh, factory architecture)
 ├── skills/            # Shared agent skills and tool definitions
@@ -63,7 +73,7 @@ sweatshop/
 
 Design: [`design-docs/m1-line-live.md`](design-docs/m1-line-live.md). The M1 line runs on one host: the witness, guard, line remote and attestation store live on the host; agents run in containers. On macOS the engine is the `docker` CLI against a podman machine; give the VM enough memory for `just ci`.
 
-Host prerequisites: `bd` (beads) on `PATH`, a container engine CLI (`docker`, or a docker-compatible CLI such as `podman`), `just` and Go to build, and host git ≥ 2.45.1 (the witness runs git on the host and refuses older versions).
+Host prerequisites: `bd` from the external [beads](https://github.com/gastownhall/beads) project on `PATH`, a container engine CLI (`docker`, or a docker-compatible CLI such as `podman`), `just` and Go to build, and host git ≥ 2.45.1 (the witness runs git on the host and refuses older versions).
 
 ```bash
 just station-image                       # sweatshop-station:dev; agent container and check-runner image
@@ -87,7 +97,7 @@ sweatshop line maker --dir ~/line --station maker-1 --beads /path/to/repo [--onc
 - **Offering work.** Beads labelled `line` that are ready are offered to the Maker, andon cards first; while the line is stopped, only andon cards. The maker claims the bead on the host, runs the agent in a container, and closes it when a commit carrying `Bead: <id>` lands on master during that run; otherwise it unclaims the bead with a note. After `--max-attempts` failed runs (per runner process) the bead is labelled `line-gave-up` and no longer offered; `bd label remove <id> line-gave-up` offers it again.
 - **Andon.** `line andon` attests each new master. A failing signed attestation pulls the cord: merges stop except fixes with an `Andon-Event: <id>` trailer, and a P0 bead labelled `line` and `andon` is filed whose description has a line `event: <id>`. While the line stays stopped the watcher keeps one open or in-progress card for the event, filing a fresh one if a fix landed but master still fails. Clearing needs a passing attestation of a master newer than the failing commit; a flake needs one trivial commit carrying the trailer.
 - **Containers.** Run with `--cap-drop=ALL` and `no-new-privileges`, the line remote mounted read-only, and the station API reached through `host.containers.internal` (the API listens on loopback only; `line maker --url` overrides).
-- **Supervised service.** `line maker --cards api` reaches cards only through `line serve --beads` (`/v1/cards`: ready, claim, release, close, give-up; role `maker`, and only on cards the station has claimed), so the maker never opens `.beads` and needs no `bd`. Its token comes from `SWEATSHOP_LINE_TOKEN` and the API from `SWEATSHOP_LINE_URL`. Run it from an image carrying sweatshop and the podman remote client (no `bd`; the image target and a `just` recipe are not in the tree yet: `justfile` and `station/**` are gemba-gated) as `podman run -d --name sweatshop-maker-1 --restart=always ... --dir LINE --station maker-1` with the station token and model credential as podman secrets, `CONTAINER_HOST` pointing at the podman API socket (so it starts station containers), and the line dir mounted read-only at its host path. The equivalent quadlet (`~/.config/containers/systemd/sweatshop-maker-1.container`):
+- **Supervised service.** `line maker --cards api` reaches cards only through `line serve --beads` (`/v1/cards`: ready, claim, release, close, give-up; role `maker`, and only on cards the station has claimed), so the maker never opens `.beads` and needs no `bd`. Its token comes from `SWEATSHOP_LINE_TOKEN` and the API from `SWEATSHOP_LINE_URL`. `just maker-image` builds its image (`sweatshop-maker`: sweatshop, git and the podman remote client; no `bd`), and `just maker-service [name] [line]` runs it as `podman run -d --name sweatshop-maker-1 --restart=always ... --dir LINE --station maker-1` with the station token and model credential as podman secrets, `CONTAINER_HOST` pointing at the podman API socket (so it starts station containers), and the line dir mounted read-only at its host path. The equivalent quadlet (`~/.config/containers/systemd/sweatshop-maker-1.container`):
 
   ```ini
   [Container]
