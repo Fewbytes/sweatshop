@@ -19,6 +19,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/gitx"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/linedir"
+	"github.com/Fewbytes/sweatshop/line/report"
 	"github.com/Fewbytes/sweatshop/line/witness"
 )
 
@@ -495,5 +496,48 @@ func TestNewFromLineRejectsSharedTokens(t *testing.T) {
 	}
 	if _, err := NewFromLine(r.line); err == nil {
 		t.Fatal("two stations sharing a token were accepted")
+	}
+}
+
+func TestRunsStats(t *testing.T) {
+	r := newRig(t)
+	if code, _ := r.raw("GET", "/v1/runs", "", nil); code != http.StatusUnauthorized {
+		t.Fatalf("no token: %d", code)
+	}
+	if code, _ := r.raw("POST", "/v1/runs", r.token("maker-1"), nil); code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST: %d", code)
+	}
+	code, body := r.raw("GET", "/v1/runs", r.token("maker-1"), nil)
+	if code != http.StatusOK || !strings.Contains(body, `"runs":[]`) {
+		t.Fatalf("empty: %d %s", code, body)
+	}
+	store := &report.JSONLRunStore{Path: r.srv.RunsPath}
+	for _, st := range []report.Stats{
+		{Commit: "a", Tree: "t1", Role: "maker", DurationMS: 1000, Checks: 2, Failures: 1, Passed: false},
+		{Commit: "b", Tree: "t1", Role: "maker", DurationMS: 3000, Checks: 2, Passed: true, ReportKey: "reports/b/junit.xml"},
+		{Commit: "c", Tree: "t2", Role: "andon", DurationMS: 2000, Checks: 2, Passed: true},
+	} {
+		if err := store.RecordRun(r.ctx, st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	code, body = r.raw("GET", "/v1/runs?role=maker&limit=1", r.token("andon-1"), nil)
+	if code != http.StatusOK {
+		t.Fatalf("%d %s", code, body)
+	}
+	var resp RunsResponse
+	if err := json.Unmarshal([]byte(body), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Runs) != 1 || resp.Runs[0].Commit != "b" || resp.Runs[0].ReportKey == "" {
+		t.Fatalf("runs: %+v", resp.Runs)
+	}
+	sum := resp.Summary
+	if sum.Runs != 2 || sum.Passed != 1 || sum.Failed != 1 || sum.AvgMS != 2000 || sum.MaxMS != 3000 ||
+		len(sum.FlakyTrees) != 1 || sum.FlakyTrees[0] != "t1" || sum.Slowest[0].Commit != "b" {
+		t.Fatalf("summary: %+v", sum)
+	}
+	if code, _ := r.raw("GET", "/v1/runs?limit=0", r.token("maker-1"), nil); code != http.StatusBadRequest {
+		t.Fatalf("bad limit: %d", code)
 	}
 }

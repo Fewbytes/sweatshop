@@ -54,6 +54,7 @@ type Server struct {
 	Cards       Cards                    // nil: the cards routes return 503
 	Channel     *Channel                 // nil: the channel routes return 503
 	Viceroy     *Supervisor              // nil: the viceroy routes return 503, no generation guard
+	RunsPath    string                   // runs.jsonl written by the Reporter; "": the runs route returns 503
 
 	// busy admits one check-running request (attest, merge, attest-line) at a
 	// time across all stations, so several tokens cannot run checks in
@@ -90,7 +91,8 @@ func NewFromLine(l linedir.Line) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	reporter := &report.Reporter{Objects: objects, Runs: &report.JSONLRunStore{Path: filepath.Join(l.Dir, "runs.jsonl")}}
+	s.RunsPath = filepath.Join(l.Dir, "runs.jsonl")
+	reporter := &report.Reporter{Objects: objects, Runs: &report.JSONLRunStore{Path: s.RunsPath}}
 	tokens := map[string]string{}
 	for _, ls := range l.Stations {
 		key, err := attest.LoadPrivateKey(ls.KeyFile)
@@ -225,6 +227,11 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 			return "", err
 		}
 		return s.status(w, r)
+	case path == "/v1/runs":
+		if err := method(http.MethodGet); err != nil {
+			return "", err
+		}
+		return s.runs(w, r)
 	case path == "/v1/cards" || strings.HasPrefix(path, "/v1/cards/"):
 		return s.routeCards(w, r, st)
 	case path == "/v1/constitution" || strings.HasPrefix(path, "/v1/constitution/"):

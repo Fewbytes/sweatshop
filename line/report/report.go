@@ -9,6 +9,8 @@
 package report
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"encoding/xml"
@@ -264,4 +266,26 @@ func (s *JSONLRunStore) RecordRun(_ context.Context, st Stats) error {
 		return err
 	}
 	return f.Close()
+}
+
+// ReadJSONL returns the runs saved by a JSONLRunStore, oldest first. A missing
+// file is no runs; a torn or malformed line is skipped.
+func ReadJSONL(path string) ([]Stats, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []Stats
+	sc := bufio.NewScanner(bytes.NewReader(data))
+	sc.Buffer(nil, 1<<20)
+	for sc.Scan() {
+		var st Stats
+		if json.Unmarshal(sc.Bytes(), &st) == nil {
+			out = append(out, st)
+		}
+	}
+	return out, sc.Err()
 }
