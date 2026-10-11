@@ -79,12 +79,18 @@ func (w *Watcher) Step(ctx context.Context) error {
 		}
 		return nil
 	}
+	// A master whose attestation keeps erroring never gets a verdict, but a
+	// stopped line must still have a live card meanwhile.
 	res, err := w.API.AttestLine(ctx, st.Master)
-	if err != nil {
-		return fmt.Errorf("attest %s: %w", st.Master, err)
+	if err == nil && res.Envelope == nil {
+		err = errors.New("no envelope returned")
 	}
-	if res.Envelope == nil {
-		return fmt.Errorf("attest %s: no envelope returned", st.Master)
+	if err != nil {
+		err = fmt.Errorf("attest %s: %w", st.Master, err)
+		if st.Event != "" {
+			return errors.Join(err, w.ensureCard(ctx, st.Event, stoppedEvent(), st.Master))
+		}
+		return err
 	}
 	w.last = st.Master
 

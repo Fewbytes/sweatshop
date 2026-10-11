@@ -416,3 +416,21 @@ func TestBeadCards(t *testing.T) {
 		}
 	}
 }
+
+func TestAttestErrorOnStoppedLineStillCards(t *testing.T) {
+	api := &fakeAPI{
+		status:    station.Status{Master: "bbb", Event: "ev0", Andon: &guard.AndonEvent{Commit: "aaa"}},
+		attestErr: errors.New("boom"),
+	}
+	w, cards := newWatcher(api)
+	if err := w.Step(context.Background()); err == nil {
+		t.Fatal("want error")
+	}
+	cards.closeAll()
+	if err := w.Step(context.Background()); err == nil {
+		t.Fatal("want error")
+	}
+	if cards.calls != 2 || len(cards.events) != 2 || cards.masters[0] != "bbb" {
+		t.Fatalf("raise calls=%d cards=%v masters=%v", cards.calls, cards.events, cards.masters)
+	}
+}
