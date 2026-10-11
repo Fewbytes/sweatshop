@@ -206,6 +206,43 @@ func TestAddStation(t *testing.T) {
 	}
 }
 
+func TestAddStationCommitsKeyOntoConstitutionRef(t *testing.T) {
+	ctx := context.Background()
+	l, _ := initLine(t)
+	repo := gitx.Repo{Dir: l.Remote}
+	file, err := os.ReadFile(l.Constitution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The ref carries a setting the file lacks, as after an approved proposal.
+	refData := append(file, []byte("\n[channel]\nkind = \"discord\"\nchannel = \"123456789\"\ntransport = \"gateway\"\n")...)
+	if _, err := CommitConstitution(ctx, repo, refData, "", "seed", "line"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AddStation(l.Dir, StationSpec{Name: "viceroy-1", Role: "viceroy"}); err != nil {
+		t.Fatal(err)
+	}
+	onRef, err := repo.ReadBlob(ctx, ConstitutionRef+":"+ConstitutionBlob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := constitution.Parse(onRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Trust.Keys) != 3 || c.Trust.Keys[2].Name != "viceroy-1" || !strings.Contains(string(onRef), `transport = "gateway"`) {
+		t.Fatalf("ref constitution = %s", onRef)
+	}
+	exported, err := os.ReadFile(l.Constitution)
+	if err != nil || string(exported) != string(onRef) {
+		t.Fatalf("constitution.toml is not an export of the ref: %v\n%s", err, exported)
+	}
+	log, err := repo.Git(ctx, "log", "--format=%s", ConstitutionRef)
+	if err != nil || !strings.Contains(log, "station add viceroy-1") {
+		t.Fatalf("log = %q, %v", log, err)
+	}
+}
+
 func TestAddStationRefusals(t *testing.T) {
 	l, _ := initLine(t)
 	before, err := os.ReadFile(l.Constitution)

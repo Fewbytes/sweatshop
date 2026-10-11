@@ -1,7 +1,9 @@
 package station
 
 import (
+	"bytes"
 	"context"
+	"log"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -9,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/linedir"
 )
 
 const baseCons = "[trust]\nlevel = \"none\"\n\n[[checks.required]]\nname = \"ci\"\ncommand = \"true\"\n\n[runner]\nkind = \"local\"\n"
@@ -36,6 +39,29 @@ func consRig(t *testing.T) (*Server, Client, Client, *Channel, *fakeDiscordServe
 	return srv, Client{URL: ts.URL, Token: "vt"}, Client{URL: ts.URL, Token: "mt"}, ch, fd
 }
 
+func TestLoadConstitutionWarnsWhenFileDiffersFromRef(t *testing.T) {
+	ctx := context.Background()
+	repo := gitx.Repo{Dir: t.TempDir()}
+	if _, err := repo.Git(ctx, "init", "--quiet", "--bare"); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "c.toml")
+	_ = os.WriteFile(file, []byte(baseCons), 0o644)
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	if _, _, err := LoadConstitution(ctx, repo, file); err != nil || logged.Len() != 0 {
+		t.Fatalf("import: %v, logged %q", err, logged.String())
+	}
+	_ = os.WriteFile(file, []byte(baseCons+"\n"), 0o644)
+	if _, _, err := LoadConstitution(ctx, repo, file); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(logged.String(), "differs from refs/line/constitution") {
+		t.Fatalf("no drift warning: %q", logged.String())
+	}
+}
+
 func TestLoadConstitutionImportsOnceThenReadsRef(t *testing.T) {
 	ctx := context.Background()
 	repo := gitx.Repo{Dir: t.TempDir()}
@@ -53,7 +79,7 @@ func TestLoadConstitutionImportsOnceThenReadsRef(t *testing.T) {
 	if err != nil || d1 != d2 {
 		t.Fatalf("reload: %v %s %s", err, d1, d2)
 	}
-	if ok, _ := repo.RefExists(ctx, ConstitutionRef); !ok {
+	if ok, _ := repo.RefExists(ctx, linedir.ConstitutionRef); !ok {
 		t.Fatal("ref not created")
 	}
 }
