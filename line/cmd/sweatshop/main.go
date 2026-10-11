@@ -49,7 +49,7 @@ const usage = `usage:
   sweatshop line evidence ID            print a check log
   sweatshop line cards list [--status S] [--label L] [--parent ID] | show ID | create --title T --type TYPE --priority N [--parent ID] [--acceptance A] (description on stdin) | comment ID (text on stdin) | offer ID
                                         read and (viceroy only) write cards; output is JSON
-  sweatshop line channel inbox [--after ID] [--wait 30s] | post (text on stdin)
+  sweatshop line channel inbox [--after ID] [--wait 30s] | post [--from WHO] (text on stdin)
                                         read the king's channel / post to it (viceroy only)
   sweatshop line testament get | put (notes on stdin)
                                         read / replace the viceroy's testament, <= 64 KiB (viceroy only)
@@ -550,13 +550,14 @@ func lineChannel(args []string, stdin io.Reader, stdout io.Writer) error {
 	}
 	cmd, args := args[0], args[1:]
 	fs := flag.NewFlagSet("line channel "+cmd, flag.ContinueOnError)
-	var after string
+	var after, from string
 	var wait time.Duration
 	switch cmd {
 	case "inbox":
 		fs.StringVar(&after, "after", "", "only messages after this message ID")
 		fs.DurationVar(&wait, "wait", 0, "long-poll up to this long (at most 60s)")
 	case "post":
+		fs.StringVar(&from, "from", "", "whose message this relays (shown in the footer)")
 	default:
 		return errors.New(usage)
 	}
@@ -581,7 +582,7 @@ func lineChannel(args []string, stdin io.Reader, stdout io.Writer) error {
 			return errors.New("line channel post: no text on stdin")
 		}
 		for _, p := range parts {
-			if err := c.ChannelPost(ctx, p); err != nil {
+			if err := c.ChannelPost(ctx, p, from); err != nil {
 				return err
 			}
 		}

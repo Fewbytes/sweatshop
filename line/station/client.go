@@ -283,9 +283,12 @@ func (c Client) ChannelInbox(ctx context.Context, after string, wait time.Durati
 	return c.do(ctx, http.MethodGet, "/v1/channel/inbox", q, nil, nil)
 }
 
-// ChannelPost posts one message of at most 2000 characters (viceroy only).
-func (c Client) ChannelPost(ctx context.Context, text string) error {
-	_, err := c.postJSON(ctx, "/v1/channel/post", map[string]string{"text": text})
+// ChannelPost posts one message of at most 1900 characters (viceroy only).
+//
+// from names whose message is being relayed ("" for the viceroy's own words);
+// the station appends the speaker footer.
+func (c Client) ChannelPost(ctx context.Context, text, from string) error {
+	_, err := c.postJSON(ctx, "/v1/channel/post", map[string]string{"text": text, "from": from})
 	return err
 }
 

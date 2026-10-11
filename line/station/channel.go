@@ -26,10 +26,13 @@ import (
 
 const (
 	maxPostChars = 2000
-	maxWait      = 60 * time.Second
-	pollEvery    = 3 * time.Second
-	inboxPage    = 200
-	discordBase  = "https://discord.com/api/v10"
+	// maxFooterChars is the room kept free in a post for the metadata footer.
+	maxFooterChars = 100
+	maxSourceChars = 40
+	maxWait        = 60 * time.Second
+	pollEvery      = 3 * time.Second
+	inboxPage      = 200
+	discordBase    = "https://discord.com/api/v10"
 )
 
 var approveRe = regexp.MustCompile(`^approve ([a-z0-9-]+(\.[0-9]+)*)$`)
@@ -474,15 +477,20 @@ func (s *Server) routeChannel(w http.ResponseWriter, r *http.Request, st *Statio
 		}
 		var body struct {
 			Text string `json:"text"`
+			From string `json:"from"`
 		}
 		if err := decodeBody(w, r, &body); err != nil {
 			return "", err
 		}
 		n := utf8.RuneCountInString(body.Text)
-		if strings.TrimSpace(body.Text) == "" || n > maxPostChars || !utf8.ValidString(body.Text) {
-			return "", fail(http.StatusBadRequest, "text must be 1..%d characters", maxPostChars)
+		if strings.TrimSpace(body.Text) == "" || n > maxPostChars-maxFooterChars || !utf8.ValidString(body.Text) || !utf8.ValidString(body.From) {
+			return "", fail(http.StatusBadRequest, "text must be 1..%d characters", maxPostChars-maxFooterChars)
 		}
-		if err := ch.Discord.Post(r.Context(), ch.ChannelID, body.Text); err != nil {
+		// A master that cannot be read must not silence the viceroy: the
+		// footer just omits the sha.
+		master, _ := s.Guard.Repo.Ref(r.Context(), s.Guard.Ref)
+		text := body.Text + postFooter(r.Header.Get(GenHeader), master, body.From)
+		if err := ch.Discord.Post(r.Context(), ch.ChannelID, text); err != nil {
 			return "", fail(http.StatusBadGateway, "post: %v", err)
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -511,4 +519,28 @@ func (s *Server) routeChannel(w http.ResponseWriter, r *http.Request, st *Statio
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"messages": msgs})
 	return fmt.Sprintf("inbox %d messages", len(msgs)), nil
+}
+
+// postFooter is the one-line speaker footer the station appends to every
+// viceroy channel post: role, generation and running master sha, plus whose
+// message it is when the viceroy is relaying someone else's.
+func postFooter(gen, master, from string) string {
+	f := "\n-# " + viceroyRole
+	if gen = strings.TrimSpace(gen); gen != "" {
+		f += " gen " + gen
+	}
+	if len(master) > 7 {
+		master = master[:7]
+	}
+	if master != "" {
+		f += " @" + master
+	}
+	from = strings.Join(strings.Fields(from), " ")
+	if r := []rune(from); len(r) > maxSourceChars {
+		from = string(r[:maxSourceChars-1]) + "…"
+	}
+	if from != "" {
+		f += " | relaying " + from
+	}
+	return f
 }

@@ -217,14 +217,14 @@ func TestChannelRoutes(t *testing.T) {
 	if json.Unmarshal(out, &res) != nil || len(res.Messages) != 1 || res.Messages[0].Text != "hi" {
 		t.Fatalf("inbox %s", out)
 	}
-	if err := v.ChannelPost(ctx, "hello"); err != nil || fd.posted[len(fd.posted)-1] != "hello" {
+	if err := v.ChannelPost(ctx, "hello", "king"); err != nil || !strings.HasPrefix(fd.posted[len(fd.posted)-1], "hello\n-# viceroy") || !strings.HasSuffix(fd.posted[len(fd.posted)-1], "relaying king") {
 		t.Fatalf("post %v %v", err, fd.posted)
 	}
-	if err := v.ChannelPost(ctx, strings.Repeat("é", 2000)); err != nil {
+	if err := v.ChannelPost(ctx, strings.Repeat("é", 1900), ""); err != nil {
 		t.Fatalf("2000 chars: %v", err)
 	}
-	for _, text := range []string{strings.Repeat("a", 2001), "  "} {
-		if err := v.ChannelPost(ctx, text); err == nil || !strings.Contains(err.Error(), "400") {
+	for _, text := range []string{strings.Repeat("a", 1901), "  "} {
+		if err := v.ChannelPost(ctx, text, ""); err == nil || !strings.Contains(err.Error(), "400") {
 			t.Fatalf("want 400, got %v", err)
 		}
 	}
@@ -232,7 +232,7 @@ func TestChannelRoutes(t *testing.T) {
 	if _, err := m.ChannelInbox(ctx, "", 0); err == nil || !strings.Contains(err.Error(), "403") {
 		t.Fatalf("maker inbox: %v", err)
 	}
-	if err := m.ChannelPost(ctx, "x"); err == nil || !strings.Contains(err.Error(), "403") {
+	if err := m.ChannelPost(ctx, "x", ""); err == nil || !strings.Contains(err.Error(), "403") {
 		t.Fatalf("maker post: %v", err)
 	}
 	if _, err := v.ChannelInbox(ctx, "abc", 0); err == nil || !strings.Contains(err.Error(), "400") {
@@ -274,7 +274,7 @@ func TestChannelOffWithoutCredential(t *testing.T) {
 	if _, err := v.ChannelInbox(context.Background(), "", 0); err == nil || !strings.Contains(err.Error(), "503") {
 		t.Fatalf("inbox: %v", err)
 	}
-	if err := v.ChannelPost(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "503") {
+	if err := v.ChannelPost(context.Background(), "x", ""); err == nil || !strings.Contains(err.Error(), "503") {
 		t.Fatalf("post: %v", err)
 	}
 }

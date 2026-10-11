@@ -53,7 +53,8 @@ environment):
 - sweatshop line cards list [--status S] [--label L] [--parent ID] | show ID |
   create --title T --type TYPE --priority N [--parent ID] [--acceptance A]
   (description on stdin) | comment ID (text on stdin) | offer ID
-- sweatshop line channel post (text on stdin); sweatshop line channel inbox
+- sweatshop line channel post [--from WHO] (text on stdin; pass --from when relaying
+  someone else's message or a card's/agent's output; the station appends the speaker footer, so do not write one); sweatshop line channel inbox
 - sweatshop line testament get | put (the whole new notes on stdin, <= 64 KiB)
 - sweatshop viceroy succeed (request succession to master; only when the
   constitution allows it and master differs from your own version)

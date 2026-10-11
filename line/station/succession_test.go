@@ -325,13 +325,13 @@ func TestSucceedAndCheckin(t *testing.T) {
 	}
 
 	// Until check-in: gen 1 still works; gen 2 gets exactly one post.
-	if err := gen1.ChannelPost(r.ctx, "from 1"); err != nil {
+	if err := gen1.ChannelPost(r.ctx, "from 1", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := gen2.ChannelPost(r.ctx, "hello from 2"); err != nil {
+	if err := gen2.ChannelPost(r.ctx, "hello from 2", ""); err != nil {
 		t.Fatal(err)
 	}
-	wantErr(t, gen2.ChannelPost(r.ctx, "again"), "409")
+	wantErr(t, gen2.ChannelPost(r.ctx, "again", ""), "409")
 	_, err = gen2.CardComment(r.ctx, "x-1", "no")
 	wantErr(t, err, "409")
 	// A second succession while one is pending is refused.
@@ -356,11 +356,11 @@ func TestSucceedAndCheckin(t *testing.T) {
 		t.Fatalf("generations %+v %v", gens, err)
 	}
 	// Now gen 1 is refused and gen 2 posts freely.
-	wantErr(t, gen1.ChannelPost(r.ctx, "late"), "409")
-	if err := gen2.ChannelPost(r.ctx, "one"); err != nil {
+	wantErr(t, gen1.ChannelPost(r.ctx, "late", ""), "409")
+	if err := gen2.ChannelPost(r.ctx, "one", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := gen2.ChannelPost(r.ctx, "two"); err != nil {
+	if err := gen2.ChannelPost(r.ctx, "two", ""); err != nil {
 		t.Fatal(err)
 	}
 	// And no check-in is pending any more.
@@ -475,7 +475,7 @@ func TestRollbackOnTimeout(t *testing.T) {
 	// Late check-in is refused; gen 1 still posts; a new attempt may start.
 	_, err := r.client("viceroy-1", "2").ViceroyCheckin(r.ctx)
 	wantErr(t, err, "409")
-	if err := r.client("viceroy-1", "1").ChannelPost(r.ctx, "still here"); err != nil {
+	if err := r.client("viceroy-1", "1").ChannelPost(r.ctx, "still here", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := r.client("viceroy-1", "1").ViceroySucceed(r.ctx, c2); err != nil {
