@@ -292,6 +292,13 @@ func (c Client) ChannelPost(ctx context.Context, text, from string) error {
 	return err
 }
 
+// ChannelTyping shows the bot as typing in the channel for about ten seconds
+// (viceroy only).
+func (c Client) ChannelTyping(ctx context.Context) error {
+	_, err := c.postJSON(ctx, "/v1/channel/typing", struct{}{})
+	return err
+}
+
 // TestamentGet returns the viceroy's latest testament; ok is false when none
 // has been stored.
 func (c Client) TestamentGet(ctx context.Context) (body []byte, ok bool, err error) {

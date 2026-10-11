@@ -19,6 +19,7 @@ type fakeLine struct {
 	status    station.Status
 	testament string
 	afters    []string
+	typings   int
 }
 
 func (f *fakeLine) ChannelInbox(ctx context.Context, after string, wait time.Duration) ([]byte, error) {
@@ -35,6 +36,12 @@ func (f *fakeLine) ChannelInbox(ctx context.Context, after string, wait time.Dur
 		sleep(ctx, min(wait, 5*time.Millisecond))
 	}
 	return json.Marshal(map[string]any{"messages": out})
+}
+func (f *fakeLine) ChannelTyping(context.Context) error {
+	f.mu.Lock()
+	f.typings++
+	f.mu.Unlock()
+	return nil
 }
 func (f *fakeLine) Status(context.Context) (station.Status, error) {
 	f.mu.Lock()
@@ -302,8 +309,21 @@ type rawInbox []byte
 func (r rawInbox) ChannelInbox(context.Context, string, time.Duration) ([]byte, error) {
 	return r, nil
 }
+func (rawInbox) ChannelTyping(context.Context) error            { return nil }
 func (rawInbox) Status(context.Context) (station.Status, error) { return station.Status{}, nil }
 func (rawInbox) TestamentGet(context.Context) ([]byte, bool, error) {
 	return nil, false, nil
 }
 func (rawInbox) TestamentPut(context.Context, []byte) error { return nil }
+
+func TestRunShowsTypingWhileAgentRuns(t *testing.T) {
+	line := &fakeLine{status: station.Status{Master: "m"}}
+	line.add(Message{ID: "5", Text: "hi", Principal: "king"})
+	l := &Loop{Line: line, Agent: &fakeAgent{}, Poll: time.Millisecond, Heartbeat: time.Hour}
+	drive(t, l, 1)
+	line.mu.Lock()
+	defer line.mu.Unlock()
+	if line.typings < 1 {
+		t.Fatalf("typings = %d, want at least one during the run", line.typings)
+	}
+}

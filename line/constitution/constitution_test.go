@@ -271,6 +271,7 @@ parent = "sweatshop-0mw.2"
 `, ""},
 		{"bad discord", "[sovereign]\nname=\"k\"\ndiscord=\"abc\"\n", "sovereign.discord"},
 		{"bad kind", "[channel]\nkind=\"slack\"\nchannel=\"1\"\n", "channel.kind"},
+		{"bad transport", "[channel]\nkind=\"discord\"\nchannel=\"1\"\ntransport=\"smoke\"\n", "channel.transport"},
 		{"bad channel", "[channel]\nkind=\"discord\"\nchannel=\"x\"\n", "channel.channel"},
 		{"bad offer", "[[viceroy.delegations]]\noffer=\"all\"\ntypes=[\"bug\"]\n", "offer"},
 		{"empty delegation", "[[viceroy.delegations]]\noffer=\"line\"\n", "types or parent"},

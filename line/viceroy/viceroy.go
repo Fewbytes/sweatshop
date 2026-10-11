@@ -23,6 +23,7 @@ const (
 	DefaultRunLimit  = time.Hour
 	historyLen       = 30
 	markerName       = "last-handled-message"
+	typingEvery      = 8 * time.Second
 )
 
 // Message is one channel message as the station API returns it.
@@ -38,6 +39,7 @@ type Message struct {
 // Line is the part of the station client the loop uses.
 type Line interface {
 	ChannelInbox(ctx context.Context, after string, wait time.Duration) ([]byte, error)
+	ChannelTyping(ctx context.Context) error
 	Status(ctx context.Context) (station.Status, error)
 	TestamentGet(ctx context.Context) ([]byte, bool, error)
 	TestamentPut(ctx context.Context, body []byte) error
@@ -204,10 +206,12 @@ func (l *Loop) Run(ctx context.Context) error {
 			continue
 		}
 		batch := pending
+		stopTyping := l.keepTyping(ctx)
 		out, runErr := l.Agent.Run(ctx, Prompt(PromptInput{
 			Wake: wake, Gen: l.Gen, Predecessor: l.Predecessor,
 			Testament: string(tbody), History: history, New: batch, Status: cur,
 		}))
+		stopTyping()
 		if runErr != nil {
 			l.logf("claude: %v", runErr)
 		}
@@ -249,6 +253,27 @@ func (l *Loop) Run(ctx context.Context) error {
 			sleep(ctx, backoff)
 		}
 	}
+}
+
+// keepTyping shows the bot as typing in the channel until the returned stop
+// is called. Discord clears the indicator after ten seconds, so it is renewed.
+func (l *Loop) keepTyping(ctx context.Context) (stop func()) {
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			if err := l.Line.ChannelTyping(ctx); err != nil && ctx.Err() == nil {
+				l.logf("typing: %v", err)
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(typingEvery):
+			}
+		}
+	}()
+	return func() { cancel(); <-done }
 }
 
 func (l *Loop) recordMarker(ctx context.Context, id string) error {

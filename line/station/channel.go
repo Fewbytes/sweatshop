@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -64,6 +65,20 @@ type Discord interface {
 	// any order.
 	Messages(ctx context.Context, channel, after string) ([]DiscordMessage, error)
 	Post(ctx context.Context, channel, text string) error
+	// Typing shows the bot as typing in the channel for a few seconds.
+	Typing(ctx context.Context, channel string) error
+	// Message returns one message of a channel.
+	Message(ctx context.Context, channel, id string) (DiscordMessage, error)
+	// GatewayURL is the websocket URL a fresh gateway session connects to.
+	GatewayURL(ctx context.Context) (string, error)
+	// GuildOf returns the guild a channel belongs to.
+	GuildOf(ctx context.Context, channel string) (string, error)
+	// RegisterApproveCommand creates or updates the /approve guild command.
+	RegisterApproveCommand(ctx context.Context, app, guild string) error
+	// RespondEphemeral answers an interaction with a reply only its user sees.
+	RespondEphemeral(ctx context.Context, interactionID, token, text string) error
+	// RespondChoices answers an autocomplete interaction.
+	RespondChoices(ctx context.Context, interactionID, token string, choices []CommandChoice) error
 }
 
 // HTTPDiscord speaks the Discord REST API with a bot token.
@@ -159,6 +174,68 @@ func (d HTTPDiscord) Post(ctx context.Context, channel, text string) error {
 		map[string]any{"content": text, "allowed_mentions": map[string]any{"parse": []string{}}}, nil)
 }
 
+func (d HTTPDiscord) Typing(ctx context.Context, channel string) error {
+	return d.do(ctx, http.MethodPost, "/channels/"+url.PathEscape(channel)+"/typing", nil, nil)
+}
+
+func (d HTTPDiscord) Message(ctx context.Context, channel, id string) (DiscordMessage, error) {
+	var m DiscordMessage
+	err := d.do(ctx, http.MethodGet, "/channels/"+url.PathEscape(channel)+"/messages/"+url.PathEscape(id), nil, &m)
+	return m, err
+}
+
+func (d HTTPDiscord) GatewayURL(ctx context.Context) (string, error) {
+	var g struct {
+		URL string `json:"url"`
+	}
+	if err := d.do(ctx, http.MethodGet, "/gateway/bot", nil, &g); err != nil {
+		return "", err
+	}
+	if g.URL == "" {
+		return "", errors.New("discord /gateway/bot returned no url")
+	}
+	return g.URL, nil
+}
+
+func (d HTTPDiscord) GuildOf(ctx context.Context, channel string) (string, error) {
+	var ch struct {
+		GuildID string `json:"guild_id"`
+	}
+	if err := d.do(ctx, http.MethodGet, "/channels/"+url.PathEscape(channel), nil, &ch); err != nil {
+		return "", err
+	}
+	if ch.GuildID == "" {
+		return "", fmt.Errorf("discord channel %s is not in a guild", channel)
+	}
+	return ch.GuildID, nil
+}
+
+func (d HTTPDiscord) RegisterApproveCommand(ctx context.Context, app, guild string) error {
+	return d.do(ctx, http.MethodPost, "/applications/"+url.PathEscape(app)+"/guilds/"+url.PathEscape(guild)+"/commands", map[string]any{
+		"name": approveCommandName, "type": 1, "description": "Approve a proposed card onto the line",
+		"options": []map[string]any{{
+			"type": optionTypeString, "name": approveCardOption, "description": "Card ID", "required": true, "autocomplete": true,
+		}},
+	}, nil)
+}
+
+func (d HTTPDiscord) interactionCallback(ctx context.Context, interactionID, token string, body any) error {
+	return d.do(ctx, http.MethodPost, "/interactions/"+url.PathEscape(interactionID)+"/"+url.PathEscape(token)+"/callback", body, nil)
+}
+
+func (d HTTPDiscord) RespondEphemeral(ctx context.Context, interactionID, token, text string) error {
+	return d.interactionCallback(ctx, interactionID, token, map[string]any{
+		"type": callbackChannelMessage,
+		"data": map[string]any{"content": text, "flags": flagEphemeral, "allowed_mentions": map[string]any{"parse": []string{}}},
+	})
+}
+
+func (d HTTPDiscord) RespondChoices(ctx context.Context, interactionID, token string, choices []CommandChoice) error {
+	return d.interactionCallback(ctx, interactionID, token, map[string]any{
+		"type": callbackAutocompleteResult, "data": map[string]any{"choices": choices},
+	})
+}
+
 // InboxMessage is one line of channel/inbox.jsonl.
 type InboxMessage struct {
 	ID        string `json:"id"`
@@ -185,12 +262,20 @@ type Channel struct {
 	// Deploy applies `approve deploy <sha>` and returns the approved commit.
 	// Nil: the command replies that it is off.
 	Deploy func(ctx context.Context, short, msgID string) (string, error)
+	// Gateway, when set, delivers messages, reactions and slash commands over
+	// a websocket; the REST poller covers the gaps. Nil: poll only.
+	Gateway *Gateway
 
-	mu     sync.Mutex
-	me     string
-	last   string
-	wake   chan struct{} // closed and replaced when the inbox grows
-	loaded bool
+	// feedMu serialises everything that advances last: the REST poller and
+	// the gateway, so a message is delivered once whichever sees it first.
+	feedMu     sync.Mutex
+	gatewayUp  atomic.Bool // the gateway is connected and backfilled; the poller idles
+	gatewaySes gatewaySession
+	mu         sync.Mutex
+	me         string
+	last       string
+	wake       chan struct{} // closed and replaced when the inbox grows
+	loaded     bool
 }
 
 // OpenChannel builds the channel for a line directory. It returns nil (the
@@ -219,10 +304,14 @@ func OpenChannel(lineDir string, c constitution.Constitution, cards Cards) (*Cha
 	if token == "" {
 		return nil, fmt.Errorf("%s is empty", cred)
 	}
-	return &Channel{
+	ch := &Channel{
 		Dir: filepath.Join(lineDir, "channel"), ChannelID: c.Channel.Channel, King: c.Sovereign.Discord,
 		Discord: HTTPDiscord{Token: token}, Cards: cards,
-	}, nil
+	}
+	if c.Channel.Transport == constitution.TransportGateway {
+		ch.Gateway = &Gateway{Token: token}
+	}
+	return ch, nil
 }
 
 func (c *Channel) inboxPath() string { return filepath.Join(c.Dir, "inbox.jsonl") }
@@ -255,21 +344,28 @@ func snowflakeLess(a, b string) bool {
 	return a < b
 }
 
-// Run polls until ctx ends.
+// Run polls until ctx ends. With a Gateway it also runs the gateway, and
+// polls only while the gateway is down.
 func (c *Channel) Run(ctx context.Context) {
 	every := c.Interval
 	if every <= 0 {
 		every = pollEvery
 	}
+	if c.Gateway != nil {
+		go c.runGateway(ctx)
+	}
 	for ctx.Err() == nil {
 		wait := every
-		if err := c.Poll(ctx); err != nil {
-			var rl *RateLimitError
-			if errors.As(err, &rl) {
-				wait = rl.After
-			}
-			if ctx.Err() == nil {
-				log.Printf("channel: poll: %v", err)
+		// While the gateway is up it delivers; the poller only waits to take over.
+		if !c.gatewayUp.Load() {
+			if err := c.Poll(ctx); err != nil {
+				var rl *RateLimitError
+				if errors.As(err, &rl) {
+					wait = rl.After
+				}
+				if ctx.Err() == nil {
+					log.Printf("channel: poll: %v", err)
+				}
 			}
 		}
 		select {
@@ -286,6 +382,8 @@ func (c *Channel) Poll(ctx context.Context) error {
 	if err := c.init(); err != nil {
 		return err
 	}
+	c.feedMu.Lock()
+	defer c.feedMu.Unlock()
 	if c.me == "" {
 		me, err := c.Discord.Me(ctx)
 		if err != nil {
@@ -313,26 +411,33 @@ func (c *Channel) Poll(ctx context.Context) error {
 		return c.saveLast(nowSnowflake())
 	}
 	for _, m := range msgs {
-		if !snowflakeLess(c.last, m.ID) {
-			continue
-		}
-		if m.Author.ID != c.me {
-			im := InboxMessage{ID: m.ID, Author: m.Author.Username, AuthorID: m.Author.ID, Principal: "unknown", Text: m.Content, TS: m.Timestamp}
-			if c.King != "" && m.Author.ID == c.King {
-				im.Principal = "king"
-			}
-			if err := c.append(im); err != nil {
-				return err
-			}
-			if im.Principal == "king" {
-				c.command(ctx, im)
-			}
-		}
-		if err := c.saveLast(m.ID); err != nil {
+		if err := c.deliver(ctx, m); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// deliver appends one message to the inbox, applies king commands and
+// advances last. Messages at or before last are duplicates and are skipped.
+// The caller holds feedMu.
+func (c *Channel) deliver(ctx context.Context, m DiscordMessage) error {
+	if !snowflakeLess(c.last, m.ID) {
+		return nil
+	}
+	if m.Author.ID != c.me {
+		im := InboxMessage{ID: m.ID, Author: m.Author.Username, AuthorID: m.Author.ID, Principal: "unknown", Text: m.Content, TS: m.Timestamp}
+		if c.King != "" && m.Author.ID == c.King {
+			im.Principal = "king"
+		}
+		if err := c.append(im); err != nil {
+			return err
+		}
+		if im.Principal == "king" {
+			c.command(ctx, im)
+		}
+	}
+	return c.saveLast(m.ID)
 }
 
 // nowSnowflake is a synthetic Discord ID for the current time, used as the
@@ -390,25 +495,31 @@ func (c *Channel) command(ctx context.Context, m InboxMessage) {
 	if sub == nil {
 		return
 	}
-	id := sub[1]
-	reply := func(format string, args ...any) {
-		if err := c.Discord.Post(ctx, c.ChannelID, fmt.Sprintf(format, args...)); err != nil {
-			log.Printf("channel: reply: %v", err)
-		}
+	c.reply(ctx, c.approveCard(ctx, sub[1], "discord message "+m.ID))
+}
+
+// reply posts text to the channel; a failure is logged, not returned.
+func (c *Channel) reply(ctx context.Context, text string) {
+	if err := c.Discord.Post(ctx, c.ChannelID, text); err != nil {
+		log.Printf("channel: reply: %v", err)
 	}
+}
+
+// approveCard puts a card on the line on the king's behalf and returns the
+// reply to show. via says where the approval came from. Text, slash-command
+// and reaction approvals all end here; the caller has checked the king.
+func (c *Channel) approveCard(ctx context.Context, id, via string) string {
 	if c.Cards == nil {
-		reply("cannot approve %s: cards are not configured", id)
-		return
+		return fmt.Sprintf("cannot approve %s: cards are not configured", id)
 	}
 	if err := c.Cards.AddLabel(ctx, id, LabelLine); err != nil {
 		log.Printf("channel: approve %s: %v", id, err)
-		reply("could not approve %s", id)
-		return
+		return fmt.Sprintf("could not approve %s", id)
 	}
-	if err := c.Cards.Comment(ctx, id, "approved by the king (discord message "+m.ID+")"); err != nil {
+	if err := c.Cards.Comment(ctx, id, "approved by the king ("+via+")"); err != nil {
 		log.Printf("channel: approve %s comment: %v", id, err)
 	}
-	reply("approved %s", id)
+	return "approved " + id
 }
 
 func (c *Channel) approveDeploy(ctx context.Context, m InboxMessage, short string) {
@@ -513,11 +624,12 @@ func (c *Channel) readInbox(after string) ([]InboxMessage, error) {
 	return out, sc.Err()
 }
 
-// routeChannel handles /v1/channel/inbox and /v1/channel/post (viceroy only).
+// routeChannel handles /v1/channel/inbox, /v1/channel/post and
+// /v1/channel/typing (viceroy only).
 func (s *Server) routeChannel(w http.ResponseWriter, r *http.Request, st *Station) (string, error) {
 	path := r.URL.Path
 	want := http.MethodGet
-	if path == "/v1/channel/post" {
+	if path == "/v1/channel/post" || path == "/v1/channel/typing" {
 		want = http.MethodPost
 	} else if path != "/v1/channel/inbox" {
 		return "", fail(http.StatusNotFound, "no route %s", path)
@@ -532,6 +644,13 @@ func (s *Server) routeChannel(w http.ResponseWriter, r *http.Request, st *Statio
 	ch := s.Channel
 	if ch == nil {
 		return "", fail(http.StatusServiceUnavailable, "channel is off (no discord.cred)")
+	}
+	if path == "/v1/channel/typing" {
+		if err := ch.Discord.Typing(r.Context(), ch.ChannelID); err != nil {
+			return "", fail(http.StatusBadGateway, "typing: %v", err)
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		return "typing", nil
 	}
 	if want == http.MethodPost {
 		if s.Viceroy != nil {

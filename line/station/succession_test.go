@@ -83,8 +83,9 @@ func (e *fakeEngine) removedNames() []string {
 }
 
 type fakeChat struct {
-	mu     sync.Mutex
-	posted []string
+	Discord // gateway methods are unused here and panic if called
+	mu      sync.Mutex
+	posted  []string
 }
 
 func (f *fakeChat) Me(context.Context) (string, error) { return "bot", nil }

@@ -109,17 +109,28 @@ argument, never through a shell.
 | `POST /v1/cards/{id}/offer` | viceroy | label `line` if a delegation covers the card; else label `line-proposed`; the response says which |
 | `GET /v1/channel/inbox?after=<msg id>&wait=<dur>` | viceroy | messages since `after` (long-poll, at most 60 s); each carries `id, author, author_id, principal (king|unknown), text, ts` |
 | `POST /v1/channel/post` | viceroy | post text (≤ 2000 chars, split by the client) to the channel |
+| `POST /v1/channel/typing` | viceroy | show the bot as typing; the viceroy loop renews it while a run is in progress |
 | `GET/PUT /v1/testament` | viceroy | the viceroy's notes, ≤ 64 KiB, stored as a blob under `refs/line/testament/<role>` in the line remote, so every version is kept |
 | `POST /v1/viceroy/succeed?commit=` | viceroy | request succession to C (see below) |
 | `POST /v1/viceroy/checkin` | viceroy | the new generation reports it is up |
 
 The channel poller is a goroutine in `line serve`. It calls
-`GET /channels/{id}/messages?after=` every 3 s (no gateway, no new
-dependency), appends to `channel/inbox.jsonl` in the line dir, and applies king
+`GET /channels/{id}/messages?after=` every 3 s, appends to `channel/inbox.jsonl` in the line dir, and applies king
 commands. It skips the bot's own messages. The bot token comes from
 `discord.cred` (0600) in the line dir, fetched from Bitwarden item
 `4d0f0a1d-b765-4307-b019-b4df01100e94`. A missing credential turns the
 channel off and the routes return 503.
+
+With `transport = "gateway"` in `[channel]` (default `"poll"`), `line serve`
+also holds a Discord gateway websocket (identify, heartbeat, resume, reconnect
+with backoff). The REST poller idles while the gateway is up and takes over when
+it drops; every (re)connect backfills over REST after `last_id`, and delivery
+dedupes by message ID. The gateway adds two approvals that go through the same
+path as the text `approve <id>`: the sovereign's `/approve card:<id>` slash
+command (guild command, autocomplete from `line-proposed` cards, ephemeral ack)
+and the sovereign's ✅ reaction on a bot post that names exactly one card.
+Interactions and reactions from anyone else are ignored. The inbox format and
+the viceroy API are unchanged; posting stays on REST.
 
 ## The viceroy container
 

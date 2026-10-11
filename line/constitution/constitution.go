@@ -46,7 +46,15 @@ type Sovereign struct {
 type Channel struct {
 	Kind    string `toml:"kind"`
 	Channel string `toml:"channel"`
+	// Transport is how serve receives channel events: TransportPoll (the
+	// default when empty) or TransportGateway.
+	Transport string `toml:"transport"`
 }
+
+const (
+	TransportPoll    = "poll"
+	TransportGateway = "gateway"
+)
 
 type Viceroy struct {
 	Succession  bool         `toml:"succession"`
@@ -91,6 +99,9 @@ func (c Constitution) validateGovernance() error {
 		}
 		if !digits.MatchString(ch.Channel) {
 			return fmt.Errorf("channel.channel %q: want a Discord channel ID (digits only)", ch.Channel)
+		}
+		if !slices.Contains([]string{"", TransportPoll, TransportGateway}, ch.Transport) {
+			return fmt.Errorf("channel.transport %q: want %q or %q", ch.Transport, TransportPoll, TransportGateway)
 		}
 	}
 	for i, d := range c.Viceroy.Delegations {
