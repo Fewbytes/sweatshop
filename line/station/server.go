@@ -55,6 +55,9 @@ type Server struct {
 	Channel     *Channel                 // nil: the channel routes return 503
 	Viceroy     *Supervisor              // nil: the viceroy routes return 503, no generation guard
 	RunsPath    string                   // runs.jsonl written by the Reporter; "": the runs route returns 503
+	Deploy      *DeployState             // nil: the deploy routes return 503
+	DeployToken string                   // the actuator's bearer token; "": no actuator
+	Releases    ReleaseBuilder           // nil: releases are commits only
 
 	// busy admits one check-running request (attest, merge, attest-line) at a
 	// time across all stations, so several tokens cannot run checks in
@@ -92,6 +95,12 @@ func NewFromLine(l linedir.Line) (*Server, error) {
 		return nil, err
 	}
 	s.RunsPath = filepath.Join(l.Dir, "runs.jsonl")
+	s.Deploy = &DeployState{Path: filepath.Join(l.Dir, "deploy.json")}
+	if tok, err := os.ReadFile(filepath.Join(l.Dir, "deploy.token")); err == nil {
+		s.DeployToken = strings.TrimSpace(string(tok))
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
 	reporter := &report.Reporter{Objects: objects, Runs: &report.JSONLRunStore{Path: s.RunsPath}}
 	tokens := map[string]string{}
 	for _, ls := range l.Stations {
@@ -169,6 +178,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	commit := r.URL.Query().Get("commit")
 	st := s.authenticate(r)
 	if st == nil {
+		st = s.deployerStation(r)
+	}
+	if st == nil {
 		log.Printf("station api: station=- route=%q commit=%q outcome=unauthorized", r.Method+" "+r.URL.Path, commit)
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -238,6 +250,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 		return s.routeConstitution(w, r, st)
 	case path == "/v1/testament":
 		return s.routeTestament(w, r, st)
+	case strings.HasPrefix(path, "/v1/deploy/"):
+		return s.routeDeploy(w, r, st)
 	case strings.HasPrefix(path, "/v1/viceroy/"):
 		return s.routeViceroy(w, r, st)
 	case strings.HasPrefix(path, "/v1/channel/"):

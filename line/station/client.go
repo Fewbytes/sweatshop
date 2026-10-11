@@ -370,3 +370,9 @@ func (c Client) ViceroySucceed(ctx context.Context, commit string) ([]byte, erro
 func (c Client) ViceroyCheckin(ctx context.Context) ([]byte, error) {
 	return c.do(ctx, http.MethodPost, "/v1/viceroy/checkin", nil, nil, nil)
 }
+
+// DeployRequest asks the line to redeploy itself to commit, which the king
+// must then approve (viceroy only).
+func (c Client) DeployRequest(ctx context.Context, commit string) ([]byte, error) {
+	return c.do(ctx, http.MethodPost, "/v1/deploy/requests", url.Values{"commit": {commit}}, nil, nil)
+}

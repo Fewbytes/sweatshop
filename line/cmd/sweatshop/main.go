@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -23,6 +24,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/andon"
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/Fewbytes/sweatshop/line/constitution"
+	"github.com/Fewbytes/sweatshop/line/deploy"
 	"github.com/Fewbytes/sweatshop/line/gitx"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/linedir"
@@ -58,8 +60,10 @@ const usage = `usage:
                                         read the constitution / propose a full replacement for the king to approve (viceroy only) / list its history
   sweatshop line viceroy start --dir D --commit C [--engine E] [--url URL] [--station NAME]
                                         owner: build and start viceroy generation 1 at master commit C
-  sweatshop viceroy succeed [--commit C] | checkin
-                                        viceroy: request succession to C (default: master) / report this generation is up
+  sweatshop viceroy succeed [--commit C] | deploy [--commit C] | checkin
+                                        viceroy: request succession to C (default: master) / ask the king to redeploy the line to C / report this generation is up
+  sweatshop line deployer --dir D [--backend B]
+                                        the privileged actuator: apply the king-approved release with backend launchd or k8s (line.toml [deploy])
   sweatshop line andon --beads DIR [--interval 30s]
                                         watch master; pull/clear the andon cord (andon station token)
   sweatshop line maker --dir D --station NAME --beads DIR [--once] [--engine E] [--url URL] [--timeout 2h] [--max-attempts 3] [--memory 4g] [--pids 1024] [--cpus 2]
@@ -107,10 +111,12 @@ func run(args []string, stdout io.Writer) error {
 		return lineTestament(args[2:], os.Stdin, stdout)
 	case len(args) >= 3 && args[0] == "line" && args[1] == "viceroy" && args[2] == "start":
 		return lineViceroyStart(args[3:], stdout)
-	case len(args) >= 2 && args[0] == "viceroy" && (args[1] == "succeed" || args[1] == "checkin"):
+	case len(args) >= 2 && args[0] == "viceroy" && (args[1] == "succeed" || args[1] == "checkin" || args[1] == "deploy"):
 		return viceroyClient(args[1], args[2:], stdout)
 	case len(args) >= 2 && args[0] == "viceroy" && args[1] == "run":
 		return viceroyRun(args[2:], viceroy.ClaudeCLI{Dir: "/work", Timeout: viceroy.DefaultRunLimit})
+	case len(args) >= 2 && args[0] == "line" && args[1] == "deployer":
+		return lineDeployer(args[2:])
 	case len(args) >= 2 && args[0] == "line" && args[1] == "andon":
 		return lineAndon(args[2:])
 	case len(args) >= 2 && args[0] == "line" && args[1] == "maker":
@@ -238,6 +244,12 @@ func lineServe(args []string, stdout io.Writer) error {
 	if *beads != "" {
 		srv.Cards = station.BeadsCards{Dir: *beads}
 	}
+	if l.Deploy.Image != "" {
+		srv.Releases = station.EngineReleaseBuilder{
+			Repo: srv.Guard.Repo, Ref: srv.Guard.Ref, Image: l.Deploy.Image, Dockerfile: l.Deploy.Dockerfile,
+			Run: station.CLIEngine{Bin: l.Engine}.Output,
+		}
+	}
 	ch, err := station.OpenChannel(l.Dir, srv.Guard.Constitution, srv.Cards)
 	if err != nil {
 		return err
@@ -246,6 +258,7 @@ func lineServe(args []string, stdout io.Writer) error {
 	reload := make(chan struct{}, 1)
 	if ch != nil {
 		ch.Constitution = srv.ApproveConstitution
+		ch.Deploy = srv.ApproveDeploy
 		ch.Restart = func() {
 			select {
 			case reload <- struct{}{}:
@@ -789,8 +802,8 @@ func lineViceroyStart(args []string, stdout io.Writer) error {
 func viceroyClient(cmd string, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("viceroy "+cmd, flag.ContinueOnError)
 	var commit string
-	if cmd == "succeed" {
-		fs.StringVar(&commit, "commit", "", "commit to succeed to (default: the line's master)")
+	if cmd == "succeed" || cmd == "deploy" {
+		fs.StringVar(&commit, "commit", "", "commit to succeed or deploy to (default: the line's master)")
 	}
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -814,11 +827,83 @@ func viceroyClient(cmd string, args []string, stdout io.Writer) error {
 			}
 			commit = st.Master
 		}
-		out, err = c.ViceroySucceed(ctx, commit)
+		if cmd == "deploy" {
+			out, err = c.DeployRequest(ctx, commit)
+		} else {
+			out, err = c.ViceroySucceed(ctx, commit)
+		}
 	}
 	if err != nil {
 		return err
 	}
 	_, err = fmt.Fprintln(stdout, strings.TrimRight(string(out), "\n"))
 	return err
+}
+
+// lineDeployer runs the actuator. It holds only the deployer token (the file
+// <dir>/deploy.token) and the platform's own credentials; no model or Discord
+// credential.
+func lineDeployer(args []string) error {
+	fs := flag.NewFlagSet("line deployer", flag.ContinueOnError)
+	dir := fs.String("dir", "", "line directory")
+	backend := fs.String("backend", "", "backend (default: [deploy] backend of line.toml)")
+	once := fs.Bool("once", false, "handle the desired release once, then exit")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 || *dir == "" {
+		return errors.New(usage)
+	}
+	l, err := linedir.Load(*dir)
+	if err != nil {
+		return err
+	}
+	d := l.Deploy
+	if *backend != "" {
+		d.Backend = *backend
+	}
+	raw, err := os.ReadFile(filepath.Join(l.Dir, "deploy.token"))
+	if err != nil {
+		return err
+	}
+	token := strings.TrimSpace(string(raw))
+	if d.URL == "" {
+		d.URL = "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(l.Port))
+	}
+	probe := deploy.HTTPHealth{URL: strings.TrimRight(d.URL, "/") + "/v1/status", Token: token}
+	var b deploy.Backend
+	container := false
+	switch d.Backend {
+	case "launchd":
+		if d.Dir == "" || d.Domain == "" || len(d.Labels) == 0 {
+			return errors.New("launchd backend needs [deploy] dir, domain and labels")
+		}
+		b = deploy.Launchd{Dir: d.Dir, Source: l.Remote, Domain: d.Domain, Labels: d.Labels, Probe: probe}
+	case "k8s":
+		if d.API == "" || d.Namespace == "" || d.Deployment == "" || d.Container == "" || d.TokenFile == "" {
+			return errors.New("k8s backend needs [deploy] api, token_file, namespace, deployment and container")
+		}
+		kt, err := os.ReadFile(d.TokenFile)
+		if err != nil {
+			return err
+		}
+		b = deploy.Kubernetes{API: d.API, Token: strings.TrimSpace(string(kt)), Namespace: d.Namespace,
+			Deployment: d.Deployment, Container: d.Container, Probe: probe}
+		container = true
+	default:
+		return fmt.Errorf("unknown deploy backend %q (want launchd or k8s)", d.Backend)
+	}
+	a := &deploy.Actuator{
+		API: deploy.Client{URL: d.URL, Token: token}, Backend: b, Container: container,
+		Log: log.New(os.Stderr, "", log.LstdFlags).Printf,
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if *once {
+		return a.Once(ctx)
+	}
+	if err := a.Run(ctx); !errors.Is(err, context.Canceled) {
+		return err
+	}
+	return nil
 }

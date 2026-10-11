@@ -182,6 +182,9 @@ type Channel struct {
 	// serve reload. Nil: the command replies that it is off.
 	Constitution func(ctx context.Context, n int, msgID string) error
 	Restart      func()
+	// Deploy applies `approve deploy <sha>` and returns the approved commit.
+	// Nil: the command replies that it is off.
+	Deploy func(ctx context.Context, short, msgID string) (string, error)
 
 	mu     sync.Mutex
 	me     string
@@ -379,6 +382,10 @@ func (c *Channel) command(ctx context.Context, m InboxMessage) {
 		c.approveConstitution(ctx, m, sub[1])
 		return
 	}
+	if sub := approveDeployRe.FindStringSubmatch(m.Text); sub != nil {
+		c.approveDeploy(ctx, m, sub[1])
+		return
+	}
 	sub := approveRe.FindStringSubmatch(m.Text)
 	if sub == nil {
 		return
@@ -402,6 +409,29 @@ func (c *Channel) command(ctx context.Context, m InboxMessage) {
 		log.Printf("channel: approve %s comment: %v", id, err)
 	}
 	reply("approved %s", id)
+}
+
+func (c *Channel) approveDeploy(ctx context.Context, m InboxMessage, short string) {
+	reply := func(format string, args ...any) {
+		if err := c.Discord.Post(ctx, c.ChannelID, fmt.Sprintf(format, args...)); err != nil {
+			log.Printf("channel: reply: %v", err)
+		}
+	}
+	// Defence in depth: Poll only calls command for the king.
+	if c.King == "" || m.AuthorID != c.King {
+		return
+	}
+	if c.Deploy == nil {
+		reply("cannot approve deploy %s: not configured", short)
+		return
+	}
+	commit, err := c.Deploy(ctx, short, m.ID)
+	if err != nil {
+		log.Printf("channel: approve deploy %s: %v", short, err)
+		reply("could not approve deploy %s: %v", short, err)
+		return
+	}
+	reply("deploy %s approved; the deployer will roll it", commit[:min(len(commit), shortLen)])
 }
 
 func (c *Channel) approveConstitution(ctx context.Context, m InboxMessage, num string) {

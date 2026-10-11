@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/Fewbytes/sweatshop/line/constitution"
-	"github.com/Fewbytes/sweatshop/line/gitx"
 	"github.com/Fewbytes/sweatshop/line/linedir"
 )
 
@@ -82,6 +81,11 @@ func (e CLIEngine) run(ctx context.Context, env []string, args ...string) (strin
 		return string(out), fmt.Errorf("%s %s: %w: %s", e.bin(), args[0], err, tailString(string(out), 20))
 	}
 	return string(out), nil
+}
+
+// Output runs the engine CLI with args and returns its output.
+func (e CLIEngine) Output(ctx context.Context, args ...string) (string, error) {
+	return e.run(ctx, nil, args...)
 }
 
 func tailString(s string, n int) string {
@@ -301,23 +305,7 @@ func (v *Supervisor) checkMaster(ctx context.Context, commit string) error {
 
 // checkout materialises commit (which is master) in a fresh directory.
 func (v *Supervisor) checkout(ctx context.Context, commit string) (string, func(), error) {
-	dir, err := os.MkdirTemp("", "viceroy-checkout-")
-	if err != nil {
-		return "", nil, err
-	}
-	cleanup := func() { _ = os.RemoveAll(dir) }
-	work := gitx.Repo{Dir: dir}
-	for _, args := range [][]string{
-		{"init", "--quiet"},
-		{"fetch", "--quiet", "--no-tags", v.Server.Guard.Repo.Dir, v.Server.Guard.Ref},
-		{"checkout", "--quiet", "--detach", commit},
-	} {
-		if _, err := work.Git(ctx, args...); err != nil {
-			cleanup()
-			return "", nil, err
-		}
-	}
-	return dir, cleanup, nil
+	return checkoutCommit(ctx, v.Server.Guard.Repo, v.Server.Guard.Ref, commit)
 }
 
 func (v *Supervisor) spec(st *Station, g Generation) (ContainerSpec, error) {

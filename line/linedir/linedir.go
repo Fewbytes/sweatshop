@@ -47,6 +47,24 @@ type Line struct {
 	Engine       string
 	Image        string
 	Stations     []Station
+	Deploy       Deploy
+}
+
+// Deploy is line.toml's [deploy] table: what `line serve` builds for a
+// release and how the deployer applies it. Zero means deploy is not set up.
+type Deploy struct {
+	Backend    string   `toml:"backend"`    // launchd or k8s
+	URL        string   `toml:"url"`        // line API as the deployer reaches it
+	Image      string   `toml:"image"`      // release image repository (container backends)
+	Dockerfile string   `toml:"dockerfile"` // in the commit, default station/Dockerfile.line
+	Dir        string   `toml:"dir"`        // launchd: deploy directory
+	Domain     string   `toml:"domain"`     // launchd: e.g. gui/501
+	Labels     []string `toml:"labels"`     // launchd: labels the deployer may kickstart
+	API        string   `toml:"api"`        // k8s: API server URL
+	TokenFile  string   `toml:"token_file"` // k8s: bearer token file
+	Namespace  string   `toml:"namespace"`  // k8s
+	Deployment string   `toml:"deployment"` // k8s
+	Container  string   `toml:"container"`  // k8s
 }
 
 type Station struct {
@@ -70,6 +88,7 @@ type lineFile struct {
 	Engine   string        `toml:"engine"`
 	Image    string        `toml:"image"`
 	Stations []stationFile `toml:"stations"`
+	Deploy   *Deploy       `toml:"deploy,omitempty"`
 }
 
 type stationFile struct {
@@ -86,6 +105,9 @@ func newLine(dir string, lf lineFile) Line {
 		Dir: dir, Port: lf.Port, Engine: lf.Engine, Image: lf.Image,
 		Remote:       filepath.Join(dir, "remote.git"),
 		Constitution: filepath.Join(dir, "constitution.toml"),
+	}
+	if lf.Deploy != nil {
+		l.Deploy = *lf.Deploy
 	}
 	for _, s := range lf.Stations {
 		sd := filepath.Join(dir, "stations", s.Name)
