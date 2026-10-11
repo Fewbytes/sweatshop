@@ -158,6 +158,22 @@ func TestWakeOnAndonChange(t *testing.T) {
 	}
 }
 
+func TestWakeOnMasterMove(t *testing.T) {
+	line := &fakeLine{status: station.Status{Master: "m1"}}
+	ag := &fakeAgent{}
+	ag.hook = func(n int) {
+		if n == 1 {
+			line.mu.Lock()
+			line.status = station.Status{Master: "m2"}
+			line.mu.Unlock()
+		}
+	}
+	drive(t, &Loop{Line: line, Agent: ag, Poll: time.Millisecond, Heartbeat: time.Hour}, 2)
+	if !strings.Contains(ag.prompts[1], "Wake reason: master") || !strings.Contains(ag.prompts[1], "master m2") {
+		t.Errorf("prompt: %s", ag.prompts[1])
+	}
+}
+
 func TestWakeOnHeartbeat(t *testing.T) {
 	line := &fakeLine{status: station.Status{Master: "m"}}
 	ag := &fakeAgent{}

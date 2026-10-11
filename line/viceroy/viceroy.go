@@ -1,5 +1,5 @@
 // Package viceroy is the wake loop of the viceroy container: wait for the
-// king's channel, an andon change or the heartbeat, then run one `claude -p`
+// king's channel, an andon change, master moving or the heartbeat, then run one `claude -p`
 // with the charter, the testament and the channel.
 package viceroy
 
@@ -148,13 +148,13 @@ func (l *Loop) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("read status: %w", err)
 	}
-	lastEvent := st.Event
+	lastEvent, lastMaster := st.Event, st.Master
 	nextBeat := now().Add(heartbeat)
 	wake := WakeStartup
 
 	for {
 		if wake == "" {
-			// Wait for the first of: new messages, an andon change, the heartbeat.
+			// Wait for the first of: new messages, an andon change, master moving, the heartbeat.
 			for wake == "" {
 				if ctx.Err() != nil {
 					return ctx.Err()
@@ -182,6 +182,8 @@ func (l *Loop) Run(ctx context.Context) error {
 					l.logf("status: %v", err)
 				} else if s.Event != lastEvent {
 					wake = WakeAndon
+				} else if s.Master != lastMaster {
+					wake = WakeMaster
 				}
 				if wake == "" && !now().Before(nextBeat) {
 					wake = WakeHeartbeat
@@ -234,7 +236,7 @@ func (l *Loop) Run(ctx context.Context) error {
 				l.logf("record marker: %v", err)
 			}
 		}
-		lastEvent = cur.Event
+		lastEvent, lastMaster = cur.Event, cur.Master
 		nextBeat = now().Add(heartbeat)
 		wake = ""
 		if ctx.Err() != nil {

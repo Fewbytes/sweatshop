@@ -72,6 +72,7 @@ const (
 	WakeStartup   Wake = "startup"
 	WakeMessages  Wake = "messages"
 	WakeAndon     Wake = "andon"
+	WakeMaster    Wake = "master"
 	WakeHeartbeat Wake = "heartbeat"
 )
 
@@ -97,6 +98,8 @@ func Prompt(in PromptInput) string {
 	switch in.Wake {
 	case WakeHeartbeat:
 		p.WriteString("The heartbeat fired: post a short status summary to the king (master, andon, cards in flight).\n")
+	case WakeMaster:
+		p.WriteString("Master moved: check what landed and follow up (e.g. request succession if warranted).\n")
 	case WakeStartup:
 		if in.Predecessor != "" {
 			fmt.Fprintf(&p, "You are a new generation; your predecessor ran commit %s. Read the testament and post a short check-in to the channel (exactly one post; the line checks you in only after this run succeeds), then finish.\n", in.Predecessor)
