@@ -27,6 +27,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/deploy"
 	"github.com/Fewbytes/sweatshop/line/gitx"
 	"github.com/Fewbytes/sweatshop/line/guard"
+	"github.com/Fewbytes/sweatshop/line/heijunka"
 	"github.com/Fewbytes/sweatshop/line/linedir"
 	"github.com/Fewbytes/sweatshop/line/maker"
 	"github.com/Fewbytes/sweatshop/line/station"
@@ -66,6 +67,8 @@ const usage = `usage:
                                         the privileged actuator: apply the king-approved release with backend launchd or k8s (line.toml [deploy])
   sweatshop line andon --beads DIR [--interval 30s]
                                         watch master; pull/clear the andon cord (andon station token)
+  sweatshop line heijunka --dir D --beads DIR [--interval 5m] [--min-agents 1] [--max-agents 4]
+                                        level flow: publish agent and WIP-limit levels to D/heijunka.json (SIGUSR1 wakes it now)
   sweatshop line maker --dir D --station NAME --beads DIR [--once] [--engine E] [--url URL] [--timeout 2h] [--max-attempts 3] [--memory 4g] [--pids 1024] [--cpus 2]
                                         work ready "line" beads in station containers
   sweatshop viceroy run [--heartbeat 6h]
@@ -119,6 +122,8 @@ func run(args []string, stdout io.Writer) error {
 		return lineDeployer(args[2:])
 	case len(args) >= 2 && args[0] == "line" && args[1] == "andon":
 		return lineAndon(args[2:])
+	case len(args) >= 2 && args[0] == "line" && args[1] == "heijunka":
+		return lineHeijunka(args[2:])
 	case len(args) >= 2 && args[0] == "line" && args[1] == "maker":
 		return lineMaker(args[2:])
 	case len(args) == 3 && args[0] == "line" && args[1] == "evidence":
@@ -312,6 +317,48 @@ func lineAndon(args []string) error {
 	w := &andon.Watcher{
 		API: c, Cards: andon.BeadCards{Dir: *beads}, Interval: *interval,
 		Log: log.New(os.Stderr, "andon: ", log.LstdFlags),
+	}
+	return w.Run(ctx)
+}
+
+// lineHeijunka runs the heijunka worker until interrupted. It wakes every
+// interval and on SIGUSR1 (the manual trigger).
+func lineHeijunka(args []string) error {
+	fs := flag.NewFlagSet("line heijunka", flag.ContinueOnError)
+	dir := fs.String("dir", "", "line directory; levels are published to heijunka.json in it")
+	beads := fs.String("beads", "", "directory whose beads database holds the cards")
+	interval := fs.Duration("interval", 5*time.Minute, "periodic wake")
+	policy := heijunka.DefaultPolicy
+	fs.IntVar(&policy.MinAgents, "min-agents", policy.MinAgents, "fewest agents")
+	fs.IntVar(&policy.MaxAgents, "max-agents", policy.MaxAgents, "most agents")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 || *dir == "" || *beads == "" {
+		return errors.New(usage)
+	}
+	c, err := lineClient()
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	poke := make(chan struct{}, 1)
+	usr1 := make(chan os.Signal, 1)
+	signal.Notify(usr1, syscall.SIGUSR1)
+	go func() {
+		for range usr1 {
+			select {
+			case poke <- struct{}{}:
+			default:
+			}
+		}
+	}()
+	levels := heijunka.LevelsFile{Path: filepath.Join(*dir, "heijunka.json")}
+	w := &heijunka.Worker{
+		Observer: heijunka.BeadsObserver{API: c, Dir: *beads, Label: station.LabelLine, Levels: levels},
+		Actuator: levels, Policy: policy, Interval: *interval, Poke: poke,
+		Log: log.New(os.Stderr, "heijunka: ", log.LstdFlags),
 	}
 	return w.Run(ctx)
 }
