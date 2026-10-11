@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -46,8 +48,8 @@ func (f *fakeCards) Claim(_ context.Context, id, agent string) error {
 func (f *fakeCards) Release(_ context.Context, id, agent, note string) error {
 	return f.rec("release " + id + " " + agent + " " + note)
 }
-func (f *fakeCards) Close(_ context.Context, id, reason string) error {
-	return f.rec("close " + id + " " + reason)
+func (f *fakeCards) Close(_ context.Context, id, agent, reason string) error {
+	return f.rec("close " + id + " " + agent + " " + reason)
 }
 
 func cardsRig(t *testing.T, cards Cards) (*Server, *httptest.Server, Client, Client) {
@@ -216,6 +218,26 @@ func TestBeadsCardsRequiresBd(t *testing.T) {
 	}
 }
 
+func TestBeadsCardsCloseRunsAsStation(t *testing.T) {
+	bin := t.TempDir()
+	argvFile := filepath.Join(bin, "argv")
+	script := "#!/bin/sh\necho \"$@\" > " + argvFile + "\n"
+	if err := os.WriteFile(filepath.Join(bin, "bd"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	if err := (BeadsCards{Dir: t.TempDir()}).Close(context.Background(), "x-1", "maker-1", "done"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "close x-1 --reason done --actor maker-1\n"; string(got) != want {
+		t.Fatalf("bd argv %q, want %q", got, want)
+	}
+}
+
 func TestCardsMakerSettlementRoutes(t *testing.T) {
 	f := &fakeCards{show: `[{"id":"x-1","assignee":"m"}]`}
 	srv, _, v, m := cardsRig(t, f)
@@ -243,7 +265,7 @@ func TestCardsMakerSettlementRoutes(t *testing.T) {
 		t.Fatalf("maker offer: %v", err)
 	}
 	want := []string{
-		"claim x-1 m", "show x-1", "release x-1 m again", "show x-1", "close x-1 done", "show x-1",
+		"claim x-1 m", "show x-1", "release x-1 m again", "show x-1", "close x-1 m done", "show x-1",
 		"label x-1 " + LabelGaveUp, "list /line/",
 	}
 	if !slices.Equal(f.calls, want) {
@@ -257,7 +279,7 @@ func TestCardsMakerCannotSettleOthersCards(t *testing.T) {
 	if err := m.CardClose(context.Background(), "x-1", "done"); err == nil || !strings.Contains(err.Error(), "403") {
 		t.Fatalf("close: %v", err)
 	}
-	if slices.Contains(f.calls, "close x-1 done") {
+	if slices.Contains(f.calls, "close x-1 m done") {
 		t.Fatalf("calls %q", f.calls)
 	}
 }
