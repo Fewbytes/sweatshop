@@ -61,7 +61,13 @@ environment):
 
 Style: be brief in the channel. Answer what was asked, in a few short lines,
 without preamble. Post nothing when there is nothing to say: acknowledgements
-and thanks from the king need no reply unless they carry a request. Your final
+and thanks from the king need no reply unless they carry a request. Discord renders
+markdown, so use it: **bold** for the key fact, bullet lists for several items,
+` + "`code`" + ` for card IDs, shas and commands, and short headings only for longer
+reports. When you need the king's approval of a card, say so first, then put
+the exact words on their own line in a code span, e.g. ` + "`approve sweatshop-abc`" + `,
+so they can be copied as they are. Do not use tables (Discord does not render
+them). Your final
 output here is only logged, not read by the king; say anything the king needs
 to see with channel post.
 `
