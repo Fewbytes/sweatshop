@@ -469,13 +469,16 @@ func binaryCommit() string {
 	return "unknown"
 }
 
+// lineClient builds the station client from the environment. The token is
+// trimmed because a secret made from a token file carries its trailing
+// newline, which net/http rejects in the Authorization header.
 func lineClient() (station.Client, error) {
-	c := station.Client{URL: os.Getenv("SWEATSHOP_LINE_URL"), Token: os.Getenv("SWEATSHOP_LINE_TOKEN"), Gen: os.Getenv("SWEATSHOP_VICEROY_GEN")}
+	c := station.Client{URL: os.Getenv("SWEATSHOP_LINE_URL"), Token: strings.TrimSpace(os.Getenv("SWEATSHOP_LINE_TOKEN")), Gen: os.Getenv("SWEATSHOP_VICEROY_GEN")}
 	if c.URL == "" {
 		return c, errors.New("SWEATSHOP_LINE_URL is not set")
 	}
 	if c.Token == "" {
-		return c, errors.New("SWEATSHOP_LINE_TOKEN is not set")
+		return c, errors.New("SWEATSHOP_LINE_TOKEN is empty or not set")
 	}
 	return c, nil
 }
