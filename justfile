@@ -100,5 +100,27 @@ validate-marketplace:
 station-image tag="dev":
     docker build -f station/Dockerfile -t sweatshop-station:{{tag}} .
 
+# Build the maker service image (the maker loop; no bd, no claude)
+maker-image tag="dev":
+    podman build -f station/Dockerfile --target maker -t sweatshop-maker:{{tag}} .
+
+# Run a line's maker as a podman service that restarts on failure and with the
+# podman machine. The station token and model credential become podman secrets
+# read straight from the line dir (never echoed); the maker reaches cards only
+# through line serve and starts station containers through the podman socket.
+maker-service name="maker-1" line=(env_var("HOME") / ".sweatshop/lines/sweatshop") port="7468" tag="dev":
+    tr -d '\n' < {{line}}/stations/{{name}}/token | podman secret create --replace sweatshop-{{name}}-token - >/dev/null
+    tr -d '\n' < {{line}}/model.cred | podman secret create --replace sweatshop-model-cred - >/dev/null
+    podman rm -f sweatshop-{{name}} >/dev/null 2>&1 || true
+    podman run -d --name sweatshop-{{name}} --restart=always \
+        --secret sweatshop-{{name}}-token,type=env,target=SWEATSHOP_LINE_TOKEN \
+        --secret sweatshop-model-cred,type=env,target=CLAUDE_CODE_OAUTH_TOKEN \
+        -e SWEATSHOP_LINE_URL=http://host.containers.internal:{{port}} \
+        -e CONTAINER_HOST=unix:///run/podman/podman.sock \
+        -v "$(podman info --format '{{{{.Host.RemoteSocket.Path}}' | sed 's|^unix://||')":/run/podman/podman.sock \
+        -v {{line}}:{{line}}:ro \
+        --security-opt label=disable \
+        sweatshop-maker:{{tag}} --dir {{line}} --station {{name}}
+
 # Everything CI runs
 ci: lint test build validate-marketplace
