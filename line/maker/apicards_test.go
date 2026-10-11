@@ -64,9 +64,12 @@ func (m *memCards) Release(_ context.Context, id, agent, note string) error {
 	return nil
 }
 
-func (m *memCards) Close(_ context.Context, id, reason string) error {
+func (m *memCards) Close(_ context.Context, id, agent, reason string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.assignee[id] != agent {
+		return fmt.Errorf("cannot close %s: assignee is %q, actor is %q", id, m.assignee[id], agent)
+	}
 	m.closed[id] = reason
 	return nil
 }

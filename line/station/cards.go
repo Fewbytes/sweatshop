@@ -64,7 +64,7 @@ type Cards interface {
 	// claim holder release a claim. Show reports the assignee.
 	Claim(ctx context.Context, id, agent string) error
 	Release(ctx context.Context, id, agent, note string) error
-	Close(ctx context.Context, id, reason string) error
+	Close(ctx context.Context, id, agent, reason string) error
 }
 
 // BeadsCards runs bd in Dir with fixed argv (no shell).
@@ -146,8 +146,8 @@ func (b BeadsCards) Release(ctx context.Context, id, agent, note string) error {
 	return err
 }
 
-func (b BeadsCards) Close(ctx context.Context, id, reason string) error {
-	_, err := b.bd(ctx, "close", id, "--reason", reason)
+func (b BeadsCards) Close(ctx context.Context, id, agent, reason string) error {
+	_, err := b.bdAs(ctx, agent, "close", id, "--reason", reason)
 	return err
 }
 
@@ -328,7 +328,7 @@ func (s *Server) settle(w http.ResponseWriter, r *http.Request, cards Cards, st 
 	case "claim":
 		err = cards.Claim(ctx, id, st.AgentID)
 	case "close":
-		err = cards.Close(ctx, id, body.Reason)
+		err = cards.Close(ctx, id, st.AgentID, body.Reason)
 	case "release":
 		err = cards.Release(ctx, id, st.AgentID, body.Reason)
 	case "give-up":
