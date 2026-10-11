@@ -27,6 +27,10 @@ const (
 	DefaultGrace    = 5 * time.Second
 	DefaultIdleWait = 10 * time.Second
 
+	// controlDrainGrace bounds how long wait lingers for the control pipe to
+	// reach EOF once bash has exited.
+	controlDrainGrace = 200 * time.Millisecond
+
 	// maxControlBytes bounds the fd-3 "control pipe" used to capture shell
 	// state (cwd/env) after a command runs. It should only ever carry a few
 	// KB; the cap guards against a command that writes to fd 3 (deliberately
@@ -89,6 +93,7 @@ type run struct {
 	// without a lock.
 	controlTruncated bool
 	controlWg        sync.WaitGroup
+	controlRead      *os.File
 	stdout           *storage.BlobWriter
 	stderr           *storage.BlobWriter
 	cancel           context.CancelFunc
@@ -264,7 +269,7 @@ func (e *Executor) start(ctx context.Context, r *run, request Request) (err erro
 	script += request.Command + "\n"
 	script += session.StateCaptureScript()
 
-	r.control = new(bytes.Buffer)
+	r.control, r.controlRead = new(bytes.Buffer), controlRead
 	r.controlWg.Add(1)
 	go func() {
 		defer r.controlWg.Done()
@@ -371,6 +376,10 @@ waitLoop:
 		}
 	}
 	now := time.Now().UTC()
+	// A backgrounded child (nohup X &) inherits fd 3 and keeps the write end
+	// open after bash exits, so EOF may never arrive. Bash wrote the state
+	// before exiting, so it is already buffered; bound the wait for the rest.
+	_ = r.controlRead.SetReadDeadline(time.Now().Add(controlDrainGrace))
 	r.controlWg.Wait()
 	baseline := e.Sessions.Get(r.invocation.Session, r.invocation.CWD)
 	if len(baseline.Env) == 0 && e.baseEnv != nil {
