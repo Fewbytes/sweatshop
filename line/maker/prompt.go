@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/Fewbytes/sweatshop/line/guidance"
 )
 
 // maxSubmissions bounds how often the agent may call `sweatshop line merge`
@@ -44,7 +46,8 @@ func Prompt(b Bead, andonEvent string) string {
 	fmt.Fprintf(&p, `Line protocol:
 
 1. Work in /work, a clone of the line's master (origin is /line/remote.git).
-   Keep the change small and focused on this card. Read CLAUDE.md for the
+   Keep the change small and focused on this card, and follow the code
+   quality guide at the end of this prompt. Read CLAUDE.md for the
    project's conventions, but skip its beads/bd instructions: the host
    tracks the card, and bd is not available here.
 2. Run `+"`just ci`"+` and make it pass before submitting.
@@ -68,6 +71,9 @@ func Prompt(b Bead, andonEvent string) string {
    or
    RESULT: gave-up <reason>
 `, indent(trailers, "   "), maxSubmissions, maxSubmissions)
+	// Andon cards are fixed by the same maker; both get the maker's guides.
+	guide, _ := guidance.For("maker")
+	fmt.Fprintf(&p, "\nCode quality guide (applies to every change you make):\n\n%s\n", guide)
 	return p.String()
 }
 

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/guidance"
 	"github.com/Fewbytes/sweatshop/line/linedir"
 )
 
@@ -415,6 +416,21 @@ func TestPrompt(t *testing.T) {
 	}
 	if AndonEvent(Bead{Description: "event: x"}) != "" {
 		t.Fatal("AndonEvent parsed a card without the andon label")
+	}
+}
+
+func TestPromptCarriesWriterGuide(t *testing.T) {
+	plain := Prompt(Bead{ID: "b-1", Title: "Add a flag", Description: "Make it so."}, "")
+	if !strings.Contains(plain, guidance.Writer) {
+		t.Error("maker prompt lacks the writer guide")
+	}
+	andon := Bead{ID: "b-2", Title: "fix master", Labels: []string{"andon"}, Description: "event: 0123abcd"}
+	if p := Prompt(andon, "0123abcd"); !strings.Contains(p, guidance.Writer) {
+		t.Error("andon prompt lacks the writer guide")
+	}
+	// The line protocol, including the RESULT contract, stays ahead of the guide.
+	if strings.Index(plain, "RESULT: merged") > strings.Index(plain, guidance.Writer) {
+		t.Error("guide precedes the line protocol")
 	}
 }
 
