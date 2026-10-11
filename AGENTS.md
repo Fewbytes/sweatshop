@@ -125,3 +125,11 @@ bd prime                # Refresh Beads context
 
 **Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
 <!-- END BEADS CODEX SETUP -->
+
+## Code Quality
+
+Anyone writing or changing code or tests follows
+`line/guidance/writer.md`. Anyone refactoring or simplifying follows
+`line/guidance/kaizen.md` as well. Station prompts embed the same files
+(`line/guidance`), so edit them there; the evidence behind them is in
+`research-docs/llm-code-quality/README.md`.

@@ -1,0 +1,40 @@
+// Package guidance holds the code-quality guides the line's code-writing
+// roles follow, and hands each role the guides it needs. The markdown files
+// next to this one are the only copy; the evidence behind them is in
+// research-docs/llm-code-quality.
+package guidance
+
+import (
+	_ "embed"
+	"strings"
+)
+
+// Writer is the guide for any agent that writes or changes code or tests.
+//
+//go:embed writer.md
+var Writer string
+
+// Kaizen is the guide for agents that refactor and simplify existing code.
+//
+//go:embed kaizen.md
+var Kaizen string
+
+// byRole lists each constitution role's guides in prompt order. Every role
+// has an entry, even an empty one, so adding a role forces a decision here.
+var byRole = map[string][]string{
+	"maker":   {Writer},
+	"andon":   {Writer},
+	"kaizen":  {Writer, Kaizen},
+	"gemba":   {Writer},
+	"viceroy": nil, // files cards; writes no code
+}
+
+// For returns role's guides as one prompt section, and false for a role the
+// line does not know.
+func For(role string) (string, bool) {
+	docs, ok := byRole[role]
+	if !ok {
+		return "", false
+	}
+	return strings.Join(docs, "\n\n"), true
+}

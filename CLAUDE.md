@@ -58,6 +58,14 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 <!-- END BEADS INTEGRATION -->
 
 
+## Code Quality
+
+Anyone writing or changing code or tests follows
+`line/guidance/writer.md`. Anyone refactoring or simplifying follows
+`line/guidance/kaizen.md` as well. Station prompts embed the same files
+(`line/guidance`), so edit them there; the evidence behind them is in
+`research-docs/llm-code-quality/README.md`.
+
 ## Build & Test
 
 A root `justfile` wraps the common recipes (`just --list` for the full set):
