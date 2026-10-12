@@ -284,16 +284,49 @@ func lineServe(args []string, stdout io.Writer) error {
 		go watch.Run(pollCtx)
 	}
 	fmt.Fprintf(stdout, "station api for %s on %s\n", l.Dir, *addr)
-	// No write timeout: attest and merge run the line's checks synchronously.
-	hs := &http.Server{Addr: *addr, Handler: srv, ReadHeaderTimeout: 10 * time.Second}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	go func() {
 		<-reload
 		// Exit cleanly so the supervisor (launchd) restarts serve with the
 		// approved constitution.
 		log.Printf("constitution changed; exiting to reload")
-		_ = hs.Shutdown(context.Background())
+		stop()
 	}()
-	if err := hs.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+	return serveUntilDone(ctx, newStationHTTPServer(*addr, srv))
+}
+
+const (
+	// stationReadTimeout bounds reading a whole request, body included, so a
+	// stalled bundle upload cannot hold a connection and its temp file forever.
+	stationReadTimeout = 10 * time.Minute
+	// stationShutdownTimeout is how long in-flight requests (attest and merge
+	// run checks synchronously) get to finish after a shutdown signal.
+	stationShutdownTimeout = 5 * time.Minute
+)
+
+// newStationHTTPServer returns the station API server. It sets no write
+// timeout: attest and merge run the line's checks synchronously.
+func newStationHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: stationReadTimeout}
+}
+
+// serveUntilDone serves hs until ctx is done, then drains in-flight requests
+// for up to stationShutdownTimeout. It returns nil after a clean shutdown.
+func serveUntilDone(ctx context.Context, hs *http.Server) error {
+	errc := make(chan error, 1)
+	go func() { errc <- hs.ListenAndServe() }()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+	}
+	shutCtx, cancel := context.WithTimeout(context.Background(), stationShutdownTimeout)
+	defer cancel()
+	if err := hs.Shutdown(shutCtx); err != nil {
+		return fmt.Errorf("graceful shutdown: %w", err)
+	}
+	if err := <-errc; !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil

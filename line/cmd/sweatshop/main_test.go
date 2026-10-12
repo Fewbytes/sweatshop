@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -721,5 +723,63 @@ func TestLineCardsCloseReportsRefusalVerbatim(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), http.StatusText(status)) || !strings.Contains(err.Error(), "no grant covers x-1") {
 			t.Fatalf("status %d: error %v", status, err)
 		}
+	}
+}
+
+func TestStationHTTPServerBoundsRequestBodyRead(t *testing.T) {
+	hs := newStationHTTPServer("127.0.0.1:0", http.NotFoundHandler())
+	if hs.ReadTimeout != stationReadTimeout || hs.ReadTimeout <= 0 {
+		t.Fatalf("ReadTimeout = %v, want %v", hs.ReadTimeout, stationReadTimeout)
+	}
+}
+
+func TestServeUntilDoneDrainsInFlightRequestOnCancel(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	hs := newStationHTTPServer(addr, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-release
+		io.WriteString(w, "done")
+	}))
+	ctx, cancel := context.WithCancel(context.Background())
+	served := make(chan error, 1)
+	go func() { served <- serveUntilDone(ctx, hs) }()
+
+	body := make(chan string, 1)
+	go func() {
+		var resp *http.Response
+		for i := 0; i < 100; i++ {
+			if resp, err = http.Get("http://" + addr); err == nil {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		if err != nil {
+			body <- err.Error()
+			return
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		body <- string(b)
+	}()
+	<-started
+	cancel()
+	select {
+	case err := <-served:
+		t.Fatalf("serveUntilDone returned %v while a request was in flight", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	if got := <-body; got != "done" {
+		t.Fatalf("in-flight response = %q, want %q", got, "done")
+	}
+	if err := <-served; err != nil {
+		t.Fatalf("serveUntilDone = %v, want nil", err)
 	}
 }
