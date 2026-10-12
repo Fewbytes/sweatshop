@@ -359,3 +359,21 @@ func TestCardsCommentCapDefaultsAndRejectsNegative(t *testing.T) {
 		t.Fatal("negative cap accepted")
 	}
 }
+
+func TestCardsNeedsTimeoutDefaultsAndRejectsBad(t *testing.T) {
+	_, key := publicKey(t)
+	base := valid(key)
+	c, err := Parse([]byte(base))
+	if err != nil || c.Cards.NeedsTimeoutOrDefault() != DefaultNeedsTimeout {
+		t.Fatalf("default: %v %v", c.Cards.NeedsTimeoutOrDefault(), err)
+	}
+	c, err = Parse([]byte("[cards]\nneeds_timeout = \"6h\"\n" + base))
+	if err != nil || c.Cards.NeedsTimeoutOrDefault() != 6*time.Hour {
+		t.Fatalf("explicit: %+v %v", c.Cards, err)
+	}
+	for _, bad := range []string{"soon", "-1h", "0s"} {
+		if _, err := Parse([]byte("[cards]\nneeds_timeout = \"" + bad + "\"\n" + base)); err == nil {
+			t.Errorf("needs_timeout %q accepted", bad)
+		}
+	}
+}

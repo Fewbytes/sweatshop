@@ -357,11 +357,20 @@ func lineHeijunka(args []string) error {
 			}
 		}
 	}()
+	raw, err := c.ConstitutionGet(ctx)
+	if err != nil {
+		return fmt.Errorf("read constitution: %w", err)
+	}
+	needsTimeout, err := heijunka.NeedsTimeoutFromConstitution(raw)
+	if err != nil {
+		return fmt.Errorf("constitution: %w", err)
+	}
+	logger := log.New(os.Stderr, "heijunka: ", log.LstdFlags)
 	levels := heijunka.LevelsFile{Path: filepath.Join(*dir, "heijunka.json")}
 	w := &heijunka.Worker{
+		Needs:    &heijunka.NeedsTriager{Cards: heijunka.BeadsNeeds{Dir: *beads}, Timeout: needsTimeout, Log: logger},
 		Observer: heijunka.BeadsObserver{API: c, Dir: *beads, Label: station.LabelLine, Levels: levels},
-		Actuator: levels, Policy: policy, Interval: *interval, Poke: poke,
-		Log: log.New(os.Stderr, "heijunka: ", log.LstdFlags),
+		Actuator: levels, Policy: policy, Interval: *interval, Poke: poke, Log: logger,
 	}
 	return w.Run(ctx)
 }

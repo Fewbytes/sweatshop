@@ -38,3 +38,17 @@ Levels are published atomically to `<line dir>/heijunka.json`
 (`{"agents":N,"wip_limit":M}`). Whatever runs makers (supervisor, k8s
 deployer scaling a Deployment) reads it; wiring those consumers is follow-up
 work.
+
+## Stale needs:<role> cards
+
+A card labelled `needs:<role>` that nobody touches can deadlock. Each wake the
+worker lists such cards not updated for `cards.needs_timeout` (constitution,
+default 24h) and applies `heijunka.DecideStaleNeed`:
+
+- `needs:king` unanswered: park it (label `line-gave-up`, drop the need) so
+  makers stop reopening it; an operator removes the label to retry.
+- `needs:viceroy` unanswered: escalate to `needs:king`.
+- any other role: reroute to `needs:viceroy`.
+
+Each action comments on the card, which restarts the clock. Splitting a card
+needs judgment about its content, so the viceroy does it after a reroute.

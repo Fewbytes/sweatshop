@@ -43,6 +43,21 @@ const DefaultCommentCap = 5
 type Cards struct {
 	// CommentCap bounds comments per card run; 0 means DefaultCommentCap.
 	CommentCap int `toml:"comment_cap,omitempty"`
+	// NeedsTimeout (Go duration) is how long a needs:<role> card may sit
+	// untouched before heijunka triages it; empty means DefaultNeedsTimeout.
+	NeedsTimeout string `toml:"needs_timeout,omitempty"`
+}
+
+// DefaultNeedsTimeout is how long a needs:<role> card may wait unanswered.
+const DefaultNeedsTimeout = 24 * time.Hour
+
+// NeedsTimeoutOrDefault is the stale-needs timeout with the default applied.
+// Parse rejects malformed values, so a bad one here can only come from code.
+func (c Cards) NeedsTimeoutOrDefault() time.Duration {
+	if d, err := time.ParseDuration(c.NeedsTimeout); err == nil && d > 0 {
+		return d
+	}
+	return DefaultNeedsTimeout
 }
 
 // CommentCapOrDefault is the per-run comment cap with the default applied.
@@ -109,6 +124,11 @@ var (
 func (c Constitution) validateGovernance() error {
 	if c.Cards.CommentCap < 0 {
 		return fmt.Errorf("cards.comment_cap %d: must be positive", c.Cards.CommentCap)
+	}
+	if c.Cards.NeedsTimeout != "" {
+		if d, err := time.ParseDuration(c.Cards.NeedsTimeout); err != nil || d <= 0 {
+			return fmt.Errorf("cards.needs_timeout %q: want a positive duration like 24h", c.Cards.NeedsTimeout)
+		}
 	}
 	s, ch := c.Sovereign, c.Channel
 	if s != (Sovereign{}) && !digits.MatchString(s.Discord) {

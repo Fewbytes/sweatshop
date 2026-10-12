@@ -98,12 +98,18 @@ type Worker struct {
 	Policy   Policy
 	Interval time.Duration // periodic wake, default 5m
 	Poke     <-chan struct{}
+	Needs    *NeedsTriager // nil leaves stale needs:<role> cards alone
 	Log      *log.Logger
 }
 
 // Step observes once and applies new levels when they differ. It returns the
 // levels now in force.
 func (w *Worker) Step(ctx context.Context) (Levels, error) {
+	if w.Needs != nil {
+		if err := w.Needs.Triage(ctx, time.Now()); err != nil && w.Log != nil {
+			w.Log.Printf("needs: %v", err)
+		}
+	}
 	snap, err := w.Observer.Observe(ctx)
 	if err != nil {
 		return Levels{}, fmt.Errorf("observe: %w", err)
