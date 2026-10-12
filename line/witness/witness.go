@@ -58,6 +58,7 @@ type Witness struct {
 
 	mu         sync.Mutex
 	gitChecked bool
+	swept      bool
 }
 
 const minGit = "2.45.1"
@@ -224,6 +225,18 @@ func (w *Witness) AttestLine(ctx context.Context, commit string) (AttestResult, 
 	})
 }
 
+// sweepStaleRefs removes per-attestation refs left behind by an earlier
+// process that died before its deferred cleanup ran. It runs once per Witness,
+// under w.mu, before this process creates any such ref.
+func (w *Witness) sweepStaleRefs(ctx context.Context, cache gitx.Repo) {
+	if w.swept {
+		return
+	}
+	w.swept = true
+	w.deleteRefs(ctx, cache, "refs/bundle/")
+	w.deleteRefs(ctx, cache, "refs/witness/")
+}
+
 func (w *Witness) deleteRefs(ctx context.Context, cache gitx.Repo, prefix string) {
 	ctx = context.WithoutCancel(ctx)
 	out, err := cache.Git(ctx, "for-each-ref", "--format=%(refname)", prefix)
@@ -327,6 +340,12 @@ func (w *Witness) prepare(ctx context.Context, fetch func(context.Context, gitx.
 		return "", "", "", nil, err
 	}
 	if err = w.checkGit(ctx, cache); err != nil {
+		return "", "", "", nil, err
+	}
+	w.sweepStaleRefs(ctx, cache)
+	// Rejected candidates and finished attestations leave unreferenced
+	// objects; gc --auto prunes them once they pass git's grace period.
+	if _, err = cache.Git(ctx, "gc", "--auto", "--quiet"); err != nil {
 		return "", "", "", nil, err
 	}
 	if commit, err = fetch(ctx, cache); err != nil {
