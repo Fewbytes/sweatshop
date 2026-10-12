@@ -65,3 +65,9 @@ types = ["bug", "chore"]
 [[viceroy.delegations]]
 offer = "line"
 parent = "sweatshop-0mw"
+
+# A close delegation lets the viceroy close cards once their decision is
+# commented. It is bounded by an id list or a parent, never by type.
+[[viceroy.delegations]]
+close = true
+ids = ["sweatshop-0mw.1.4", "sweatshop-0mw.1.7"]

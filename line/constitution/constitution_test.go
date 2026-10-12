@@ -276,6 +276,13 @@ parent = "sweatshop-0mw.2"
 		{"bad offer", "[[viceroy.delegations]]\noffer=\"all\"\ntypes=[\"bug\"]\n", "offer"},
 		{"empty delegation", "[[viceroy.delegations]]\noffer=\"line\"\n", "types or parent"},
 		{"bad parent", "[[viceroy.delegations]]\noffer=\"line\"\nparent=\"A B\"\n", "parent"},
+		{"close by ids", "[[viceroy.delegations]]\nclose=true\nids=[\"m-1\"]\n", ""},
+		{"close by parent", "[[viceroy.delegations]]\nclose=true\nparent=\"m-2\"\n", ""},
+		{"unbounded close", "[[viceroy.delegations]]\nclose=true\n", "close needs ids or parent"},
+		{"close by type", "[[viceroy.delegations]]\nclose=true\ntypes=[\"bug\"]\nids=[\"m-1\"]\n", "close takes only"},
+		{"close with offer", "[[viceroy.delegations]]\nclose=true\noffer=\"line\"\nids=[\"m-1\"]\n", "close takes only"},
+		{"bad close id", "[[viceroy.delegations]]\nclose=true\nids=[\"A B\"]\n", "ids"},
+		{"ids on offer", "[[viceroy.delegations]]\noffer=\"line\"\nids=[\"m-1\"]\n", "only a close delegation"},
 		{"unknown field", "[viceroy]\nking = true\n", "strict mode"},
 	}
 	for _, tc := range cases {
@@ -328,6 +335,33 @@ func TestDelegates(t *testing.T) {
 	}
 }
 
+func TestDelegatesClose(t *testing.T) {
+	c := Constitution{Viceroy: Viceroy{Delegations: []Delegation{
+		{Close: true, IDs: []string{"m-1"}},
+		{Close: true, Parent: "m-2"},
+		{Offer: "line", Types: []string{"bug"}, Parent: "m-3"},
+	}}}
+	cases := []struct {
+		name      string
+		id        string
+		ancestors []string
+		want      bool
+	}{
+		{"listed id", "m-1", nil, true},
+		{"under close parent", "m-2.1", []string{"m-2"}, true},
+		{"unlisted", "m-4", nil, false},
+		{"offer delegation grants no close", "m-3.1", []string{"m-3"}, false},
+	}
+	for _, tc := range cases {
+		if got := c.DelegatesClose(tc.id, tc.ancestors); got != tc.want {
+			t.Errorf("%s: got %v want %v", tc.name, got, tc.want)
+		}
+	}
+	if c.Delegates("task", []string{"m-2"}) {
+		t.Error("close delegation grants offer")
+	}
+}
+
 func TestExampleParses(t *testing.T) {
 	c, _, err := Load("testdata/example.toml")
 	if err != nil {
@@ -336,7 +370,7 @@ func TestExampleParses(t *testing.T) {
 	if c.Trust.Level != "attest" || len(c.Trust.Keys) != 1 || c.Runner.Kind != "container" ||
 		len(c.Checks.Required) != 1 || len(c.Guards.Paths) != 2 ||
 		c.Sovereign.Discord == "" || c.Channel.Kind != "discord" ||
-		!c.Viceroy.Succession || len(c.Viceroy.Delegations) != 2 {
+		!c.Viceroy.Succession || len(c.Viceroy.Delegations) != 3 {
 		t.Fatalf("example parsed unexpectedly: %+v", c)
 	}
 }

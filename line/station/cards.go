@@ -183,14 +183,15 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) error {
 }
 
 // cardActions maps each POST /v1/cards/{id}/{action} to the roles allowed to
-// call it. Creating a card (POST /v1/cards) is viceroy-only. Roles other than
+// call it. Creating a card (POST /v1/cards) is viceroy-only. The viceroy may
+// close only cards a constitution delegation covers. Roles other than
 // the viceroy may comment and raise needs only on the card they hold.
 var cardActions = map[string][]string{
 	"comments": {viceroyRole, "maker", "andon", "kaizen", "gemba"},
 	"needs":    {"maker", "andon", "kaizen", "gemba"},
 	"offer":    {viceroyRole},
 	"claim":    {makerRole},
-	"close":    {makerRole},
+	"close":    {makerRole, viceroyRole},
 	"release":  {makerRole},
 	"give-up":  {makerRole},
 }
@@ -309,7 +310,44 @@ func (s *Server) routeCards(w http.ResponseWriter, r *http.Request, st *Station)
 	if parts[1] == "offer" {
 		return s.offer(w, r, cards, id)
 	}
+	if parts[1] == "close" && st.Role == viceroyRole {
+		return s.viceroyClose(w, r, cards, st, id)
+	}
 	return s.settle(w, r, cards, st, id, parts[1])
+}
+
+// viceroyClose closes a card the constitution delegates to the viceroy, once
+// the card carries a comment recording its decision. The grant is the guard's
+// to verify: the viceroy only requests.
+func (s *Server) viceroyClose(w http.ResponseWriter, r *http.Request, cards Cards, st *Station, id string) (string, error) {
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	if err := decodeBody(w, r, &body); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(body.Reason) == "" || len(body.Reason) > maxDesc || !utf8.ValidString(body.Reason) {
+		return "", fail(http.StatusBadRequest, "reason must be 1..%d bytes of UTF-8", maxDesc)
+	}
+	raw, err := cards.Show(r.Context(), id)
+	if err != nil {
+		return "", err
+	}
+	_, ancestors := cardLineage(raw, id)
+	if !s.Guard.Constitution.DelegatesClose(id, ancestors) {
+		return "", fail(http.StatusForbidden, "no constitution delegation lets the viceroy close %s", id)
+	}
+	var issue struct {
+		Comments []json.RawMessage `json:"comments"`
+	}
+	if !unmarshalIssue(raw, &issue) || len(issue.Comments) == 0 {
+		return "", fail(http.StatusConflict, "card %s has no comment recording its decision", id)
+	}
+	if err := cards.Close(r.Context(), id, st.AgentID, body.Reason); err != nil {
+		return "", err
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	return "close " + id, nil
 }
 
 // settle runs a maker's claim, close, release or give-up. The caller must

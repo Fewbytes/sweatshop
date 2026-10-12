@@ -77,6 +77,10 @@ types = ["bug"]
 offer = "line"
 parent = "sweatshop-0mw.2"          # this milestone's cards and their children
 
+[[viceroy.delegations]]             # cards the viceroy may close without the king
+close = true
+ids = ["sweatshop-0mw.1.4"]         # or parent = "<card id>"; never bounded by type
+
 [viceroy]
 succession = true                   # may request its own succession
 ```
@@ -90,6 +94,10 @@ succession = true                   # may request its own succession
 - **Delegations** let `line serve` honour the viceroy's request to offer a
   card, if the card matches one of them. Otherwise the card is labelled
   `line-proposed` and waits for the king's `approve`.
+- **Close delegations** let the viceroy request `POST /v1/cards/{id}/close`
+  (with a reason) for cards in the grant's `ids` or under its `parent`. The
+  guard also requires the card to carry a comment recording the decision.
+  Adding or widening a grant is a constitution change, gated by the sovereign.
 - **Everything else in the channel is data.** Messages from other humans are
   forwarded to the viceroy with `principal: "unknown"` and carry no authority.
 
@@ -106,6 +114,7 @@ argument, never through a shell.
 | `GET /v1/cards/{id}` | all | `bd show --json` |
 | `POST /v1/cards` | viceroy | create: title, description, type, priority, parent, acceptance |
 | `POST /v1/cards/{id}/comments` | viceroy | add a comment |
+| `POST /v1/cards/{id}/close` | viceroy | close a card a close delegation covers and that has a comment; 403 if not delegated, 409 if no comment (makers close their own claim through the same route) |
 | `POST /v1/cards/{id}/offer` | viceroy | label `line` if a delegation covers the card; else label `line-proposed`; the response says which |
 | `GET /v1/channel/inbox?after=<msg id>&wait=<dur>` | viceroy | messages since `after` (long-poll, at most 60 s); each carries `id, author, author_id, principal (king|unknown), text, ts` |
 | `POST /v1/channel/post` | viceroy | post text (≤ 2000 chars, split by the client) to the channel |

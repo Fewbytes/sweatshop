@@ -94,22 +94,43 @@ type Viceroy struct {
 	Delegations []Delegation `toml:"delegations"`
 }
 
-// Delegation lets the viceroy offer matching cards without the king. A card
-// matches by issue type or by having Parent in its ancestor chain.
+// Delegation grants the viceroy one bounded power without the king: either
+// offering matching cards (Offer = "line") or closing them (Close). An offer
+// matches a card by issue type or by having Parent in its ancestor chain. A
+// close is bounded tighter: only the listed IDs or descendants of Parent.
 type Delegation struct {
 	Offer  string   `toml:"offer"`
+	Close  bool     `toml:"close"`
 	Types  []string `toml:"types"`
 	Parent string   `toml:"parent"`
+	IDs    []string `toml:"ids"`
 }
 
-// Delegates reports whether some delegation covers a card of cardType whose
-// ancestor chain is given.
+// Delegates reports whether some offer delegation covers a card of cardType
+// whose ancestor chain is given.
 func (c Constitution) Delegates(cardType string, ancestors []string) bool {
 	for _, d := range c.Viceroy.Delegations {
+		if d.Offer != "line" {
+			continue
+		}
 		if cardType != "" && slices.Contains(d.Types, cardType) {
 			return true
 		}
 		if d.Parent != "" && slices.Contains(ancestors, d.Parent) {
+			return true
+		}
+	}
+	return false
+}
+
+// DelegatesClose reports whether some close delegation covers card id, whose
+// ancestor chain is given.
+func (c Constitution) DelegatesClose(id string, ancestors []string) bool {
+	for _, d := range c.Viceroy.Delegations {
+		if !d.Close {
+			continue
+		}
+		if slices.Contains(d.IDs, id) || (d.Parent != "" && slices.Contains(ancestors, d.Parent)) {
 			return true
 		}
 	}
@@ -146,11 +167,28 @@ func (c Constitution) validateGovernance() error {
 		}
 	}
 	for i, d := range c.Viceroy.Delegations {
-		if d.Offer != "line" {
-			return fmt.Errorf("viceroy.delegations[%d].offer %q: want line", i, d.Offer)
-		}
-		if len(d.Types) == 0 && d.Parent == "" {
-			return fmt.Errorf("viceroy.delegations[%d]: needs types or parent", i)
+		if d.Close {
+			if d.Offer != "" || len(d.Types) > 0 {
+				return fmt.Errorf("viceroy.delegations[%d]: close takes only ids or parent", i)
+			}
+			if len(d.IDs) == 0 && d.Parent == "" {
+				return fmt.Errorf("viceroy.delegations[%d]: close needs ids or parent", i)
+			}
+			for _, id := range d.IDs {
+				if !cardID.MatchString(id) {
+					return fmt.Errorf("viceroy.delegations[%d].ids %q: not a card id", i, id)
+				}
+			}
+		} else {
+			if d.Offer != "line" {
+				return fmt.Errorf("viceroy.delegations[%d].offer %q: want line (or close = true)", i, d.Offer)
+			}
+			if len(d.IDs) > 0 {
+				return fmt.Errorf("viceroy.delegations[%d].ids: only a close delegation takes ids", i)
+			}
+			if len(d.Types) == 0 && d.Parent == "" {
+				return fmt.Errorf("viceroy.delegations[%d]: needs types or parent", i)
+			}
 		}
 		if slices.Contains(d.Types, "") {
 			return fmt.Errorf("viceroy.delegations[%d].types: empty issue type", i)

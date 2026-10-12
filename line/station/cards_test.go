@@ -61,7 +61,10 @@ func cardsRig(t *testing.T, cards Cards) (*Server, *httptest.Server, Client, Cli
 		},
 		Cards: cards,
 	}
-	srv.Guard.Constitution.Viceroy.Delegations = []constitution.Delegation{{Offer: "d", Types: []string{"chore"}, Parent: "x-9"}}
+	srv.Guard.Constitution.Viceroy.Delegations = []constitution.Delegation{
+		{Offer: "line", Types: []string{"chore"}, Parent: "x-9"},
+		{Close: true, IDs: []string{"x-1"}, Parent: "x-7"},
+	}
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
 	return srv, ts, Client{URL: ts.URL, Token: "vt"}, Client{URL: ts.URL, Token: "mt"}
@@ -186,6 +189,32 @@ func TestCardsOffer(t *testing.T) {
 		}
 		if len(f.labels) != 1 || f.labels[0] != tc.label {
 			t.Fatalf("%s: labels %v", tc.name, f.labels)
+		}
+	}
+}
+
+func TestCardsViceroyCloseNeedsDelegationAndDecision(t *testing.T) {
+	cases := []struct {
+		name, id, show string
+		want           string // "" means closed
+	}{
+		{"listed id with decision", "x-1", `[{"id":"x-1","comments":[{"text":"decided"}]}]`, ""},
+		{"under delegated parent", "x-7.2", `{"comments":[{"text":"decided"}]}`, ""},
+		{"no decision comment", "x-1", `{"comments":[]}`, "409"},
+		{"not delegated", "x-2", `{"comments":[{"text":"decided"}]}`, "403"},
+		{"offer-only parent grants no close", "x-9.1", `{"comments":[{"text":"decided"}]}`, "403"},
+	}
+	for _, tc := range cases {
+		f := &fakeCards{show: tc.show}
+		srv, _, v, _ := cardsRig(t, f)
+		srv.Stations[0].AgentID = "vice"
+		err := v.CardClose(context.Background(), tc.id, "decided")
+		closed := slices.Contains(f.calls, "close "+tc.id+" vice decided")
+		if tc.want == "" && (err != nil || !closed) {
+			t.Fatalf("%s: err %v calls %v", tc.name, err, f.calls)
+		}
+		if tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want) || closed) {
+			t.Fatalf("%s: err %v calls %v", tc.name, err, f.calls)
 		}
 	}
 }
