@@ -367,7 +367,13 @@ func (s *Server) settle(w http.ResponseWriter, r *http.Request, cards Cards, st 
 		}
 	}
 	var body struct {
-		Reason string `json:"reason"`
+		Reason         string `json:"reason"`
+		EscalateToKing bool   `json:"escalate_to_king"`
+	}
+	if action == "give-up" {
+		if err := decodeBody(w, r, &body); err != nil {
+			return "", err
+		}
 	}
 	if action == "close" || action == "release" {
 		if err := decodeBody(w, r, &body); err != nil {
@@ -392,6 +398,9 @@ func (s *Server) settle(w http.ResponseWriter, r *http.Request, cards Cards, st 
 		err = cards.Release(ctx, id, st.AgentID, body.Reason)
 	case "give-up":
 		err = cards.AddLabel(ctx, id, LabelGaveUp)
+		if err == nil && body.EscalateToKing {
+			err = cards.AddLabel(ctx, id, LabelNeedsPrefix+needsKing)
+		}
 	}
 	if err != nil {
 		return "", err

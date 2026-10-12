@@ -38,8 +38,9 @@ type Beads interface {
 	Claim(ctx context.Context, id, agent string) error
 	Close(ctx context.Context, id, reason string) error
 	Release(ctx context.Context, id, note string) error
-	// GiveUp labels the bead GaveUpLabel so no maker picks it again.
-	GiveUp(ctx context.Context, id string) error
+	// GiveUp labels the bead GaveUpLabel so no maker picks it again. With
+	// escalateToKing it also labels it needs:king: nobody else can unstick it.
+	GiveUp(ctx context.Context, id string, escalateToKing bool) error
 }
 
 // GaveUpLabel marks a bead the maker failed to land MaxAttempts times.
@@ -354,7 +355,9 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 	}
 	if giveUp {
 		delete(r.attempts, b.ID)
-		return true, errors.Join(runErr, r.Beads.GiveUp(settle, b.ID))
+		// An andon card holds the line stopped, and Pick offers nothing else
+		// meanwhile, so a given-up one must reach the king or the line idles.
+		return true, errors.Join(runErr, r.Beads.GiveUp(settle, b.ID, slices.Contains(b.Labels, "andon")))
 	}
 	return true, runErr
 }
@@ -467,12 +470,20 @@ func (b BeadsCLI) Release(ctx context.Context, id, note string) error {
 }
 
 // GiveUp adds GaveUpLabel; Ready and Pick then skip the bead.
-func (b BeadsCLI) GiveUp(ctx context.Context, id string) error {
+func (b BeadsCLI) GiveUp(ctx context.Context, id string, escalateToKing bool) error {
 	if err := checkID(id); err != nil {
 		return err
 	}
-	_, err := b.bd(ctx, "label", "add", id, GaveUpLabel)
-	return err
+	labels := []string{GaveUpLabel}
+	if escalateToKing {
+		labels = append(labels, station.LabelNeedsPrefix+"king")
+	}
+	for _, l := range labels {
+		if _, err := b.bd(ctx, "label", "add", id, l); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // APICards works cards through the line's /v1/cards routes, so the maker
@@ -501,8 +512,8 @@ func (a APICards) Release(ctx context.Context, id, note string) error {
 	return a.Client.CardRelease(ctx, id, note)
 }
 
-func (a APICards) GiveUp(ctx context.Context, id string) error {
-	return a.Client.CardGiveUp(ctx, id)
+func (a APICards) GiveUp(ctx context.Context, id string, escalateToKing bool) error {
+	return a.Client.CardGiveUp(ctx, id, escalateToKing)
 }
 
 // DockerEngine runs station containers with a docker-compatible CLI.

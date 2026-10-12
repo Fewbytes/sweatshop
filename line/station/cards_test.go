@@ -266,6 +266,18 @@ func TestBeadsCardsCloseRunsAsStation(t *testing.T) {
 	}
 }
 
+func TestCardsGiveUpEscalatesToKingWhenAsked(t *testing.T) {
+	f := &fakeCards{show: `[{"id":"x-1","assignee":"m"}]`}
+	srv, _, _, m := cardsRig(t, f)
+	srv.Stations[1].AgentID = "m"
+	if err := m.CardGiveUp(context.Background(), "x-1", true); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{LabelGaveUp, LabelNeedsPrefix + "king"}; !slices.Equal(f.labels, want) {
+		t.Fatalf("labels %q, want %q", f.labels, want)
+	}
+}
+
 func TestCardsMakerSettlementRoutes(t *testing.T) {
 	f := &fakeCards{show: `[{"id":"x-1","assignee":"m"}]`}
 	srv, _, v, m := cardsRig(t, f)
@@ -280,7 +292,7 @@ func TestCardsMakerSettlementRoutes(t *testing.T) {
 	if err := m.CardClose(ctx, "x-1", "done"); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.CardGiveUp(ctx, "x-1"); err != nil {
+	if err := m.CardGiveUp(ctx, "x-1", false); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := m.CardsList(ctx, ListFilter{Label: "line", Ready: true}); err != nil || !strings.Contains(string(out), "x-1") {

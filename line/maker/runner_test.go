@@ -169,6 +169,23 @@ func TestOnceGivesUpAfterMaxAttempts(t *testing.T) {
 	}
 }
 
+func TestOnceEscalatesGivenUpAndonCardToKing(t *testing.T) {
+	bare, _ := remote(t)
+	fb := &fakeBeads{ready: []Bead{
+		{ID: "b-1", Priority: 1, Labels: []string{"line"}},
+		{ID: "b-9", Priority: 3, Labels: []string{"line", "andon"}, Description: "event: e1"},
+	}}
+	fe := &fakeEngine{run: func(ContainerSpec) (int, error) { return 3, nil }}
+	r := newRunner(t, bare, fb, fe)
+	r.MaxAttempts = 1
+	if _, err := r.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if last := fb.calls[len(fb.calls)-1]; last != "giveup b-9 needs:king" {
+		t.Fatalf("last call = %q, want giveup of the andon card escalated to the king", last)
+	}
+}
+
 func TestOnceMaxAttemptsConfigurable(t *testing.T) {
 	bare, _ := remote(t)
 	fb := &fakeBeads{ready: []Bead{{ID: "b-1", Priority: 1, Labels: []string{"line"}}}}
@@ -208,8 +225,11 @@ type fakeBeads struct {
 	claims map[string]string
 }
 
-func (f *fakeBeads) GiveUp(_ context.Context, id string) error {
+func (f *fakeBeads) GiveUp(_ context.Context, id string, escalateToKing bool) error {
 	f.calls = append(f.calls, "giveup "+id)
+	if escalateToKing {
+		f.calls[len(f.calls)-1] += " needs:king"
+	}
 	for i := range f.ready {
 		if f.ready[i].ID == id {
 			f.ready[i].Labels = append(f.ready[i].Labels, GaveUpLabel)
@@ -485,7 +505,7 @@ func TestBeadsCLI(t *testing.T) {
 	if err := b.Release(ctx, "b-1", "no luck"); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.GiveUp(ctx, "b-1"); err != nil {
+	if err := b.GiveUp(ctx, "b-1", true); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
@@ -494,6 +514,7 @@ func TestBeadsCLI(t *testing.T) {
 		"close b-1 --reason landed via line --actor maker-1",
 		"unclaim b-1 --reason no luck --actor maker-1",
 		"label add b-1 " + GaveUpLabel + " --actor maker-1",
+		"label add b-1 needs:king --actor maker-1",
 	}
 	if got := calls(t, logFile); !reflect.DeepEqual(got, want) {
 		t.Fatalf("bd calls =\n%q\nwant\n%q", got, want)

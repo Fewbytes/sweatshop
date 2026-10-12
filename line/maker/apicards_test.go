@@ -160,7 +160,7 @@ func TestAPICardsRefuseSettlingCardsTheStationDoesNotHold(t *testing.T) {
 	for name, err := range map[string]error{
 		"close":   api.Close(ctx, "b-1", "x"),
 		"release": api.Release(ctx, "b-1", "x"),
-		"give-up": api.GiveUp(ctx, "b-1"),
+		"give-up": api.GiveUp(ctx, "b-1", false),
 	} {
 		if err == nil || !strings.Contains(err.Error(), "403") {
 			t.Errorf("%s of another agent's card: err = %v, want 403", name, err)

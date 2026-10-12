@@ -300,9 +300,10 @@ func (c Client) CardRelease(ctx context.Context, id, reason string) error {
 	return c.cardAction(ctx, id, "release", map[string]string{"reason": reason})
 }
 
-// CardGiveUp labels a card the station holds LabelGaveUp (maker only).
-func (c Client) CardGiveUp(ctx context.Context, id string) error {
-	return c.cardAction(ctx, id, "give-up", struct{}{})
+// CardGiveUp labels a card the station holds LabelGaveUp, and needs:king when
+// escalateToKing (maker only).
+func (c Client) CardGiveUp(ctx context.Context, id string, escalateToKing bool) error {
+	return c.cardAction(ctx, id, "give-up", map[string]bool{"escalate_to_king": escalateToKing})
 }
 
 // CardOffer labels the card for the line or proposes it (viceroy only).
