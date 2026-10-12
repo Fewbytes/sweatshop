@@ -556,3 +556,52 @@ func TestRunsStats(t *testing.T) {
 		t.Fatalf("bad limit: %d", code)
 	}
 }
+
+// Agents may clone the line shallowly; the bundle upload and the
+// fetch-and-rebase retry after base_moved must not need the full history.
+func TestMergeFromShallowCloneAfterRebase(t *testing.T) {
+	r := newRig(t)
+	r.commit("src/a.txt", "a", "add a")
+	if _, err := r.maker.Merge(r.ctx, r.agent.Dir, "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+
+	shallow := gitx.Repo{Dir: filepath.Join(t.TempDir(), "shallow")}
+	ok(t)(r.agent.Git(r.ctx, "clone", "--quiet", "--depth", "1", "file://"+r.line.Remote, shallow.Dir))
+	ok(t)(shallow.Git(r.ctx, "config", "user.name", "t"))
+	ok(t)(shallow.Git(r.ctx, "config", "user.email", "t@example.com"))
+
+	// master moves on while the shallow clone works.
+	r.commit("src/b.txt", "b", "add b")
+	if _, err := r.maker.Merge(r.ctx, r.agent.Dir, "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+
+	ok(t)(shallow.Git(r.ctx, "checkout", "--quiet", "-b", "work"))
+	if err := os.WriteFile(filepath.Join(shallow.Dir, "src", "c.txt"), []byte("c"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ok(t)(shallow.Git(r.ctx, "add", "-A"))
+	ok(t)(shallow.Git(r.ctx, "commit", "--quiet", "-m", "add c"))
+	res, err := r.maker.Merge(r.ctx, shallow.Dir, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Guard.Reason != guard.ReasonBaseMoved {
+		t.Fatalf("result = %+v, want reason %s", res.Guard, guard.ReasonBaseMoved)
+	}
+
+	ok(t)(shallow.Git(r.ctx, "fetch", "--quiet", "origin"))
+	ok(t)(shallow.Git(r.ctx, "rebase", "--quiet", "origin/master"))
+	head, err := shallow.Commit(r.ctx, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err = r.maker.Merge(r.ctx, shallow.Dir, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Guard.Status != guard.Merged || r.master() != head {
+		t.Fatalf("result = %+v, master = %s, want %s", res, r.master(), head)
+	}
+}

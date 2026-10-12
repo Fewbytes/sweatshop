@@ -125,7 +125,9 @@ func (c Client) doOnce(ctx context.Context, method, path string, query url.Value
 
 // bundle resolves rev in repoDir and writes a bundle carrying exactly one ref
 // under refs/sweatshop/ (the witness's contract), excluding what the line
-// already has. The caller must call cleanup.
+// already has. The caller must call cleanup. It needs only the history down to
+// origin/master, so a shallow clone works
+// (TestMergeFromShallowCloneAfterRebase).
 func bundle(ctx context.Context, repoDir, rev string) (commit, path string, cleanup func(), err error) {
 	if rev == "" || strings.HasPrefix(rev, "-") {
 		return "", "", nil, fmt.Errorf("invalid revision %q", rev)
