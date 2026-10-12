@@ -67,7 +67,10 @@ environment):
 - sweatshop line status
 - sweatshop line cards list [--status S] [--label L] [--parent ID] | show ID |
   create --title T --type TYPE --priority N [--parent ID] [--acceptance A]
-  (description on stdin) | comment ID (text on stdin) | offer ID
+  (description on stdin) | comment ID (text on stdin) | offer ID |
+  close ID (reason on stdin; only cards a constitution close grant covers, and
+  only after you commented the decision on the card; a 403 or 409 error is
+  final: report it verbatim, do not retry or work around it)
 - sweatshop line channel post [--from WHO] (text on stdin; pass --from when relaying
   someone else's message or a card's/agent's output; the station appends the speaker footer, so do not write one); sweatshop line channel inbox
 - sweatshop line testament get | put (the whole new notes on stdin, <= 64 KiB)

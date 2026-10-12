@@ -52,7 +52,7 @@ const usage = `usage:
                                         check rev and submit it to the merge guard
   sweatshop line status                 print the line's master and andon state
   sweatshop line evidence ID            print a check log
-  sweatshop line cards list [--status S] [--label L] [--parent ID] | show ID | create --title T --type TYPE --priority N [--parent ID] [--acceptance A] (description on stdin) | comment ID (text on stdin) | offer ID
+  sweatshop line cards list [--status S] [--label L] [--parent ID] | show ID | create --title T --type TYPE --priority N [--parent ID] [--acceptance A] (description on stdin) | comment ID (text on stdin) | offer ID | close ID (reason on stdin)
                                         read and (viceroy only) write cards; output is JSON
   sweatshop line channel inbox [--after ID] [--wait 30s] | post [--from WHO] (text on stdin)
                                         read the king's channel / post to it (viceroy only)
@@ -613,7 +613,7 @@ func lineCards(args []string, stdin io.Reader, stdout io.Writer) error {
 		fs.IntVar(&nc.Priority, "priority", 2, "priority 0..4")
 		fs.StringVar(&nc.Parent, "parent", "", "parent card")
 		fs.StringVar(&nc.Acceptance, "acceptance", "", "acceptance criteria")
-	case "show", "comment", "offer":
+	case "show", "comment", "offer", "close":
 	default:
 		return errors.New(usage)
 	}
@@ -621,7 +621,7 @@ func lineCards(args []string, stdin io.Reader, stdout io.Writer) error {
 		return err
 	}
 	wantArgs := 0
-	if cmd == "show" || cmd == "comment" || cmd == "offer" {
+	if cmd == "show" || cmd == "comment" || cmd == "offer" || cmd == "close" {
 		wantArgs = 1
 	}
 	if fs.NArg() != wantArgs {
@@ -653,6 +653,14 @@ func lineCards(args []string, stdin io.Reader, stdout io.Writer) error {
 		out, err = c.CardComment(ctx, fs.Arg(0), strings.TrimRight(string(text), "\n"))
 	case "offer":
 		out, err = c.CardOffer(ctx, fs.Arg(0))
+	case "close":
+		reason, rerr := io.ReadAll(io.LimitReader(stdin, 1<<20))
+		if rerr != nil {
+			return rerr
+		}
+		if err = c.CardClose(ctx, fs.Arg(0), strings.TrimRight(string(reason), "\n")); err == nil {
+			out = []byte("closed " + fs.Arg(0))
+		}
 	}
 	if err != nil {
 		return err
