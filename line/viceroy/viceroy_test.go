@@ -261,6 +261,19 @@ func TestCharterContent(t *testing.T) {
 	}
 }
 
+func TestCharterTriagesNeedsLabelsOnEveryWake(t *testing.T) {
+	for _, want := range []string{"On every wake", "--label needs:viceroy", "needs:king"} {
+		if !strings.Contains(Charter, want) {
+			t.Errorf("charter lacks %q", want)
+		}
+	}
+	for _, wake := range []Wake{WakeStartup, WakeMessages, WakeAndon, WakeMaster, WakeHeartbeat} {
+		if !strings.Contains(Prompt(PromptInput{Wake: wake}), "--label needs:viceroy") {
+			t.Errorf("%s prompt lacks needs:viceroy triage", wake)
+		}
+	}
+}
+
 func TestPromptCarriesContextBeforeTestament(t *testing.T) {
 	p := Prompt(PromptInput{Wake: WakeHeartbeat, Testament: "TESTAMENT-BODY"})
 	for _, want := range []string{"## Principles", "## Roles", "## Line architecture", "## Code of conduct"} {
