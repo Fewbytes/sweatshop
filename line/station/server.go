@@ -240,12 +240,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	outcome, err := s.route(w, r, st)
 	if err != nil {
 		code := http.StatusInternalServerError
+		clientMsg := "internal error"
 		var he *httpError
 		if errors.As(err, &he) {
 			code = he.code
+			clientMsg = err.Error()
 		}
+		// Unclassified errors (os.PathError and the like) embed host paths,
+		// so only the log gets their text.
 		outcome = fmt.Sprintf("%d %v", code, err)
-		writeError(w, code, err.Error())
+		writeError(w, code, clientMsg)
 	}
 	log.Printf("station api: station=%s route=%q commit=%q outcome=%q", st.Name, r.Method+" "+r.URL.Path, commit, outcome)
 }

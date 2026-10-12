@@ -183,6 +183,21 @@ func TestUnauthorized(t *testing.T) {
 	}
 }
 
+func TestUnclassifiedErrorHidesHostPaths(t *testing.T) {
+	r := newRig(t)
+	if err := os.RemoveAll(r.line.Remote); err != nil {
+		t.Fatal(err)
+	}
+	code, body := r.raw("GET", "/v1/status", r.token("maker-1"), nil)
+	if code != http.StatusInternalServerError {
+		t.Fatalf("status = %d %s", code, body)
+	}
+	var e struct{ Error string }
+	if err := json.Unmarshal([]byte(body), &e); err != nil || e.Error != "internal error" {
+		t.Fatalf("body = %q", body)
+	}
+}
+
 func TestMergeGoodCommit(t *testing.T) {
 	r := newRig(t)
 	head := r.commit("src/a.txt", "a", "add a")
