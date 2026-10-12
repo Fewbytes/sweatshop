@@ -368,3 +368,14 @@ func TestPromptReportsStationLiveness(t *testing.T) {
 		}
 	}
 }
+
+func TestPromptTellsViceroyToScanAllCardsAndCommentsReadOnly(t *testing.T) {
+	for _, wake := range []Wake{WakeStartup, WakeMessages, WakeAndon, WakeMaster, WakeHeartbeat} {
+		p := Prompt(PromptInput{Wake: wake})
+		for _, want := range []string{"every card and", "every comment", "--status closed", "read-only"} {
+			if !strings.Contains(p, want) {
+				t.Errorf("%s prompt lacks %q", wake, want)
+			}
+		}
+	}
+}
