@@ -340,3 +340,22 @@ func TestExampleParses(t *testing.T) {
 		t.Fatalf("example parsed unexpectedly: %+v", c)
 	}
 }
+
+func TestCardsCommentCapDefaultsAndRejectsNegative(t *testing.T) {
+	_, key := publicKey(t)
+	base := valid(key)
+	c, err := Parse([]byte(base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Cards.CommentCapOrDefault(); got != DefaultCommentCap {
+		t.Fatalf("default cap %d", got)
+	}
+	c, err = Parse([]byte("[cards]\ncomment_cap = 3\n" + base))
+	if err != nil || c.Cards.CommentCapOrDefault() != 3 {
+		t.Fatalf("explicit cap: %+v %v", c.Cards, err)
+	}
+	if _, err := Parse([]byte("[cards]\ncomment_cap = -1\n" + base)); err == nil {
+		t.Fatal("negative cap accepted")
+	}
+}

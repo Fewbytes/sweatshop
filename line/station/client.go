@@ -269,9 +269,15 @@ func (c Client) CardCreate(ctx context.Context, nc NewCard) ([]byte, error) {
 	return c.postJSON(ctx, "/v1/cards", nc)
 }
 
-// CardComment adds a comment (viceroy or maker).
+// CardComment adds a comment (viceroy on any card, other roles on their own).
 func (c Client) CardComment(ctx context.Context, id, text string) ([]byte, error) {
 	return c.postJSON(ctx, "/v1/cards/"+url.PathEscape(id)+"/comments", map[string]string{"text": text})
+}
+
+// CardNeeds labels the caller's own card needs:<role> (king or a station
+// role), blocking it on that role.
+func (c Client) CardNeeds(ctx context.Context, id, role string) error {
+	return c.cardAction(ctx, id, "needs", map[string]string{"role": role})
 }
 
 func (c Client) cardAction(ctx context.Context, id, action string, body any) error {

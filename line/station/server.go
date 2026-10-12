@@ -78,6 +78,10 @@ type Server struct {
 	queueOnce sync.Once
 
 	liveness liveness
+
+	// commentCounts tallies comments non-viceroy agents made this run.
+	commentMu     sync.Mutex
+	commentCounts map[commentKey]int
 }
 
 // acquire claims the line's single check slot; release with s.busy.Store(false).

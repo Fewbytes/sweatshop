@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/Fewbytes/sweatshop/line/constitution"
 )
 
 const (
@@ -21,6 +23,10 @@ const (
 	maxCardBody = 64 << 10
 	viceroyRole = "viceroy"
 	makerRole   = "maker"
+	// LabelNeedsPrefix starts a label that blocks a card on a role's answer.
+	LabelNeedsPrefix = "needs:"
+	// needsKing is a valid needs target though the king is not a station role.
+	needsKing = "king"
 	// LabelLine puts a card on the line; LabelProposed asks the king to.
 	LabelLine     = "line"
 	LabelProposed = "line-proposed"
@@ -177,9 +183,11 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) error {
 }
 
 // cardActions maps each POST /v1/cards/{id}/{action} to the roles allowed to
-// call it. Creating a card (POST /v1/cards) is viceroy-only.
+// call it. Creating a card (POST /v1/cards) is viceroy-only. Roles other than
+// the viceroy may comment and raise needs only on the card they hold.
 var cardActions = map[string][]string{
-	"comments": {viceroyRole},
+	"comments": {viceroyRole, "maker", "andon", "kaizen", "gemba"},
+	"needs":    {"maker", "andon", "kaizen", "gemba"},
 	"offer":    {viceroyRole},
 	"claim":    {makerRole},
 	"close":    {makerRole},
@@ -274,7 +282,15 @@ func (s *Server) routeCards(w http.ResponseWriter, r *http.Request, st *Station)
 		}
 		return "show " + id, writeRaw(w, out)
 	}
+	if parts[1] == "needs" {
+		return s.raiseNeed(w, r, cards, st, id)
+	}
 	if parts[1] == "comments" {
+		if st.Role != viceroyRole {
+			if err := s.admitOwnComment(r, cards, st, id); err != nil {
+				return "", err
+			}
+		}
 		var body struct {
 			Text string `json:"text"`
 		}
@@ -327,6 +343,11 @@ func (s *Server) settle(w http.ResponseWriter, r *http.Request, cards Cards, st 
 	switch action {
 	case "claim":
 		err = cards.Claim(ctx, id, st.AgentID)
+		if err == nil {
+			s.commentMu.Lock()
+			delete(s.commentCounts, commentKey{st.AgentID, id})
+			s.commentMu.Unlock()
+		}
 	case "close":
 		err = cards.Close(ctx, id, st.AgentID, body.Reason)
 	case "release":
@@ -439,4 +460,60 @@ func cardAssignee(raw json.RawMessage) string {
 	}
 	unmarshalIssue(raw, &issue)
 	return issue.Assignee
+}
+
+// commentKey identifies one agent's run on one card; claiming resets it.
+type commentKey struct{ agentID, cardID string }
+
+// requireOwnCard fails with 403 unless the station's agent holds the card.
+func requireOwnCard(r *http.Request, cards Cards, st *Station, id string) error {
+	raw, err := cards.Show(r.Context(), id)
+	if err != nil {
+		return err
+	}
+	if holder := cardAssignee(raw); holder != st.AgentID {
+		return fail(http.StatusForbidden, "card %s is claimed by %q, not %q", id, holder, st.AgentID)
+	}
+	return nil
+}
+
+// admitOwnComment lets a non-viceroy role comment on its own card, at most
+// the constitution's cards.comment_cap times per run (claim to claim).
+func (s *Server) admitOwnComment(r *http.Request, cards Cards, st *Station, id string) error {
+	if err := requireOwnCard(r, cards, st, id); err != nil {
+		return err
+	}
+	key := commentKey{st.AgentID, id}
+	s.commentMu.Lock()
+	defer s.commentMu.Unlock()
+	if n := s.commentCounts[key]; n >= s.Guard.Constitution.Cards.CommentCapOrDefault() {
+		return fail(http.StatusTooManyRequests, "comment cap of %d reached for card %s", n, id)
+	}
+	if s.commentCounts == nil {
+		s.commentCounts = map[commentKey]int{}
+	}
+	s.commentCounts[key]++
+	return nil
+}
+
+// raiseNeed labels the caller's own card needs:<role>, blocking it on that
+// role. The recipient may decline; the agent never waits.
+func (s *Server) raiseNeed(w http.ResponseWriter, r *http.Request, cards Cards, st *Station, id string) (string, error) {
+	var body struct {
+		Role string `json:"role"`
+	}
+	if err := decodeBody(w, r, &body); err != nil {
+		return "", err
+	}
+	if body.Role != needsKing && !slices.Contains(constitution.Roles, body.Role) {
+		return "", fail(http.StatusBadRequest, "role %q: want king or one of %s", body.Role, strings.Join(constitution.Roles, ", "))
+	}
+	if err := requireOwnCard(r, cards, st, id); err != nil {
+		return "", err
+	}
+	if err := cards.AddLabel(r.Context(), id, LabelNeedsPrefix+body.Role); err != nil {
+		return "", err
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	return "needs " + id + " " + body.Role, nil
 }

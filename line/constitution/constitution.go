@@ -33,6 +33,24 @@ type Constitution struct {
 	Sovereign Sovereign `toml:"sovereign"`
 	Channel   Channel   `toml:"channel"`
 	Viceroy   Viceroy   `toml:"viceroy"`
+	Cards     Cards     `toml:"cards"`
+}
+
+// DefaultCommentCap is the comments an agent may leave on its own card per run.
+const DefaultCommentCap = 5
+
+// Cards sets what agents may do to their own cards through the station API.
+type Cards struct {
+	// CommentCap bounds comments per card run; 0 means DefaultCommentCap.
+	CommentCap int `toml:"comment_cap,omitempty"`
+}
+
+// CommentCapOrDefault is the per-run comment cap with the default applied.
+func (c Cards) CommentCapOrDefault() int {
+	if c.CommentCap == 0 {
+		return DefaultCommentCap
+	}
+	return c.CommentCap
 }
 
 // Sovereign is the king: the only identity whose channel messages carry
@@ -89,6 +107,9 @@ var (
 )
 
 func (c Constitution) validateGovernance() error {
+	if c.Cards.CommentCap < 0 {
+		return fmt.Errorf("cards.comment_cap %d: must be positive", c.Cards.CommentCap)
+	}
 	s, ch := c.Sovereign, c.Channel
 	if s != (Sovereign{}) && !digits.MatchString(s.Discord) {
 		return fmt.Errorf("sovereign.discord %q: want a Discord user ID (digits only)", s.Discord)
