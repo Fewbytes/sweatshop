@@ -19,13 +19,19 @@ var Writer string
 //go:embed kaizen.md
 var Kaizen string
 
+// Gemba is the guide for the agent that owns acceptance-test meaning and
+// field fit.
+//
+//go:embed gemba.md
+var Gemba string
+
 // byRole lists each constitution role's guides in prompt order. Every role
 // has an entry, even an empty one, so adding a role forces a decision here.
 var byRole = map[string][]string{
 	"maker":   {Writer},
 	"andon":   {Writer},
 	"kaizen":  {Writer, Kaizen},
-	"gemba":   {Writer},
+	"gemba":   {Writer, Gemba},
 	"viceroy": nil, // files cards; writes no code
 }
 
