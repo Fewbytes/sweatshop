@@ -112,8 +112,44 @@ func (b BeadsCards) List(ctx context.Context, f ListFilter) (json.RawMessage, er
 	return b.bd(ctx, args...)
 }
 
+// Show returns `bd show --json` with the card's comments attached: bd show
+// omits them (comments_omitted) and reports only comment_count.
 func (b BeadsCards) Show(ctx context.Context, id string) (json.RawMessage, error) {
-	return b.bd(ctx, "show", id, "--json")
+	out, err := b.bd(ctx, "show", id, "--json")
+	if err != nil {
+		return nil, err
+	}
+	comments, err := b.bd(ctx, "comments", id, "--json")
+	if err != nil {
+		return nil, err
+	}
+	return attachComments(out, comments)
+}
+
+// attachComments sets "comments" on the issue in `bd show --json` output (an
+// object or a one-element array) and drops the comments_omitted marker.
+func attachComments(show, comments json.RawMessage) (json.RawMessage, error) {
+	var list []json.RawMessage
+	if err := json.Unmarshal(comments, &list); err != nil {
+		return nil, fmt.Errorf("bd comments: %w", err)
+	}
+	var many []map[string]json.RawMessage
+	isArray := json.Unmarshal(show, &many) == nil
+	if !isArray {
+		var one map[string]json.RawMessage
+		if err := json.Unmarshal(show, &one); err != nil {
+			return nil, fmt.Errorf("bd show: %w", err)
+		}
+		many = []map[string]json.RawMessage{one}
+	}
+	for _, issue := range many {
+		issue["comments"] = comments
+		delete(issue, "comments_omitted")
+	}
+	if isArray {
+		return json.Marshal(many)
+	}
+	return json.Marshal(many[0])
 }
 
 func (b BeadsCards) Create(ctx context.Context, c NewCard) (json.RawMessage, error) {

@@ -144,3 +144,47 @@ func TestStatusRouteIncludesStations(t *testing.T) {
 		t.Fatalf("stations = %+v", st.Stations)
 	}
 }
+
+func TestMakerWatchWarnsOnceOnClockSkewAndClears(t *testing.T) {
+	srv, _, _ := livenessRig(t)
+	var posts []string
+	w := &MakerWatch{Server: srv, Started: time.Now(), Announce: func(_ context.Context, text string) error {
+		posts = append(posts, text)
+		return nil
+	}}
+	t0 := w.Started
+	behind := func(at time.Time, by time.Duration) {
+		t.Helper()
+		clock := at.Add(-by)
+		srv.liveness.beat("m1", Heartbeat{State: StateIdle, Clock: &clock}, at)
+		if err := w.Check(context.Background(), at); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	behind(t0, MaxClockSkew) // at the limit: fine
+	if len(posts) != 0 {
+		t.Fatalf("early warning: %v", posts)
+	}
+	behind(t0.Add(time.Minute), 58*time.Minute)
+	behind(t0.Add(2*time.Minute), 58*time.Minute)
+	if len(posts) != 1 || !strings.Contains(posts[0], "m1") || !strings.Contains(posts[0], "-58m0s") || !strings.Contains(posts[0], "chronyc makestep") {
+		t.Fatalf("want one warning, got %v", posts)
+	}
+	behind(t0.Add(3*time.Minute), 0)
+	if len(posts) != 2 || !strings.Contains(posts[1], "back in step") {
+		t.Fatalf("want one all-clear, got %v", posts)
+	}
+}
+
+func TestClientHeartbeatCarriesStationClock(t *testing.T) {
+	srv, m1, _ := livenessRig(t)
+	before := time.Now()
+	if err := m1.Heartbeat(context.Background(), Heartbeat{State: StateIdle}); err != nil {
+		t.Fatal(err)
+	}
+	seen := srv.liveness.seen["m1"]
+	if seen.Clock == nil || seen.Clock.Before(before) || seen.Clock.After(time.Now()) {
+		t.Fatalf("clock %v not stamped between %v and now", seen.Clock, before)
+	}
+}

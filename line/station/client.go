@@ -231,6 +231,8 @@ func (c Client) Status(ctx context.Context) (Status, error) {
 
 // Heartbeat tells the line this station is alive and what it is doing.
 func (c Client) Heartbeat(ctx context.Context, hb Heartbeat) error {
+	now := time.Now()
+	hb.Clock = &now
 	_, err := c.postJSON(ctx, "/v1/stations/heartbeat", hb)
 	return err
 }

@@ -402,3 +402,33 @@ func TestCardsAgentRaisesNeedsOnOwnCard(t *testing.T) {
 		t.Fatalf("labels %q", f.labels)
 	}
 }
+
+func TestBeadsCardsShowAttachesComments(t *testing.T) {
+	bin := t.TempDir()
+	script := `#!/bin/sh
+case "$1" in
+show) echo '[{"id":"x-1","comment_count":1,"comments_omitted":true}]' ;;
+comments) echo '[{"text":"decided"}]' ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(bin, "bd"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	out, err := (BeadsCards{Dir: t.TempDir()}).Show(context.Background(), "x-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []struct {
+		ID       string            `json:"id"`
+		Count    int               `json:"comment_count"`
+		Omitted  *bool             `json:"comments_omitted"`
+		Comments []json.RawMessage `json:"comments"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "x-1" || got[0].Count != 1 || got[0].Omitted != nil || len(got[0].Comments) != 1 {
+		t.Fatalf("show output %s", out)
+	}
+}
