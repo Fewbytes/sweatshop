@@ -2,6 +2,7 @@ package station
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -16,6 +17,12 @@ const (
 	MakerPollInterval = 60 * time.Second
 	MakerSilenceLimit = 3 * MakerPollInterval
 )
+
+// MaxClockSkew is how far a station's clock may differ from the line's before
+// MakerWatch warns. A podman machine VM clock drifts after the host sleeps,
+// and station containers inherit it: commit dates and logs come out wrong, and
+// a large skew breaks TLS to the model API.
+const MaxClockSkew = 2 * time.Minute
 
 // StationState is what a station reports it is doing; StateUnseen is what the
 // line reports for a maker that has never sent a heartbeat.
@@ -33,6 +40,9 @@ type Heartbeat struct {
 	State  StationState `json:"state"`            // StateIdle or StateWorking
 	Card   string       `json:"card,omitempty"`   // the card being worked; required when working
 	Commit string       `json:"commit,omitempty"` // commit of the station's binary
+	// Clock is the station's own time when it sent the heartbeat; Client.Heartbeat
+	// fills it in. Nil from a station that predates the field.
+	Clock *time.Time `json:"clock,omitempty"`
 }
 
 // StationStatus is one station's liveness in GET /v1/status.
@@ -43,6 +53,9 @@ type StationStatus struct {
 	Card     string       `json:"card,omitempty"`
 	Commit   string       `json:"commit,omitempty"`
 	LastSeen *time.Time   `json:"last_seen,omitempty"`
+	// ClockSkewSeconds is the station's clock minus the line's at the last
+	// heartbeat: negative when the station runs behind. Zero when unreported.
+	ClockSkewSeconds int64 `json:"clock_skew_seconds,omitempty"`
 	// Alive is true when the station heartbeated within MakerSilenceLimit.
 	Alive bool `json:"alive"`
 }
@@ -83,9 +96,13 @@ func (l *liveness) snapshot(stations []*Station, now time.Time) []StationStatus 
 			continue
 		}
 		at := seen.at
+		var skew time.Duration
+		if seen.Clock != nil {
+			skew = seen.Clock.Sub(at)
+		}
 		out = append(out, StationStatus{
 			Name: st.Name, Role: st.Role, State: seen.State, Card: seen.Card, Commit: seen.Commit,
-			LastSeen: &at, Alive: now.Sub(at) <= MakerSilenceLimit,
+			LastSeen: &at, ClockSkewSeconds: int64(skew / time.Second), Alive: now.Sub(at) <= MakerSilenceLimit,
 		})
 	}
 	return out
@@ -134,14 +151,17 @@ type MakerWatch struct {
 	Started time.Time
 
 	alerted bool
+	// skewed holds the stations already reported as out of step.
+	skewed map[string]bool
 }
 
 // Check posts the alert or the all-clear if the state changed. A failed post
 // leaves the state as it was, so the next Check retries.
 func (w *MakerWatch) Check(ctx context.Context, now time.Time) error {
+	skewErr := w.checkClockSkew(ctx, now)
 	last, alive := w.lastMakerSeen(now)
 	if alive != w.alerted { // healthy and quiet, or already alerted
-		return nil
+		return skewErr
 	}
 	text := "a maker is alive again"
 	if alive {
@@ -152,9 +172,38 @@ func (w *MakerWatch) Check(ctx context.Context, now time.Time) error {
 	}
 	if err := w.Announce(ctx, text); err != nil {
 		w.alerted = !w.alerted
-		return fmt.Errorf("announce %q: %w", text, err)
+		return errors.Join(skewErr, fmt.Errorf("announce %q: %w", text, err))
 	}
-	return nil
+	return skewErr
+}
+
+// checkClockSkew logs and posts once per station whose clock differs from the
+// line's by more than MaxClockSkew, and once more when it is back in step. Only
+// live stations count: a silent station's last skew is stale. A failed post
+// leaves the state as it was, so the next Check retries.
+func (w *MakerWatch) checkClockSkew(ctx context.Context, now time.Time) error {
+	if w.skewed == nil {
+		w.skewed = map[string]bool{}
+	}
+	var errs []error
+	for _, st := range w.Server.liveness.snapshot(w.Server.Stations, now) {
+		skew := time.Duration(st.ClockSkewSeconds) * time.Second
+		skewed := st.Alive && (skew > MaxClockSkew || skew < -MaxClockSkew)
+		if skewed == w.skewed[st.Name] {
+			continue
+		}
+		text := fmt.Sprintf("station %s clock is back in step with the line", st.Name)
+		if skewed {
+			text = fmt.Sprintf("station %s clock is %s off the line's (negative is behind); on a podman machine run: podman machine ssh sudo chronyc makestep", st.Name, skew)
+		}
+		log.Printf("clock skew: %s", text)
+		if err := w.Announce(ctx, text); err != nil {
+			errs = append(errs, fmt.Errorf("announce %q: %w", text, err))
+			continue
+		}
+		w.skewed[st.Name] = skewed
+	}
+	return errors.Join(errs...)
 }
 
 // lastMakerSeen returns when the newest maker heartbeat arrived (Started when
