@@ -63,6 +63,8 @@ sweatshop/
 
 Design: [`design-docs/m1-line-live.md`](design-docs/m1-line-live.md). The M1 line runs on one host: the witness, guard, line remote and attestation store live on the host; agents run in containers. On macOS the engine is the `docker` CLI against a podman machine; give the VM enough memory for `just ci`.
 
+After the podman machine sleeps or is paused its clock can fall behind (the station's clock-skew alert reports this). `chronyc makestep` does not help then: chrony marks its sources unusable (`^~`/`^?`) and the step is a no-op. Set the clock from the host instead: `podman machine ssh "sudo date -u -s @$(date +%s)"`. To prevent it, add `/etc/chrony.d/sweatshop-makestep.conf` in the VM containing `makestep 1.0 -1` (step whenever the offset exceeds 1s, not only during the first 3 updates).
+
 Host prerequisites: `bd` (beads) on `PATH`, a container engine CLI (`docker`, or a docker-compatible CLI such as `podman`), `just` and Go to build, and host git ≥ 2.45.1 (the witness runs git on the host and refuses older versions).
 
 ```bash

@@ -168,7 +168,7 @@ func TestMakerWatchWarnsOnceOnClockSkewAndClears(t *testing.T) {
 	}
 	behind(t0.Add(time.Minute), 58*time.Minute)
 	behind(t0.Add(2*time.Minute), 58*time.Minute)
-	if len(posts) != 1 || !strings.Contains(posts[0], "m1") || !strings.Contains(posts[0], "-58m0s") || !strings.Contains(posts[0], "chronyc makestep") {
+	if len(posts) != 1 || !strings.Contains(posts[0], "m1") || !strings.Contains(posts[0], "-58m0s") || !strings.Contains(posts[0], "date -u -s @$(date +%s)") {
 		t.Fatalf("want one warning, got %v", posts)
 	}
 	behind(t0.Add(3*time.Minute), 0)
