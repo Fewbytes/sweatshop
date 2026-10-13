@@ -369,8 +369,12 @@ func (s *Server) viceroyClose(w http.ResponseWriter, r *http.Request, cards Card
 	if err != nil {
 		return "", err
 	}
-	_, ancestors := cardLineage(raw, id)
-	if !s.Guard.Constitution.DelegatesClose(id, ancestors) {
+	cardType, ancestors := cardLineage(raw, id)
+	var labelled struct {
+		Labels []string `json:"labels"`
+	}
+	unmarshalIssue(raw, &labelled)
+	if !s.Guard.Constitution.DelegatesClose(id, cardType, labelled.Labels, ancestors) {
 		return "", fail(http.StatusForbidden, "no constitution delegation lets the viceroy close %s", id)
 	}
 	var issue struct {

@@ -350,14 +350,17 @@ func snowflakeLess(a, b string) bool {
 }
 
 // Run polls until ctx ends. With a Gateway it also runs the gateway, and
-// polls only while the gateway is down.
+// polls only while the gateway is down. It returns only after the gateway has
+// stopped, so nothing writes to Dir once Run has returned.
 func (c *Channel) Run(ctx context.Context) {
 	every := c.Interval
 	if every <= 0 {
 		every = pollEvery
 	}
 	if c.Gateway != nil {
-		go c.runGateway(ctx)
+		gatewayDone := make(chan struct{})
+		defer func() { <-gatewayDone }()
+		go func() { c.runGateway(ctx); close(gatewayDone) }()
 	}
 	for ctx.Err() == nil {
 		wait := every

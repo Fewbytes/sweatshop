@@ -67,7 +67,13 @@ offer = "line"
 parent = "sweatshop-0mw"
 
 # A close delegation lets the viceroy close cards once their decision is
-# commented. It is bounded by an id list or a parent, never by type.
+# commented. It is bounded by an id list, a parent, issue types, or labels.
+# Prefer types: any agent can add a label, but a card's type is harder to game.
 [[viceroy.delegations]]
 close = true
 ids = ["sweatshop-0mw.1.4", "sweatshop-0mw.1.7"]
+
+[[viceroy.delegations]]
+close = true
+types = ["chore"]
+labels = ["obsolete"]

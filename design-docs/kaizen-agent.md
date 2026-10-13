@@ -1,6 +1,6 @@
 # Kaizen agent (simplicity/cohesion station)
 
-Status: design, not implemented. Card: `sweatshop-a82`.
+Status: design; station v1 implemented (see "Station v1"). Card: `sweatshop-a82`.
 Parent specs: [`assembly-line-spec.md`](assembly-line-spec.md) (Kaizen role,
 structure analyzer, test value analyzer, heijunka, guards, build order step 6),
 [`assembly-line-principles.md`](assembly-line-principles.md) (P1, P3, P4, P5,
@@ -237,6 +237,37 @@ heijunka shifts nothing, rather than reading a fresh baseline as health.
 | **Kaizen capture** | Makers pressure Kaizen to drop or inflate cards | requests are cards with evidence; Makers never hold kaizen credentials; different lineages |
 | **Starved or absent Kaizen** | role sleeps while debt accumulates | flame minimum (P7); deficit wakes sleepers via the scheduler |
 | **No signal** | analyzer or adapter missing for a language | metrics report "no signal"; Kaizen falls back to unscored judgment cards, clearly marked |
+
+## Station v1 (implemented: `sweatshop line kaizen`)
+
+Card `sweatshop-sxt`. The station API has no card-creation route for Kaizen
+yet (creation is viceroy-only), so v1 departs from "cards only": a Kaizen run
+makes the one refactoring itself and lands it through the normal merge guard,
+under the same evidence rules as a Maker. When the card emitter (item 5
+below) exists, the prompt switches to filing cards and this section goes.
+
+- **Trigger: schedule gated by master, not cards.** `line/kaizen.Runner`
+  starts a run when `--interval` (default 24h) has passed since the last one
+  *and* master differs from the master that run started on, and never while
+  the andon cord is pulled. An unmoved master has no new hotspot, so Kaizen
+  sleeps (no make-work). State is in memory; a restart runs once at once.
+- **Signals measured.** The agent measures, with tools in its clone, the
+  guide's table: hotspot score (churn over 90 days x complexity), co-change
+  without a static dependency, duplicated knowledge, import cycles, dead
+  symbols, and `just ci` / test duration. The structure analyzer (items 1-4)
+  will replace this self-measurement with line-computed findings.
+- **Before/after evidence.** The change report from `line/guidance/kaizen.md`
+  section 6 goes in the commit message body. `sweatshop line merge` refuses a
+  Kaizen commit (`SWEATSHOP_KAIZEN` set) whose message lacks any report field
+  or a `Signals: <signal>: <before> → <after>` line (`kaizen.CheckReport`).
+  The guard itself is unchanged: it attests `just ci` for behavior, and the
+  report stays in master's history for the delta-verification loop (item 8).
+  The report is agent-authored, so it is a claim, not proof (P4) until the
+  analyzer re-measures it.
+- **Landing is detected like a Maker's.** The run ID `kaizen-<UTC time>` is
+  the container's `SWEATSHOP_BEAD`, so the existing `Bead:` trailer check and
+  `maker.Landed` apply unchanged.
+- **Not yet:** liveness heartbeats for the kaizen station.
 
 ## Open questions
 

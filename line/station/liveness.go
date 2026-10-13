@@ -194,7 +194,7 @@ func (w *MakerWatch) checkClockSkew(ctx context.Context, now time.Time) error {
 		}
 		text := fmt.Sprintf("station %s clock is back in step with the line", st.Name)
 		if skewed {
-			text = fmt.Sprintf("station %s clock is %s off the line's (negative is behind); on a podman machine run: podman machine ssh sudo chronyc makestep", st.Name, skew)
+			text = fmt.Sprintf("station %s clock is %s off the line's (negative is behind); on a podman machine run: podman machine ssh \"sudo date -u -s @$(date +%%s)\"", st.Name, skew)
 		}
 		log.Printf("clock skew: %s", text)
 		if err := w.Announce(ctx, text); err != nil {

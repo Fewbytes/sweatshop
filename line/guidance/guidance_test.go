@@ -15,6 +15,9 @@ func TestGuidesEmbedded(t *testing.T) {
 	if !strings.HasPrefix(Kaizen, "# Kaizen Guide") {
 		t.Errorf("Kaizen starts %q, want the kaizen guide", Kaizen[:min(40, len(Kaizen))])
 	}
+	if !strings.HasPrefix(Gemba, "# Gemba Guide") {
+		t.Errorf("Gemba starts %q, want the gemba guide", Gemba[:min(40, len(Gemba))])
+	}
 }
 
 // A new constitution role must get an explicit guidance decision.
@@ -32,10 +35,17 @@ func TestEveryConstitutionRoleHasAnEntry(t *testing.T) {
 }
 
 func TestCodeWritingRolesGetWriterGuide(t *testing.T) {
-	for _, r := range []string{"maker", "andon", "gemba"} {
+	for _, r := range []string{"maker", "andon"} {
 		if g, _ := For(r); g != Writer {
 			t.Errorf("For(%q) is not exactly the writer guide", r)
 		}
+	}
+}
+
+func TestGembaGetsWriterThenGembaGuide(t *testing.T) {
+	g, _ := For("gemba")
+	if g != Writer+"\n\n"+Gemba {
+		t.Errorf("For(gemba) is not writer guide followed by gemba guide")
 	}
 }
 

@@ -29,6 +29,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/gitx"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/heijunka"
+	"github.com/Fewbytes/sweatshop/line/kaizen"
 	"github.com/Fewbytes/sweatshop/line/linedir"
 	"github.com/Fewbytes/sweatshop/line/maker"
 	"github.com/Fewbytes/sweatshop/line/station"
@@ -72,6 +73,8 @@ const usage = `usage:
                                         level flow: publish agent and WIP-limit levels to D/heijunka.json (SIGUSR1 wakes it now)
   sweatshop line maker --dir D --station NAME (--beads DIR | --cards api) [--once] [--engine E] [--url URL] [--timeout 2h] [--max-attempts 3] [--memory 4g] [--pids 1024] [--cpus 2]
                                         work ready "line" beads in station containers
+  sweatshop line kaizen --dir D --station NAME [--once] [--engine E] [--url URL] [--timeout 2h] [--interval 24h] [--memory 4g] [--pids 1024] [--cpus 2]
+                                        run one measured refactoring per interval, when master has moved, in a station container
   sweatshop viceroy run [--heartbeat 6h]
                                         the viceroy container's wake loop (reads SWEATSHOP_VICEROY_GEN, SWEATSHOP_PREDECESSOR)
 
@@ -127,6 +130,8 @@ func run(args []string, stdout io.Writer) error {
 		return lineHeijunka(args[2:])
 	case len(args) >= 2 && args[0] == "line" && args[1] == "maker":
 		return lineMaker(args[2:])
+	case len(args) >= 2 && args[0] == "line" && args[1] == "kaizen":
+		return lineKaizen(args[2:])
 	case len(args) == 3 && args[0] == "line" && args[1] == "evidence":
 		c, err := lineClient()
 		if err != nil {
@@ -498,6 +503,76 @@ func lineMaker(args []string) error {
 	return r.Loop(ctx, station.MakerPollInterval)
 }
 
+// lineKaizen runs a Kaizen station on the host, like lineMaker but with no
+// cards: the schedule and master's movement start each run.
+func lineKaizen(args []string) error {
+	fs := flag.NewFlagSet("line kaizen", flag.ContinueOnError)
+	dir := fs.String("dir", "", "line directory")
+	name := fs.String("station", "", "kaizen station name (e.g. kaizen-1)")
+	once := fs.Bool("once", false, "run at most once, then exit")
+	engine := fs.String("engine", "", "container engine CLI (default: the line's engine)")
+	url := fs.String("url", "", "station API URL as seen from the container (default http://host.containers.internal:<port>)")
+	timeout := fs.Duration("timeout", maker.DefaultTimeout, "longest one run's container may run")
+	interval := fs.Duration("interval", kaizen.DefaultInterval, "least time between two runs")
+	memory := fs.String("memory", constitution.DefaultMemory, "station container memory limit (engine --memory syntax)")
+	pids := fs.Int("pids", constitution.DefaultPids, "station container process limit")
+	cpus := fs.String("cpus", constitution.DefaultCPUs, "station container CPU limit")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 || *dir == "" || *name == "" {
+		return errors.New(usage)
+	}
+	if *pids < 1 || *memory == "" || *cpus == "" {
+		return errors.New("--memory, --pids and --cpus must be set (limits cannot be disabled)")
+	}
+	if *interval <= 0 {
+		return fmt.Errorf("--interval %s: must be positive", *interval)
+	}
+	l, err := linedir.Load(*dir)
+	if err != nil {
+		return err
+	}
+	var st *linedir.Station
+	for i := range l.Stations {
+		if l.Stations[i].Name == *name {
+			st = &l.Stations[i]
+		}
+	}
+	if st == nil {
+		return fmt.Errorf("line %s has no station %q", l.Dir, *name)
+	}
+	if st.Role != "kaizen" {
+		return fmt.Errorf("station %q has role %q, not kaizen", *name, st.Role)
+	}
+	if *engine == "" {
+		*engine = l.Engine
+	}
+	logger := log.New(os.Stderr, "kaizen: ", log.LstdFlags)
+	r := &kaizen.Runner{
+		Line: l, Station: *st, URL: *url, Timeout: *timeout, Interval: *interval,
+		Memory: *memory, Pids: *pids, CPUs: *cpus,
+		Engine: maker.DockerEngine{Bin: *engine, Log: logger},
+		Creds:  maker.HostCreds(os.LookupEnv),
+		Log:    logger,
+	}
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigs)
+	go func() {
+		if sig, ok := <-sigs; ok {
+			cancel(maker.SignalCause(sig))
+		}
+	}()
+	if *once {
+		_, err := r.Once(ctx)
+		return err
+	}
+	return r.Loop(ctx, kaizen.DefaultPoll)
+}
+
 // binaryCommit is the VCS revision this binary was built from, "unknown"
 // when the build carries none.
 func binaryCommit() string {
@@ -549,6 +624,12 @@ func lineSubmit(cmd string, args []string, stdout io.Writer) error {
 		// whose trailers would not let the runner see that it landed.
 		if bead := os.Getenv("SWEATSHOP_BEAD"); bead != "" {
 			if err := maker.CheckTrailers(ctx, gitx.Repo{Dir: *repo}, *rev, bead, os.Getenv("SWEATSHOP_ANDON_EVENT")); err != nil {
+				return err
+			}
+		}
+		// A Kaizen run's evidence is the change report in the commit message.
+		if os.Getenv("SWEATSHOP_KAIZEN") != "" {
+			if err := kaizen.CheckCommitReport(ctx, gitx.Repo{Dir: *repo}, *rev); err != nil {
 				return err
 			}
 		}
