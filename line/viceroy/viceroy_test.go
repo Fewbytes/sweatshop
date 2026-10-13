@@ -261,6 +261,31 @@ func TestCharterContent(t *testing.T) {
 	}
 }
 
+func TestCharterTriagesNeedsLabelsOnEveryWake(t *testing.T) {
+	for _, want := range []string{"On every wake", "--label needs:viceroy", "needs:king"} {
+		if !strings.Contains(Charter, want) {
+			t.Errorf("charter lacks %q", want)
+		}
+	}
+	for _, wake := range []Wake{WakeStartup, WakeMessages, WakeAndon, WakeMaster, WakeHeartbeat} {
+		if !strings.Contains(Prompt(PromptInput{Wake: wake}), "--label needs:viceroy") {
+			t.Errorf("%s prompt lacks needs:viceroy triage", wake)
+		}
+	}
+}
+
+func TestPromptCarriesContextBeforeTestament(t *testing.T) {
+	p := Prompt(PromptInput{Wake: WakeHeartbeat, Testament: "TESTAMENT-BODY"})
+	for _, want := range []string{"## Principles", "## Roles", "## Line architecture", "## Code of conduct"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("prompt lacks context section %q", want)
+		}
+	}
+	if strings.Index(p, "## Code of conduct") > strings.Index(p, "TESTAMENT-BODY") {
+		t.Error("context must come before the testament")
+	}
+}
+
 func TestCheckinOnlyAfterStartupRunSucceeds(t *testing.T) {
 	for _, fail := range []bool{true, false} {
 		line := &fakeLine{status: station.Status{Master: "m"}}
@@ -340,6 +365,17 @@ func TestPromptReportsStationLiveness(t *testing.T) {
 	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("prompt lacks %q", want)
+		}
+	}
+}
+
+func TestPromptTellsViceroyToScanAllCardsAndCommentsReadOnly(t *testing.T) {
+	for _, wake := range []Wake{WakeStartup, WakeMessages, WakeAndon, WakeMaster, WakeHeartbeat} {
+		p := Prompt(PromptInput{Wake: wake})
+		for _, want := range []string{"every card and", "every comment", "--status closed", "read-only"} {
+			if !strings.Contains(p, want) {
+				t.Errorf("%s prompt lacks %q", wake, want)
+			}
 		}
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -44,6 +45,12 @@ type Station struct {
 	StateDir string
 }
 
+const (
+	// successionSlotWait bounds how long a viceroy succession waits for the check slot.
+	successionSlotWait = 10 * time.Minute
+	slotPollEvery      = 50 * time.Millisecond
+)
+
 // errBusy is returned while the line already has a check run in flight.
 var errBusy = fail(http.StatusConflict, "busy")
 
@@ -65,11 +72,50 @@ type Server struct {
 	// parallel to exhaust the host.
 	busy atomic.Bool
 
+	// queue admits one waiter at a time into the polling for busy; Go channel
+	// senders are served first come, first served.
+	queue     chan struct{}
+	queueOnce sync.Once
+
 	liveness liveness
+
+	// commentCounts tallies comments non-viceroy agents made this run.
+	commentMu     sync.Mutex
+	commentCounts map[commentKey]int
 }
 
 // acquire claims the line's single check slot; release with s.busy.Store(false).
 func (s *Server) acquire() bool { return s.busy.CompareAndSwap(false, true) }
+
+// acquireQueued waits up to limit for the check slot, serving concurrent
+// callers in arrival order. It reports errBusy when the limit passes and the
+// context's error when the caller goes away first; release as for acquire.
+func (s *Server) acquireQueued(ctx context.Context, limit time.Duration) error {
+	s.queueOnce.Do(func() { s.queue = make(chan struct{}, 1) })
+	ctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	select {
+	case s.queue <- struct{}{}:
+	case <-ctx.Done():
+		return queueWaitError(ctx)
+	}
+	defer func() { <-s.queue }()
+	for !s.acquire() {
+		select {
+		case <-ctx.Done():
+			return queueWaitError(ctx)
+		case <-time.After(slotPollEvery):
+		}
+	}
+	return nil
+}
+
+func queueWaitError(ctx context.Context) error {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return errBusy
+	}
+	return ctx.Err()
+}
 
 type Status struct {
 	Master string            `json:"master"`
@@ -194,12 +240,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	outcome, err := s.route(w, r, st)
 	if err != nil {
 		code := http.StatusInternalServerError
+		clientMsg := "internal error"
 		var he *httpError
 		if errors.As(err, &he) {
 			code = he.code
+			clientMsg = err.Error()
 		}
+		// Unclassified errors (os.PathError and the like) embed host paths,
+		// so only the log gets their text.
 		outcome = fmt.Sprintf("%d %v", code, err)
-		writeError(w, code, err.Error())
+		writeError(w, code, clientMsg)
 	}
 	log.Printf("station api: station=%s route=%q commit=%q outcome=%q", st.Name, r.Method+" "+r.URL.Path, commit, outcome)
 }

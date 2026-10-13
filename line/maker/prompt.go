@@ -54,7 +54,11 @@ func Prompt(b Bead, andonEvent string) string {
    comments, dependencies, parent) and
    `+"`sweatshop line cards list [--parent ID] [--label L] [--status S]`"+`.
    Read the cards this one depends on or descends from when it refers to
-   them or leaves something unclear. Reading is optional; you cannot write
+   them or leaves something unclear. Reading is optional.
+   Before starting, run `+"`sweatshop line cards list --label needs:maker`"+`: cards
+   labelled so are questions addressed to you. Answer each you can by
+   commenting (`+"`sweatshop line cards comment <id>`"+`, text on stdin); you may
+   decline, and the asker decides how to proceed. Otherwise you cannot write
    cards.
 2. Run `+"`just ci`"+` and make it pass before submitting.
 3. Commit with these trailers as the last paragraph of the commit message,

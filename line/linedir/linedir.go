@@ -98,6 +98,15 @@ type stationFile struct {
 }
 
 // Names become path elements and TOML strings, so keep them boring.
+const (
+	// ConstitutionRef holds the line's constitution; only an approved
+	// proposal or the owner's `station add` moves it, and the pre-receive
+	// guard rejects pushes to it.
+	ConstitutionRef = "refs/line/constitution"
+	// ConstitutionBlob is the file name inside the ConstitutionRef tree.
+	ConstitutionBlob = "constitution"
+)
+
 var safeName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 
 func newLine(dir string, lf lineFile) Line {
@@ -269,7 +278,10 @@ func replaceFile(path string, data []byte, mode os.FileMode) error {
 
 // AddStation adds a station to an existing line directory: its key and token,
 // station.toml, a line.toml entry and a trusted key bound to role in the
-// constitution. A running `line serve` picks it up on restart.
+// constitution. Once refs/line/constitution exists the key is committed there
+// (the owner path) and constitution.toml is rewritten as an export of the ref;
+// before that only the file changes. A running `line serve` picks it up on
+// restart.
 func AddStation(dir string, spec StationSpec) (Station, error) {
 	if !safeName.MatchString(spec.Name) {
 		return Station{}, fmt.Errorf("station add: bad station name %q", spec.Name)
@@ -295,7 +307,22 @@ func AddStation(dir string, spec StationSpec) (Station, error) {
 	if err := toml.Unmarshal(data, &lf); err != nil {
 		return Station{}, fmt.Errorf("%s: %w", lineToml, err)
 	}
-	consData, err := os.ReadFile(l.Constitution)
+	repo := gitx.Repo{Dir: l.Remote}
+	ctx := context.Background()
+	onRef, err := repo.RefExists(ctx, ConstitutionRef)
+	if err != nil {
+		return Station{}, err
+	}
+	var consData []byte
+	var head string
+	if onRef {
+		if head, err = repo.Ref(ctx, ConstitutionRef); err != nil {
+			return Station{}, err
+		}
+		consData, err = repo.ReadBlob(ctx, head+":"+ConstitutionBlob)
+	} else {
+		consData, err = os.ReadFile(l.Constitution)
+	}
 	if err != nil {
 		return Station{}, err
 	}
@@ -308,7 +335,7 @@ func AddStation(dir string, spec StationSpec) (Station, error) {
 
 	pub, err := createStation(st)
 	if err == nil {
-		err = l.addTrust(consData, st, pub, lf, lineToml)
+		err = l.addTrust(ctx, repo, consData, head, st, pub, lf, data)
 	}
 	if err != nil {
 		os.RemoveAll(sd)
@@ -317,9 +344,11 @@ func AddStation(dir string, spec StationSpec) (Station, error) {
 	return st, nil
 }
 
-// addTrust appends st's trusted key to the constitution and the station to
-// line.toml, checking that the new constitution still parses.
-func (l Line) addTrust(cons []byte, st Station, pub string, lf lineFile, lineToml string) error {
+// addTrust appends st's trusted key to the constitution cons (the ref's
+// content at head, or the file's when head is "") and the station to
+// line.toml, checking that the new constitution still parses. oldLineToml is
+// restored if the constitution cannot be stored.
+func (l Line) addTrust(ctx context.Context, repo gitx.Repo, cons []byte, head string, st Station, pub string, lf lineFile, oldLineToml []byte) error {
 	var b strings.Builder
 	b.Write(cons)
 	if len(cons) > 0 && cons[len(cons)-1] != '\n' {
@@ -333,15 +362,41 @@ func (l Line) addTrust(cons []byte, st Station, pub string, lf lineFile, lineTom
 	if err != nil {
 		return err
 	}
-	if err := replaceFile(l.Constitution, []byte(b.String()), 0o644); err != nil {
+	lineToml := filepath.Join(l.Dir, "line.toml")
+	if err := replaceFile(lineToml, out, 0o644); err != nil {
 		return err
 	}
-	if err := replaceFile(lineToml, out, 0o644); err != nil {
-		// Put the constitution back so the line is not half-edited.
-		replaceFile(l.Constitution, cons, 0o644)
+	if head != "" {
+		msg := fmt.Sprintf("constitution: station add %s (%s), by the owner", st.Name, st.Role)
+		_, err = CommitConstitution(ctx, repo, []byte(b.String()), head, msg, "owner")
+	}
+	if err == nil {
+		err = replaceFile(l.Constitution, []byte(b.String()), 0o644)
+	}
+	if err != nil {
+		// Put line.toml back so the line is not half-edited.
+		replaceFile(lineToml, oldLineToml, 0o644)
 		return err
 	}
 	return nil
+}
+
+// CommitConstitution commits data on ref's chain and moves ConstitutionRef
+// from old ("" when it does not exist yet).
+func CommitConstitution(ctx context.Context, repo gitx.Repo, data []byte, old, msg, who string) (string, error) {
+	blob, err := repo.WriteBlob(ctx, data)
+	if err != nil {
+		return "", err
+	}
+	tree, err := repo.WriteTreeWithBlob(ctx, ConstitutionBlob, blob)
+	if err != nil {
+		return "", err
+	}
+	commit, err := repo.CommitTree(ctx, tree, old, msg, who)
+	if err != nil {
+		return "", err
+	}
+	return commit, repo.UpdateRef(ctx, ConstitutionRef, commit, old)
 }
 
 // Load reads a line directory and checks that every station's secrets exist

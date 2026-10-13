@@ -125,7 +125,9 @@ func (c Client) doOnce(ctx context.Context, method, path string, query url.Value
 
 // bundle resolves rev in repoDir and writes a bundle carrying exactly one ref
 // under refs/sweatshop/ (the witness's contract), excluding what the line
-// already has. The caller must call cleanup.
+// already has. The caller must call cleanup. It needs only the history down to
+// origin/master, so a shallow clone works
+// (TestMergeFromShallowCloneAfterRebase).
 func bundle(ctx context.Context, repoDir, rev string) (commit, path string, cleanup func(), err error) {
 	if rev == "" || strings.HasPrefix(rev, "-") {
 		return "", "", nil, fmt.Errorf("invalid revision %q", rev)
@@ -269,9 +271,15 @@ func (c Client) CardCreate(ctx context.Context, nc NewCard) ([]byte, error) {
 	return c.postJSON(ctx, "/v1/cards", nc)
 }
 
-// CardComment adds a comment (viceroy or maker).
+// CardComment adds a comment (viceroy on any card, other roles on their own).
 func (c Client) CardComment(ctx context.Context, id, text string) ([]byte, error) {
 	return c.postJSON(ctx, "/v1/cards/"+url.PathEscape(id)+"/comments", map[string]string{"text": text})
+}
+
+// CardNeeds labels the caller's own card needs:<role> (king or a station
+// role), blocking it on that role.
+func (c Client) CardNeeds(ctx context.Context, id, role string) error {
+	return c.cardAction(ctx, id, "needs", map[string]string{"role": role})
 }
 
 func (c Client) cardAction(ctx context.Context, id, action string, body any) error {
@@ -294,9 +302,10 @@ func (c Client) CardRelease(ctx context.Context, id, reason string) error {
 	return c.cardAction(ctx, id, "release", map[string]string{"reason": reason})
 }
 
-// CardGiveUp labels a card the station holds LabelGaveUp (maker only).
-func (c Client) CardGiveUp(ctx context.Context, id string) error {
-	return c.cardAction(ctx, id, "give-up", struct{}{})
+// CardGiveUp labels a card the station holds LabelGaveUp, and needs:king when
+// escalateToKing (maker only).
+func (c Client) CardGiveUp(ctx context.Context, id string, escalateToKing bool) error {
+	return c.cardAction(ctx, id, "give-up", map[string]bool{"escalate_to_king": escalateToKing})
 }
 
 // CardOffer labels the card for the line or proposes it (viceroy only).

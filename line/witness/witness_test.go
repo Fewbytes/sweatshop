@@ -244,3 +244,27 @@ func TestAttestPublishesReportAndStats(t *testing.T) {
 		t.Fatalf("objects = %d, want junit + html", len(objs))
 	}
 }
+
+func TestAttestSweepsRefsLeftByEarlierProcess(t *testing.T) {
+	s := newSource(t)
+	w, _ := newWitness(t)
+	head := s.commit("src/a.go", "package a")
+	if _, err := w.Attest(s.ctx, s.repo.Dir, "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+	cache := gitx.Repo{Dir: w.CacheDir}
+	stale := []string{"refs/bundle/deadbeef/x", "refs/witness/" + head + "/deadbeef"}
+	for _, ref := range stale {
+		ok(t)(cache.Git(s.ctx, "update-ref", ref, head))
+	}
+	restarted, _ := newWitness(t)
+	restarted.CacheDir = w.CacheDir
+	if _, err := restarted.Attest(s.ctx, s.repo.Dir, "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range stale {
+		if exists, _ := cache.RefExists(s.ctx, ref); exists {
+			t.Errorf("stale ref %s survived", ref)
+		}
+	}
+}

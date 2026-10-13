@@ -61,7 +61,10 @@ func cardsRig(t *testing.T, cards Cards) (*Server, *httptest.Server, Client, Cli
 		},
 		Cards: cards,
 	}
-	srv.Guard.Constitution.Viceroy.Delegations = []constitution.Delegation{{Offer: "d", Types: []string{"chore"}, Parent: "x-9"}}
+	srv.Guard.Constitution.Viceroy.Delegations = []constitution.Delegation{
+		{Offer: "line", Types: []string{"chore"}, Parent: "x-9"},
+		{Close: true, IDs: []string{"x-1"}, Parent: "x-7"},
+	}
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
 	return srv, ts, Client{URL: ts.URL, Token: "vt"}, Client{URL: ts.URL, Token: "mt"}
@@ -155,9 +158,8 @@ func TestCardsWritesNeedViceroy(t *testing.T) {
 	_, _, _, m := cardsRig(t, f)
 	ctx := context.Background()
 	_, e1 := m.CardCreate(ctx, NewCard{Title: "t", Type: "task"})
-	_, e2 := m.CardComment(ctx, "x-1", "hi")
 	_, e3 := m.CardOffer(ctx, "x-1")
-	for _, err := range []error{e1, e2, e3} {
+	for _, err := range []error{e1, e3} {
 		if err == nil || !strings.Contains(err.Error(), "403") {
 			t.Fatalf("maker write: %v", err)
 		}
@@ -187,6 +189,32 @@ func TestCardsOffer(t *testing.T) {
 		}
 		if len(f.labels) != 1 || f.labels[0] != tc.label {
 			t.Fatalf("%s: labels %v", tc.name, f.labels)
+		}
+	}
+}
+
+func TestCardsViceroyCloseNeedsDelegationAndDecision(t *testing.T) {
+	cases := []struct {
+		name, id, show string
+		want           string // "" means closed
+	}{
+		{"listed id with decision", "x-1", `[{"id":"x-1","comments":[{"text":"decided"}]}]`, ""},
+		{"under delegated parent", "x-7.2", `{"comments":[{"text":"decided"}]}`, ""},
+		{"no decision comment", "x-1", `{"comments":[]}`, "409"},
+		{"not delegated", "x-2", `{"comments":[{"text":"decided"}]}`, "403"},
+		{"offer-only parent grants no close", "x-9.1", `{"comments":[{"text":"decided"}]}`, "403"},
+	}
+	for _, tc := range cases {
+		f := &fakeCards{show: tc.show}
+		srv, _, v, _ := cardsRig(t, f)
+		srv.Stations[0].AgentID = "vice"
+		err := v.CardClose(context.Background(), tc.id, "decided")
+		closed := slices.Contains(f.calls, "close "+tc.id+" vice decided")
+		if tc.want == "" && (err != nil || !closed) {
+			t.Fatalf("%s: err %v calls %v", tc.name, err, f.calls)
+		}
+		if tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want) || closed) {
+			t.Fatalf("%s: err %v calls %v", tc.name, err, f.calls)
 		}
 	}
 }
@@ -238,6 +266,18 @@ func TestBeadsCardsCloseRunsAsStation(t *testing.T) {
 	}
 }
 
+func TestCardsGiveUpEscalatesToKingWhenAsked(t *testing.T) {
+	f := &fakeCards{show: `[{"id":"x-1","assignee":"m"}]`}
+	srv, _, _, m := cardsRig(t, f)
+	srv.Stations[1].AgentID = "m"
+	if err := m.CardGiveUp(context.Background(), "x-1", true); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{LabelGaveUp, LabelNeedsPrefix + "king"}; !slices.Equal(f.labels, want) {
+		t.Fatalf("labels %q, want %q", f.labels, want)
+	}
+}
+
 func TestCardsMakerSettlementRoutes(t *testing.T) {
 	f := &fakeCards{show: `[{"id":"x-1","assignee":"m"}]`}
 	srv, _, v, m := cardsRig(t, f)
@@ -252,7 +292,7 @@ func TestCardsMakerSettlementRoutes(t *testing.T) {
 	if err := m.CardClose(ctx, "x-1", "done"); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.CardGiveUp(ctx, "x-1"); err != nil {
+	if err := m.CardGiveUp(ctx, "x-1", false); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := m.CardsList(ctx, ListFilter{Label: "line", Ready: true}); err != nil || !strings.Contains(string(out), "x-1") {
@@ -281,5 +321,84 @@ func TestCardsMakerCannotSettleOthersCards(t *testing.T) {
 	}
 	if slices.Contains(f.calls, "close x-1 m done") {
 		t.Fatalf("calls %q", f.calls)
+	}
+}
+
+func TestCardsAgentCommentsOnOwnCardOnly(t *testing.T) {
+	f := &fakeCards{show: `[{"id":"x-1","assignee":"m"}]`}
+	srv, _, _, m := cardsRig(t, f)
+	srv.Stations[1].AgentID = "m"
+	ctx := context.Background()
+	if _, err := m.CardComment(ctx, "x-1", "stuck on X"); err != nil {
+		t.Fatalf("own card: %v", err)
+	}
+	f.show = `[{"id":"x-2","assignee":"other"}]`
+	if _, err := m.CardComment(ctx, "x-2", "hi"); err == nil || !strings.Contains(err.Error(), "403") {
+		t.Fatalf("other's card: %v", err)
+	}
+	if slices.Contains(f.calls, "comment x-2 hi") {
+		t.Fatalf("calls %q", f.calls)
+	}
+}
+
+func TestCardsAgentCommentCapResetsOnClaim(t *testing.T) {
+	f := &fakeCards{show: `[{"id":"x-1","assignee":"m"}]`}
+	srv, _, _, m := cardsRig(t, f)
+	srv.Stations[1].AgentID = "m"
+	srv.Guard.Constitution.Cards.CommentCap = 2
+	ctx := context.Background()
+	for range 2 {
+		if _, err := m.CardComment(ctx, "x-1", "note"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := m.CardComment(ctx, "x-1", "note"); err == nil || !strings.Contains(err.Error(), "429") {
+		t.Fatalf("third comment: %v", err)
+	}
+	if err := m.CardClaim(ctx, "x-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.CardComment(ctx, "x-1", "note"); err != nil {
+		t.Fatalf("after re-claim: %v", err)
+	}
+}
+
+func TestCardsAgentCommentCapDefaultsToFive(t *testing.T) {
+	f := &fakeCards{show: `[{"id":"x-1","assignee":"m"}]`}
+	srv, _, _, m := cardsRig(t, f)
+	srv.Stations[1].AgentID = "m"
+	for i := range constitution.DefaultCommentCap {
+		if _, err := m.CardComment(context.Background(), "x-1", "note"); err != nil {
+			t.Fatalf("comment %d: %v", i, err)
+		}
+	}
+	if _, err := m.CardComment(context.Background(), "x-1", "note"); err == nil || !strings.Contains(err.Error(), "429") {
+		t.Fatalf("over default cap: %v", err)
+	}
+}
+
+func TestCardsAgentRaisesNeedsOnOwnCard(t *testing.T) {
+	f := &fakeCards{show: `[{"id":"x-1","assignee":"m"}]`}
+	srv, _, v, m := cardsRig(t, f)
+	srv.Stations[1].AgentID = "m"
+	ctx := context.Background()
+	if err := m.CardNeeds(ctx, "x-1", "king"); err != nil {
+		t.Fatal(err)
+	}
+	if want := "label x-1 needs:king"; f.calls[len(f.calls)-1] != want {
+		t.Fatalf("calls %q, want last %q", f.calls, want)
+	}
+	if err := m.CardNeeds(ctx, "x-1", "bogus"); err == nil || !strings.Contains(err.Error(), "400") {
+		t.Fatalf("unknown role: %v", err)
+	}
+	if err := v.CardNeeds(ctx, "x-1", "king"); err == nil || !strings.Contains(err.Error(), "403") {
+		t.Fatalf("viceroy needs: %v", err)
+	}
+	f.show = `[{"id":"x-2","assignee":"other"}]`
+	if err := m.CardNeeds(ctx, "x-2", "gemba"); err == nil || !strings.Contains(err.Error(), "403") {
+		t.Fatalf("other's card: %v", err)
+	}
+	if slices.Contains(f.labels, "needs:gemba") || slices.Contains(f.labels, "needs:bogus") {
+		t.Fatalf("labels %q", f.labels)
 	}
 }

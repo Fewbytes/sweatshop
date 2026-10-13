@@ -284,6 +284,22 @@ func (v *Supervisor) Admit(r *http.Request, post bool) error {
 	return fail(http.StatusConflict, "generation %q is not the current viceroy generation", hdr)
 }
 
+// currentMasterIfSuperseded returns master when commit is one of its ancestors:
+// the request queued for the check slot while merges moved master on, and the
+// successor should run what the line now is. Any other commit is returned
+// unchanged for checkMaster to refuse.
+func (v *Supervisor) currentMasterIfSuperseded(ctx context.Context, commit string) (string, error) {
+	g := v.Server.Guard
+	master, err := g.Repo.Ref(ctx, g.Ref)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", g.Ref, err)
+	}
+	if _, err := g.Repo.Git(ctx, "merge-base", "--is-ancestor", commit, master); err != nil {
+		return commit, nil
+	}
+	return master, nil
+}
+
 func (v *Supervisor) checkMaster(ctx context.Context, commit string) error {
 	g := v.Server.Guard
 	master, err := g.Repo.Ref(ctx, g.Ref)
@@ -437,6 +453,10 @@ func (v *Supervisor) Succeed(ctx context.Context, st *Station, commit string) (G
 	}
 	if commit == cur.Commit {
 		return Generation{}, fail(http.StatusConflict, "%s is already generation %d's commit", commit, cur.Gen)
+	}
+	commit, err = v.currentMasterIfSuperseded(ctx, commit)
+	if err != nil {
+		return Generation{}, err
 	}
 	if err := v.checkMaster(ctx, commit); err != nil {
 		return Generation{}, err
@@ -599,8 +619,8 @@ func (s *Server) routeViceroy(w http.ResponseWriter, r *http.Request, st *Statio
 	if err := v.Admit(r, false); err != nil {
 		return "", err
 	}
-	if !s.acquire() {
-		return "", errBusy
+	if err := s.acquireQueued(r.Context(), successionSlotWait); err != nil {
+		return "", err
 	}
 	defer s.busy.Store(false)
 	g, err := v.Succeed(r.Context(), st, commit)

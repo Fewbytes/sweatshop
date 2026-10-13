@@ -1,12 +1,14 @@
 package station
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"regexp"
@@ -16,14 +18,11 @@ import (
 
 	"github.com/Fewbytes/sweatshop/line/constitution"
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/linedir"
 )
 
 const (
-	// ConstitutionRef holds the line's constitution; only an approved
-	// proposal moves it, and the pre-receive guard rejects pushes to it.
-	ConstitutionRef   = "refs/line/constitution"
 	proposalPrefix    = "refs/line/constitution-proposals/"
-	constitutionFile  = "constitution"
 	maxConstitution   = 256 << 10
 	maxDiffSummary    = 1200
 	maxProposalRetry  = 5
@@ -37,16 +36,20 @@ func digestOf(data []byte) string {
 }
 
 // LoadConstitution reads the constitution from refs/line/constitution in the
-// line remote. When the ref is missing it imports file once and commits it.
+// line remote. When the ref is missing it imports file once and commits it;
+// otherwise it logs a warning if file differs from the ref, since the ref wins.
 func LoadConstitution(ctx context.Context, repo gitx.Repo, file string) (constitution.Constitution, string, error) {
-	ok, err := repo.RefExists(ctx, ConstitutionRef)
+	ok, err := repo.RefExists(ctx, linedir.ConstitutionRef)
 	if err != nil {
 		return constitution.Constitution{}, "", err
 	}
 	var data []byte
 	if ok {
-		if data, err = repo.ReadBlob(ctx, ConstitutionRef+":"+constitutionFile); err != nil {
+		if data, err = repo.ReadBlob(ctx, linedir.ConstitutionRef+":"+linedir.ConstitutionBlob); err != nil {
 			return constitution.Constitution{}, "", err
+		}
+		if onDisk, err := os.ReadFile(file); err != nil || !bytes.Equal(onDisk, data) {
+			log.Printf("warning: %s differs from %s; the ref is authoritative and the file is ignored", file, linedir.ConstitutionRef)
 		}
 	} else {
 		if data, err = os.ReadFile(file); err != nil {
@@ -55,32 +58,15 @@ func LoadConstitution(ctx context.Context, repo gitx.Repo, file string) (constit
 		if _, err := constitution.Parse(data); err != nil {
 			return constitution.Constitution{}, "", fmt.Errorf("%s: %w", file, err)
 		}
-		if _, err := commitConstitution(ctx, repo, data, "", "constitution: imported from constitution.toml", "line"); err != nil {
+		if _, err := linedir.CommitConstitution(ctx, repo, data, "", "constitution: imported from constitution.toml", "line"); err != nil {
 			return constitution.Constitution{}, "", fmt.Errorf("import constitution: %w", err)
 		}
 	}
 	c, err := constitution.Parse(data)
 	if err != nil {
-		return constitution.Constitution{}, "", fmt.Errorf("%s: %w", ConstitutionRef, err)
+		return constitution.Constitution{}, "", fmt.Errorf("%s: %w", linedir.ConstitutionRef, err)
 	}
 	return c, digestOf(data), nil
-}
-
-// commitConstitution commits data on ref's chain and moves ref from old.
-func commitConstitution(ctx context.Context, repo gitx.Repo, data []byte, old, msg, who string) (string, error) {
-	blob, err := repo.WriteBlob(ctx, data)
-	if err != nil {
-		return "", err
-	}
-	tree, err := repo.WriteTreeWithBlob(ctx, constitutionFile, blob)
-	if err != nil {
-		return "", err
-	}
-	commit, err := repo.CommitTree(ctx, tree, old, msg, who)
-	if err != nil {
-		return "", err
-	}
-	return commit, repo.UpdateRef(ctx, ConstitutionRef, commit, old)
 }
 
 // routeConstitution handles GET /v1/constitution, GET /v1/constitution/log
@@ -101,13 +87,13 @@ func (s *Server) routeConstitution(w http.ResponseWriter, r *http.Request, st *S
 		w.Header().Set("Allow", want)
 		return "", fail(http.StatusMethodNotAllowed, "use %s for %s", want, r.URL.Path)
 	}
-	head, err := repo.Ref(ctx, ConstitutionRef)
+	head, err := repo.Ref(ctx, linedir.ConstitutionRef)
 	if err != nil {
 		return "", fail(http.StatusServiceUnavailable, "no constitution ref: %v", err)
 	}
 	switch r.URL.Path {
 	case "/v1/constitution":
-		body, err := repo.ReadBlob(ctx, head+":"+constitutionFile)
+		body, err := repo.ReadBlob(ctx, head+":"+linedir.ConstitutionBlob)
 		if err != nil {
 			return "", err
 		}
@@ -146,7 +132,7 @@ func (s *Server) routeConstitution(w http.ResponseWriter, r *http.Request, st *S
 	if _, err := constitution.Parse(data); err != nil {
 		return "", fail(http.StatusBadRequest, "%v", err)
 	}
-	cur, err := repo.ReadBlob(ctx, head+":"+constitutionFile)
+	cur, err := repo.ReadBlob(ctx, head+":"+linedir.ConstitutionBlob)
 	if err != nil {
 		return "", err
 	}
@@ -157,7 +143,7 @@ func (s *Server) routeConstitution(w http.ResponseWriter, r *http.Request, st *S
 	if err != nil {
 		return "", err
 	}
-	tree, err := repo.WriteTreeWithBlob(ctx, constitutionFile, blob)
+	tree, err := repo.WriteTreeWithBlob(ctx, linedir.ConstitutionBlob, blob)
 	if err != nil {
 		return "", err
 	}
@@ -254,7 +240,7 @@ func (s *Server) ApproveConstitution(ctx context.Context, n int, msgID string) e
 	if err != nil {
 		return err
 	}
-	head, err := repo.Ref(ctx, ConstitutionRef)
+	head, err := repo.Ref(ctx, linedir.ConstitutionRef)
 	if err != nil {
 		return err
 	}
@@ -265,7 +251,7 @@ func (s *Server) ApproveConstitution(ctx context.Context, n int, msgID string) e
 	if len(parents) != 1 || parents[0] != head {
 		return fmt.Errorf("proposal %d is stale: the constitution changed after it was proposed; propose again", n)
 	}
-	data, err := repo.ReadBlob(ctx, prop+":"+constitutionFile)
+	data, err := repo.ReadBlob(ctx, prop+":"+linedir.ConstitutionBlob)
 	if err != nil {
 		return err
 	}
@@ -278,7 +264,7 @@ func (s *Server) ApproveConstitution(ctx context.Context, n int, msgID string) e
 	}
 	msg := fmt.Sprintf("constitution: proposal %d by %s, approved by king message %s\n\n%s: %s\nApproved-By: king message %s",
 		n, who[0], msgID, proposedByTrailer, who[0], msgID)
-	if _, err := commitConstitution(ctx, repo, data, head, msg, "king"); err != nil {
+	if _, err := linedir.CommitConstitution(ctx, repo, data, head, msg, "king"); err != nil {
 		return err
 	}
 	return nil

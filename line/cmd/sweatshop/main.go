@@ -52,7 +52,7 @@ const usage = `usage:
                                         check rev and submit it to the merge guard
   sweatshop line status                 print the line's master and andon state
   sweatshop line evidence ID            print a check log
-  sweatshop line cards list [--status S] [--label L] [--parent ID] | show ID | create --title T --type TYPE --priority N [--parent ID] [--acceptance A] (description on stdin) | comment ID (text on stdin) | offer ID
+  sweatshop line cards list [--status S] [--label L] [--parent ID] | show ID | create --title T --type TYPE --priority N [--parent ID] [--acceptance A] (description on stdin) | comment ID (text on stdin) | offer ID | close ID (reason on stdin)
                                         read and (viceroy only) write cards; output is JSON
   sweatshop line channel inbox [--after ID] [--wait 30s] | post [--from WHO] (text on stdin)
                                         read the king's channel / post to it (viceroy only)
@@ -284,16 +284,49 @@ func lineServe(args []string, stdout io.Writer) error {
 		go watch.Run(pollCtx)
 	}
 	fmt.Fprintf(stdout, "station api for %s on %s\n", l.Dir, *addr)
-	// No write timeout: attest and merge run the line's checks synchronously.
-	hs := &http.Server{Addr: *addr, Handler: srv, ReadHeaderTimeout: 10 * time.Second}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	go func() {
 		<-reload
 		// Exit cleanly so the supervisor (launchd) restarts serve with the
 		// approved constitution.
 		log.Printf("constitution changed; exiting to reload")
-		_ = hs.Shutdown(context.Background())
+		stop()
 	}()
-	if err := hs.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+	return serveUntilDone(ctx, newStationHTTPServer(*addr, srv))
+}
+
+const (
+	// stationReadTimeout bounds reading a whole request, body included, so a
+	// stalled bundle upload cannot hold a connection and its temp file forever.
+	stationReadTimeout = 10 * time.Minute
+	// stationShutdownTimeout is how long in-flight requests (attest and merge
+	// run checks synchronously) get to finish after a shutdown signal.
+	stationShutdownTimeout = 5 * time.Minute
+)
+
+// newStationHTTPServer returns the station API server. It sets no write
+// timeout: attest and merge run the line's checks synchronously.
+func newStationHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: stationReadTimeout}
+}
+
+// serveUntilDone serves hs until ctx is done, then drains in-flight requests
+// for up to stationShutdownTimeout. It returns nil after a clean shutdown.
+func serveUntilDone(ctx context.Context, hs *http.Server) error {
+	errc := make(chan error, 1)
+	go func() { errc <- hs.ListenAndServe() }()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+	}
+	shutCtx, cancel := context.WithTimeout(context.Background(), stationShutdownTimeout)
+	defer cancel()
+	if err := hs.Shutdown(shutCtx); err != nil {
+		return fmt.Errorf("graceful shutdown: %w", err)
+	}
+	if err := <-errc; !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
@@ -357,11 +390,20 @@ func lineHeijunka(args []string) error {
 			}
 		}
 	}()
+	raw, err := c.ConstitutionGet(ctx)
+	if err != nil {
+		return fmt.Errorf("read constitution: %w", err)
+	}
+	needsTimeout, err := heijunka.NeedsTimeoutFromConstitution(raw)
+	if err != nil {
+		return fmt.Errorf("constitution: %w", err)
+	}
+	logger := log.New(os.Stderr, "heijunka: ", log.LstdFlags)
 	levels := heijunka.LevelsFile{Path: filepath.Join(*dir, "heijunka.json")}
 	w := &heijunka.Worker{
+		Needs:    &heijunka.NeedsTriager{Cards: heijunka.BeadsNeeds{Dir: *beads}, Timeout: needsTimeout, Log: logger},
 		Observer: heijunka.BeadsObserver{API: c, Dir: *beads, Label: station.LabelLine, Levels: levels},
-		Actuator: levels, Policy: policy, Interval: *interval, Poke: poke,
-		Log: log.New(os.Stderr, "heijunka: ", log.LstdFlags),
+		Actuator: levels, Policy: policy, Interval: *interval, Poke: poke, Log: logger,
 	}
 	return w.Run(ctx)
 }
@@ -604,7 +646,7 @@ func lineCards(args []string, stdin io.Reader, stdout io.Writer) error {
 		fs.IntVar(&nc.Priority, "priority", 2, "priority 0..4")
 		fs.StringVar(&nc.Parent, "parent", "", "parent card")
 		fs.StringVar(&nc.Acceptance, "acceptance", "", "acceptance criteria")
-	case "show", "comment", "offer":
+	case "show", "comment", "offer", "close":
 	default:
 		return errors.New(usage)
 	}
@@ -612,7 +654,7 @@ func lineCards(args []string, stdin io.Reader, stdout io.Writer) error {
 		return err
 	}
 	wantArgs := 0
-	if cmd == "show" || cmd == "comment" || cmd == "offer" {
+	if cmd == "show" || cmd == "comment" || cmd == "offer" || cmd == "close" {
 		wantArgs = 1
 	}
 	if fs.NArg() != wantArgs {
@@ -644,6 +686,14 @@ func lineCards(args []string, stdin io.Reader, stdout io.Writer) error {
 		out, err = c.CardComment(ctx, fs.Arg(0), strings.TrimRight(string(text), "\n"))
 	case "offer":
 		out, err = c.CardOffer(ctx, fs.Arg(0))
+	case "close":
+		reason, rerr := io.ReadAll(io.LimitReader(stdin, 1<<20))
+		if rerr != nil {
+			return rerr
+		}
+		if err = c.CardClose(ctx, fs.Arg(0), strings.TrimRight(string(reason), "\n")); err == nil {
+			out = []byte("closed " + fs.Arg(0))
+		}
 	}
 	if err != nil {
 		return err

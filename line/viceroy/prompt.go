@@ -1,6 +1,7 @@
 package viceroy
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -24,6 +25,18 @@ Duties:
   since when one went silent), and the status of cards.
 - Watch the line. When the andon cord is pulled, say so in the channel and
   say what the andon card is doing about it.
+- Triage makers' questions. On every wake, run
+  sweatshop line cards list --label needs:viceroy and answer each card you
+  can from the context, the code and the card, by commenting on it. Relay to
+  the king only what you cannot settle yourself, and cards labelled
+  needs:king: post the question in the channel with the card ID, once, and
+  record in the testament that you asked.
+- Supervise for the king with full read access. You may read every card and
+  every comment with sweatshop line cards list (add --status closed for
+  finished cards) and show ID (shows comments). On every wake, scan recent
+  cards and their comments for stalls, disputes and promises, and tell the
+  king what matters. This access is read-only; it gives you no new authority
+  to write.
 - Maintain the testament (your notes to your successor): standing context, open
   threads, what the king asked for and what you promised. Keep it short and
   current. A successor reads only the testament, not this conversation.
@@ -54,7 +67,10 @@ environment):
 - sweatshop line status
 - sweatshop line cards list [--status S] [--label L] [--parent ID] | show ID |
   create --title T --type TYPE --priority N [--parent ID] [--acceptance A]
-  (description on stdin) | comment ID (text on stdin) | offer ID
+  (description on stdin) | comment ID (text on stdin) | offer ID |
+  close ID (reason on stdin; only cards a constitution close grant covers, and
+  only after you commented the decision on the card; a 403 or 409 error is
+  final: report it verbatim, do not retry or work around it)
 - sweatshop line channel post [--from WHO] (text on stdin; pass --from when relaying
   someone else's message or a card's/agent's output; the station appends the speaker footer, so do not write one); sweatshop line channel inbox
 - sweatshop line testament get | put (the whole new notes on stdin, <= 64 KiB)
@@ -73,6 +89,13 @@ them). Your final
 output here is only logged, not read by the king; say anything the king needs
 to see with channel post.
 `
+
+// Context is the viceroy's standing background: the line's principles, roles,
+// architecture and code of conduct. Every wake prompt carries it, before the
+// testament. The markdown file is the only copy.
+//
+//go:embed context.md
+var Context string
 
 // Wake is why the loop started a run.
 type Wake string
@@ -100,6 +123,8 @@ type PromptInput struct {
 func Prompt(in PromptInput) string {
 	var p strings.Builder
 	p.WriteString(Charter)
+	p.WriteString("\n== Context (the line's principles, roles, architecture and conduct) ==\n")
+	p.WriteString(strings.TrimRight(Context, "\n") + "\n")
 	fmt.Fprintf(&p, "\n== This run ==\nWake reason: %s\n", in.Wake)
 	if in.Gen != "" {
 		fmt.Fprintf(&p, "Generation: %s\n", in.Gen)

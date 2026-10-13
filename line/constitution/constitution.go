@@ -33,6 +33,39 @@ type Constitution struct {
 	Sovereign Sovereign `toml:"sovereign"`
 	Channel   Channel   `toml:"channel"`
 	Viceroy   Viceroy   `toml:"viceroy"`
+	Cards     Cards     `toml:"cards"`
+}
+
+// DefaultCommentCap is the comments an agent may leave on its own card per run.
+const DefaultCommentCap = 5
+
+// Cards sets what agents may do to their own cards through the station API.
+type Cards struct {
+	// CommentCap bounds comments per card run; 0 means DefaultCommentCap.
+	CommentCap int `toml:"comment_cap,omitempty"`
+	// NeedsTimeout (Go duration) is how long a needs:<role> card may sit
+	// untouched before heijunka triages it; empty means DefaultNeedsTimeout.
+	NeedsTimeout string `toml:"needs_timeout,omitempty"`
+}
+
+// DefaultNeedsTimeout is how long a needs:<role> card may wait unanswered.
+const DefaultNeedsTimeout = 24 * time.Hour
+
+// NeedsTimeoutOrDefault is the stale-needs timeout with the default applied.
+// Parse rejects malformed values, so a bad one here can only come from code.
+func (c Cards) NeedsTimeoutOrDefault() time.Duration {
+	if d, err := time.ParseDuration(c.NeedsTimeout); err == nil && d > 0 {
+		return d
+	}
+	return DefaultNeedsTimeout
+}
+
+// CommentCapOrDefault is the per-run comment cap with the default applied.
+func (c Cards) CommentCapOrDefault() int {
+	if c.CommentCap == 0 {
+		return DefaultCommentCap
+	}
+	return c.CommentCap
 }
 
 // Sovereign is the king: the only identity whose channel messages carry
@@ -61,22 +94,43 @@ type Viceroy struct {
 	Delegations []Delegation `toml:"delegations"`
 }
 
-// Delegation lets the viceroy offer matching cards without the king. A card
-// matches by issue type or by having Parent in its ancestor chain.
+// Delegation grants the viceroy one bounded power without the king: either
+// offering matching cards (Offer = "line") or closing them (Close). An offer
+// matches a card by issue type or by having Parent in its ancestor chain. A
+// close is bounded tighter: only the listed IDs or descendants of Parent.
 type Delegation struct {
 	Offer  string   `toml:"offer"`
+	Close  bool     `toml:"close"`
 	Types  []string `toml:"types"`
 	Parent string   `toml:"parent"`
+	IDs    []string `toml:"ids"`
 }
 
-// Delegates reports whether some delegation covers a card of cardType whose
-// ancestor chain is given.
+// Delegates reports whether some offer delegation covers a card of cardType
+// whose ancestor chain is given.
 func (c Constitution) Delegates(cardType string, ancestors []string) bool {
 	for _, d := range c.Viceroy.Delegations {
+		if d.Offer != "line" {
+			continue
+		}
 		if cardType != "" && slices.Contains(d.Types, cardType) {
 			return true
 		}
 		if d.Parent != "" && slices.Contains(ancestors, d.Parent) {
+			return true
+		}
+	}
+	return false
+}
+
+// DelegatesClose reports whether some close delegation covers card id, whose
+// ancestor chain is given.
+func (c Constitution) DelegatesClose(id string, ancestors []string) bool {
+	for _, d := range c.Viceroy.Delegations {
+		if !d.Close {
+			continue
+		}
+		if slices.Contains(d.IDs, id) || (d.Parent != "" && slices.Contains(ancestors, d.Parent)) {
 			return true
 		}
 	}
@@ -89,6 +143,14 @@ var (
 )
 
 func (c Constitution) validateGovernance() error {
+	if c.Cards.CommentCap < 0 {
+		return fmt.Errorf("cards.comment_cap %d: must be positive", c.Cards.CommentCap)
+	}
+	if c.Cards.NeedsTimeout != "" {
+		if d, err := time.ParseDuration(c.Cards.NeedsTimeout); err != nil || d <= 0 {
+			return fmt.Errorf("cards.needs_timeout %q: want a positive duration like 24h", c.Cards.NeedsTimeout)
+		}
+	}
 	s, ch := c.Sovereign, c.Channel
 	if s != (Sovereign{}) && !digits.MatchString(s.Discord) {
 		return fmt.Errorf("sovereign.discord %q: want a Discord user ID (digits only)", s.Discord)
@@ -105,11 +167,28 @@ func (c Constitution) validateGovernance() error {
 		}
 	}
 	for i, d := range c.Viceroy.Delegations {
-		if d.Offer != "line" {
-			return fmt.Errorf("viceroy.delegations[%d].offer %q: want line", i, d.Offer)
-		}
-		if len(d.Types) == 0 && d.Parent == "" {
-			return fmt.Errorf("viceroy.delegations[%d]: needs types or parent", i)
+		if d.Close {
+			if d.Offer != "" || len(d.Types) > 0 {
+				return fmt.Errorf("viceroy.delegations[%d]: close takes only ids or parent", i)
+			}
+			if len(d.IDs) == 0 && d.Parent == "" {
+				return fmt.Errorf("viceroy.delegations[%d]: close needs ids or parent", i)
+			}
+			for _, id := range d.IDs {
+				if !cardID.MatchString(id) {
+					return fmt.Errorf("viceroy.delegations[%d].ids %q: not a card id", i, id)
+				}
+			}
+		} else {
+			if d.Offer != "line" {
+				return fmt.Errorf("viceroy.delegations[%d].offer %q: want line (or close = true)", i, d.Offer)
+			}
+			if len(d.IDs) > 0 {
+				return fmt.Errorf("viceroy.delegations[%d].ids: only a close delegation takes ids", i)
+			}
+			if len(d.Types) == 0 && d.Parent == "" {
+				return fmt.Errorf("viceroy.delegations[%d]: needs types or parent", i)
+			}
 		}
 		if slices.Contains(d.Types, "") {
 			return fmt.Errorf("viceroy.delegations[%d].types: empty issue type", i)

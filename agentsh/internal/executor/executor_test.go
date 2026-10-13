@@ -177,3 +177,22 @@ func readBlob(t *testing.T, store storage.BlobStore, digest string) string {
 	}
 	return string(data)
 }
+
+func TestExecuteReturnsWhenBackgroundChildKeepsControlPipeOpen(t *testing.T) {
+	exec, _, root := testExecutor(t)
+	started := time.Now()
+	inv, err := exec.Execute(context.Background(), Request{
+		Command: `nohup sleep 5 >> bg.log 2>&1 &`,
+		CWD:     root,
+		Timeout: 10 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("Execute blocked %s on the backgrounded child", elapsed)
+	}
+	if inv.State != storage.StateExited || inv.CWDAfter == nil {
+		t.Fatalf("shell state not captured: %+v", inv)
+	}
+}

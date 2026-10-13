@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -336,7 +338,18 @@ func TestLineCards(t *testing.T) {
 			t.Fatalf("%v: output %q", tc.args, out.String())
 		}
 	}
-	for _, bad := range [][]string{{}, {"nope"}, {"show"}, {"offer", "a", "b"}} {
+	got = nil
+	var closeOut bytes.Buffer
+	if err := lineCards([]string{"close", "x-1"}, strings.NewReader("done\n"), &closeOut); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if want := `POST /v1/cards/x-1/close {"reason":"done"}`; len(got) != 1 || got[0] != want {
+		t.Fatalf("close request %q, want %q", got, want)
+	}
+	if closeOut.String() != "closed x-1\n" {
+		t.Fatalf("close output %q", closeOut.String())
+	}
+	for _, bad := range [][]string{{}, {"nope"}, {"show"}, {"offer", "a", "b"}, {"close"}} {
 		if err := lineCards(bad, strings.NewReader(""), &bytes.Buffer{}); err == nil {
 			t.Fatalf("%v accepted", bad)
 		}
@@ -588,7 +601,7 @@ func TestViceroyRunChecksInWithPredecessor(t *testing.T) {
 func TestLineViceroyStartNeedsStation(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "line")
 	src := t.TempDir()
-	for _, args := range [][]string{{"init", "--quiet", "--initial-branch=master"}, {"-c", "user.name=t", "-c", "user.email=t@e", "commit", "--quiet", "--allow-empty", "-m", "seed"}} {
+	for _, args := range [][]string{{"init", "--quiet", "--initial-branch=master"}, {"-c", "user.name=t", "-c", "user.email=t@e", "-c", "commit.gpgsign=false", "commit", "--quiet", "--allow-empty", "-m", "seed"}} {
 		if out, err := exec.Command("git", append([]string{"-C", src}, args...)...).CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v %s", args, err, out)
 		}
@@ -693,5 +706,80 @@ func TestLineInitGovernanceFlags(t *testing.T) {
 	}
 	if c.Sovereign.Name != "alice" || c.Sovereign.Discord != "123" || c.Channel.Channel != "456" || c.Channel.Kind != "discord" {
 		t.Fatalf("got %+v %+v", c.Sovereign, c.Channel)
+	}
+}
+
+func TestLineCardsCloseReportsRefusalVerbatim(t *testing.T) {
+	for _, status := range []int{http.StatusForbidden, http.StatusConflict} {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(`{"error":"no grant covers x-1"}`))
+		}))
+		t.Setenv("SWEATSHOP_LINE_URL", ts.URL)
+		t.Setenv("SWEATSHOP_LINE_TOKEN", "tok")
+		err := lineCards([]string{"close", "x-1"}, strings.NewReader("r"), &bytes.Buffer{})
+		ts.Close()
+		if err == nil || !strings.Contains(err.Error(), http.StatusText(status)) || !strings.Contains(err.Error(), "no grant covers x-1") {
+			t.Fatalf("status %d: error %v", status, err)
+		}
+	}
+}
+
+func TestStationHTTPServerBoundsRequestBodyRead(t *testing.T) {
+	hs := newStationHTTPServer("127.0.0.1:0", http.NotFoundHandler())
+	if hs.ReadTimeout != stationReadTimeout || hs.ReadTimeout <= 0 {
+		t.Fatalf("ReadTimeout = %v, want %v", hs.ReadTimeout, stationReadTimeout)
+	}
+}
+
+func TestServeUntilDoneDrainsInFlightRequestOnCancel(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	hs := newStationHTTPServer(addr, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-release
+		io.WriteString(w, "done")
+	}))
+	ctx, cancel := context.WithCancel(context.Background())
+	served := make(chan error, 1)
+	go func() { served <- serveUntilDone(ctx, hs) }()
+
+	body := make(chan string, 1)
+	go func() {
+		var resp *http.Response
+		for i := 0; i < 100; i++ {
+			if resp, err = http.Get("http://" + addr); err == nil {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		if err != nil {
+			body <- err.Error()
+			return
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		body <- string(b)
+	}()
+	<-started
+	cancel()
+	select {
+	case err := <-served:
+		t.Fatalf("serveUntilDone returned %v while a request was in flight", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	if got := <-body; got != "done" {
+		t.Fatalf("in-flight response = %q, want %q", got, "done")
+	}
+	if err := <-served; err != nil {
+		t.Fatalf("serveUntilDone = %v, want nil", err)
 	}
 }

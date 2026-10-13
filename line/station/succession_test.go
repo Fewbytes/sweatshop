@@ -577,3 +577,51 @@ func TestCLIEngineStartMounts(t *testing.T) {
 		}
 	}
 }
+
+func TestSucceedFromSupersededCommitLaunchesCurrentMaster(t *testing.T) {
+	r := newSuccRig(t, true)
+	r.bootstrap()
+	c2 := r.land("a.txt", "a")
+	c3 := r.land("b.txt", "b")
+	out, err := r.client("viceroy-1", "1").ViceroySucceed(r.ctx, c2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var g Generation
+	if err := json.Unmarshal(out, &g); err != nil || g.Gen != 2 || g.Commit != c3 {
+		t.Fatalf("want generation 2 at %s, got %s %v", c3, out, err)
+	}
+}
+
+func TestSucceedWaitsForCheckSlot(t *testing.T) {
+	r := newSuccRig(t, true)
+	r.bootstrap()
+	c2 := r.land("a.txt", "a")
+	if !r.srv.acquire() {
+		t.Fatal("slot already taken")
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.client("viceroy-1", "1").ViceroySucceed(r.ctx, c2)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("succession returned while the slot was held: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	r.srv.busy.Store(false)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAcquireQueuedGivesUpAfterLimit(t *testing.T) {
+	var s Server
+	if !s.acquire() {
+		t.Fatal("slot already taken")
+	}
+	if err := s.acquireQueued(context.Background(), 20*time.Millisecond); !errors.Is(err, errBusy) {
+		t.Fatalf("want errBusy, got %v", err)
+	}
+}
