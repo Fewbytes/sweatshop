@@ -278,8 +278,8 @@ parent = "sweatshop-0mw.2"
 		{"bad parent", "[[viceroy.delegations]]\noffer=\"line\"\nparent=\"A B\"\n", "parent"},
 		{"close by ids", "[[viceroy.delegations]]\nclose=true\nids=[\"m-1\"]\n", ""},
 		{"close by parent", "[[viceroy.delegations]]\nclose=true\nparent=\"m-2\"\n", ""},
-		{"unbounded close", "[[viceroy.delegations]]\nclose=true\n", "close needs ids or parent"},
-		{"close by type", "[[viceroy.delegations]]\nclose=true\ntypes=[\"bug\"]\nids=[\"m-1\"]\n", "close takes only"},
+		{"unbounded close", "[[viceroy.delegations]]\nclose=true\n", "close needs ids, parent, types or labels"},
+		{"close by type", "[[viceroy.delegations]]\nclose=true\ntypes=[\"bug\"]\n", ""},
 		{"close with offer", "[[viceroy.delegations]]\nclose=true\noffer=\"line\"\nids=[\"m-1\"]\n", "close takes only"},
 		{"bad close id", "[[viceroy.delegations]]\nclose=true\nids=[\"A B\"]\n", "ids"},
 		{"ids on offer", "[[viceroy.delegations]]\noffer=\"line\"\nids=[\"m-1\"]\n", "only a close delegation"},
@@ -340,25 +340,52 @@ func TestDelegatesClose(t *testing.T) {
 		{Close: true, IDs: []string{"m-1"}},
 		{Close: true, Parent: "m-2"},
 		{Offer: "line", Types: []string{"bug"}, Parent: "m-3"},
+		{Close: true, Types: []string{"chore"}, Labels: []string{"obsolete"}},
 	}}}
 	cases := []struct {
 		name      string
 		id        string
+		typ       string
+		labels    []string
 		ancestors []string
 		want      bool
 	}{
-		{"listed id", "m-1", nil, true},
-		{"under close parent", "m-2.1", []string{"m-2"}, true},
-		{"unlisted", "m-4", nil, false},
-		{"offer delegation grants no close", "m-3.1", []string{"m-3"}, false},
+		{"listed id", "m-1", "task", nil, nil, true},
+		{"under close parent", "m-2.1", "task", nil, []string{"m-2"}, true},
+		{"unlisted", "m-4", "task", nil, nil, false},
+		{"offer delegation grants no close", "m-3.1", "bug", nil, []string{"m-3"}, false},
+		{"close type", "m-5", "chore", nil, nil, true},
+		{"close label", "m-6", "task", []string{"x", "obsolete"}, nil, true},
+		{"other label", "m-6", "task", []string{"x"}, nil, false},
+		{"empty type matches nothing", "m-7", "", nil, nil, false},
 	}
 	for _, tc := range cases {
-		if got := c.DelegatesClose(tc.id, tc.ancestors); got != tc.want {
+		if got := c.DelegatesClose(tc.id, tc.typ, tc.labels, tc.ancestors); got != tc.want {
 			t.Errorf("%s: got %v want %v", tc.name, got, tc.want)
 		}
 	}
 	if c.Delegates("task", []string{"m-2"}) {
 		t.Error("close delegation grants offer")
+	}
+}
+
+func TestCloseDelegationCategoriesValidate(t *testing.T) {
+	_, key := publicKey(t)
+	cases := []struct {
+		name, extra string
+		ok          bool
+	}{
+		{"close by labels", "close = true\nlabels = [\"obsolete\"]\n", true},
+		{"close by types", "close = true\ntypes = [\"chore\"]\n", true},
+		{"close empty label", "close = true\nlabels = [\"\"]\n", false},
+		{"close with no bound", "close = true\n", false},
+		{"offer with labels", "offer = \"line\"\ntypes = [\"bug\"]\nlabels = [\"x\"]\n", false},
+	}
+	for _, tc := range cases {
+		_, err := Parse([]byte(valid(key) + "[[viceroy.delegations]]\n" + tc.extra))
+		if (err == nil) != tc.ok {
+			t.Errorf("%s: err %v", tc.name, err)
+		}
 	}
 }
 
@@ -370,7 +397,7 @@ func TestExampleParses(t *testing.T) {
 	if c.Trust.Level != "attest" || len(c.Trust.Keys) != 1 || c.Runner.Kind != "container" ||
 		len(c.Checks.Required) != 1 || len(c.Guards.Paths) != 2 ||
 		c.Sovereign.Discord == "" || c.Channel.Kind != "discord" ||
-		!c.Viceroy.Succession || len(c.Viceroy.Delegations) != 3 {
+		!c.Viceroy.Succession || len(c.Viceroy.Delegations) != 4 {
 		t.Fatalf("example parsed unexpectedly: %+v", c)
 	}
 }

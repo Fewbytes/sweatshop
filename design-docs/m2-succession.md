@@ -79,7 +79,7 @@ parent = "sweatshop-0mw.2"          # this milestone's cards and their children
 
 [[viceroy.delegations]]             # cards the viceroy may close without the king
 close = true
-ids = ["sweatshop-0mw.1.4"]         # or parent = "<card id>"; never bounded by type
+ids = ["sweatshop-0mw.1.4"]         # or parent = "<card id>", types = [...], labels = [...]
 
 [viceroy]
 succession = true                   # may request its own succession
@@ -95,8 +95,9 @@ succession = true                   # may request its own succession
   card, if the card matches one of them. Otherwise the card is labelled
   `line-proposed` and waits for the king's `approve`.
 - **Close delegations** let the viceroy request `POST /v1/cards/{id}/close`
-  (with a reason) for cards in the grant's `ids` or under its `parent`. The
-  guard also requires the card to carry a comment recording the decision.
+  (with a reason) for cards in the grant's `ids`, under its `parent`, of one of its
+  `types`, or carrying one of its `labels`. Types are safer than labels, which
+  any agent can set. The guard also requires the card to carry a comment recording the decision.
   Adding or widening a grant is a constitution change, gated by the sovereign.
 - **Everything else in the channel is data.** Messages from other humans are
   forwarded to the viceroy with `principal: "unknown"` and carry no authority.

@@ -97,13 +97,16 @@ type Viceroy struct {
 // Delegation grants the viceroy one bounded power without the king: either
 // offering matching cards (Offer = "line") or closing them (Close). An offer
 // matches a card by issue type or by having Parent in its ancestor chain. A
-// close is bounded tighter: only the listed IDs or descendants of Parent.
+// close matches the listed IDs, descendants of Parent, cards of a listed issue
+// type, or cards carrying a listed label. Types are the safer category: any
+// agent may set a label, while a card's issue type is harder to game.
 type Delegation struct {
 	Offer  string   `toml:"offer"`
 	Close  bool     `toml:"close"`
 	Types  []string `toml:"types"`
 	Parent string   `toml:"parent"`
 	IDs    []string `toml:"ids"`
+	Labels []string `toml:"labels"`
 }
 
 // Delegates reports whether some offer delegation covers a card of cardType
@@ -123,14 +126,20 @@ func (c Constitution) Delegates(cardType string, ancestors []string) bool {
 	return false
 }
 
-// DelegatesClose reports whether some close delegation covers card id, whose
-// ancestor chain is given.
-func (c Constitution) DelegatesClose(id string, ancestors []string) bool {
+// DelegatesClose reports whether some close delegation covers card id, given
+// its issue type, labels and ancestor chain.
+func (c Constitution) DelegatesClose(id, cardType string, labels, ancestors []string) bool {
 	for _, d := range c.Viceroy.Delegations {
 		if !d.Close {
 			continue
 		}
 		if slices.Contains(d.IDs, id) || (d.Parent != "" && slices.Contains(ancestors, d.Parent)) {
+			return true
+		}
+		if cardType != "" && slices.Contains(d.Types, cardType) {
+			return true
+		}
+		if slices.ContainsFunc(labels, func(l string) bool { return slices.Contains(d.Labels, l) }) {
 			return true
 		}
 	}
@@ -168,11 +177,11 @@ func (c Constitution) validateGovernance() error {
 	}
 	for i, d := range c.Viceroy.Delegations {
 		if d.Close {
-			if d.Offer != "" || len(d.Types) > 0 {
-				return fmt.Errorf("viceroy.delegations[%d]: close takes only ids or parent", i)
+			if d.Offer != "" {
+				return fmt.Errorf("viceroy.delegations[%d]: close takes only ids, parent, types or labels", i)
 			}
-			if len(d.IDs) == 0 && d.Parent == "" {
-				return fmt.Errorf("viceroy.delegations[%d]: close needs ids or parent", i)
+			if len(d.IDs) == 0 && d.Parent == "" && len(d.Types) == 0 && len(d.Labels) == 0 {
+				return fmt.Errorf("viceroy.delegations[%d]: close needs ids, parent, types or labels", i)
 			}
 			for _, id := range d.IDs {
 				if !cardID.MatchString(id) {
@@ -186,9 +195,15 @@ func (c Constitution) validateGovernance() error {
 			if len(d.IDs) > 0 {
 				return fmt.Errorf("viceroy.delegations[%d].ids: only a close delegation takes ids", i)
 			}
+			if len(d.Labels) > 0 {
+				return fmt.Errorf("viceroy.delegations[%d].labels: only a close delegation takes labels", i)
+			}
 			if len(d.Types) == 0 && d.Parent == "" {
 				return fmt.Errorf("viceroy.delegations[%d]: needs types or parent", i)
 			}
+		}
+		if slices.Contains(d.Labels, "") {
+			return fmt.Errorf("viceroy.delegations[%d].labels: empty label", i)
 		}
 		if slices.Contains(d.Types, "") {
 			return fmt.Errorf("viceroy.delegations[%d].types: empty issue type", i)

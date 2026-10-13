@@ -64,6 +64,7 @@ func cardsRig(t *testing.T, cards Cards) (*Server, *httptest.Server, Client, Cli
 	srv.Guard.Constitution.Viceroy.Delegations = []constitution.Delegation{
 		{Offer: "line", Types: []string{"chore"}, Parent: "x-9"},
 		{Close: true, IDs: []string{"x-1"}, Parent: "x-7"},
+		{Close: true, Types: []string{"chore"}, Labels: []string{"obsolete"}},
 	}
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
@@ -200,6 +201,10 @@ func TestCardsViceroyCloseNeedsDelegationAndDecision(t *testing.T) {
 	}{
 		{"listed id with decision", "x-1", `[{"id":"x-1","comments":[{"text":"decided"}]}]`, ""},
 		{"under delegated parent", "x-7.2", `{"comments":[{"text":"decided"}]}`, ""},
+		{"delegated type", "x-3", `{"issue_type":"chore","comments":[{"text":"decided"}]}`, ""},
+		{"delegated label", "x-4", `{"issue_type":"task","labels":["obsolete"],"comments":[{"text":"decided"}]}`, ""},
+		{"undelegated label", "x-4", `{"issue_type":"task","labels":["other"],"comments":[{"text":"decided"}]}`, "403"},
+		{"delegated type without decision", "x-3", `{"issue_type":"chore","comments":[]}`, "409"},
 		{"no decision comment", "x-1", `{"comments":[]}`, "409"},
 		{"not delegated", "x-2", `{"comments":[{"text":"decided"}]}`, "403"},
 		{"offer-only parent grants no close", "x-9.1", `{"comments":[{"text":"decided"}]}`, "403"},
