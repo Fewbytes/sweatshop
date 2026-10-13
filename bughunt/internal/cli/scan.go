@@ -28,6 +28,9 @@ func Registry(root string) *detector.Registry {
 		detector.NewErrcheck(run, sym),
 		detector.NewIneffassign(run, sym),
 		detector.NewGosec(run, sym),
+		detector.NewHiddenCoupling(run, root),
+		detector.NewPatternEntropy(sym),
+		detector.NewContextClosure(sym),
 		detector.NewAstGrep(run, sym, Paths(root).Rules, Paths(root).SgConfig),
 	)
 }
