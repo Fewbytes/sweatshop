@@ -71,6 +71,9 @@ ARG UV_SHA256_AARCH64=b536543cc4d50661986b165c76ee8aa9056e4fa332edcd153ff2e98760
 ARG JUST_VERSION=1.58.0
 ARG JUST_SHA256_X86_64=4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d
 ARG JUST_SHA256_AARCH64=748237128c4c40cbdabc65e841d05ceba13cc23a91eaba395495894c1d9764df
+ARG NODE_VERSION=26.12.0
+ARG NODE_SHA256_X64=fd47865ecd6391ebb431fc815e01b9135bf83ded5cf373247e9331e196b7aded
+ARG NODE_SHA256_ARM64=fd6cc729fa4448c2ac27c3fca5606019ced63c65a15c152c8df03e0cbce7f4c5
 ARG CLAUDE_CODE_VERSION=2.1.296
 ARG GIT_FLOOR=2.45.1
 
@@ -79,7 +82,7 @@ ENV PATH=/opt/git/bin:$PATH
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-        ca-certificates curl bash ripgrep fd-find python3 nodejs npm \
+        ca-certificates curl bash ripgrep fd-find python3 \
         build-essential pkg-config xz-utils libcurl4 libexpat1 zlib1g openssh-client less tini; \
     rm -rf /var/lib/apt/lists/*; \
     have="$(git --version | awk '{print $3}')"; \
@@ -115,6 +118,21 @@ RUN set -eux; \
     install -m 0755 "/tmp/${dir}/uv" "/tmp/${dir}/uvx" /usr/local/bin/; \
     rm -rf /tmp/uv.tar.gz "/tmp/${dir}"; \
     uv --version
+
+# Node: bookworm's nodejs is v18, below claude-code's engines floor (>=22), so
+# use the official release tarball, pinned.
+RUN set -eux; \
+    case "$(uname -m)" in \
+        x86_64) arch=x64; sum="$NODE_SHA256_X64" ;; \
+        aarch64) arch=arm64; sum="$NODE_SHA256_ARM64" ;; \
+        *) echo "unsupported arch $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSLo /tmp/node.tar.xz "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${arch}.tar.xz"; \
+    echo "${sum}  /tmp/node.tar.xz" | sha256sum -c -; \
+    tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 --no-same-owner \
+        --exclude='*/CHANGELOG.md' --exclude='*/LICENSE' --exclude='*/README.md'; \
+    rm /tmp/node.tar.xz; \
+    node --version; npm --version
 
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" && claude --version
 
