@@ -169,7 +169,7 @@ func (c *Channel) gatewayConnect(ctx context.Context) (ready bool, err error) {
 					return ready, err
 				}
 				ready = true
-				c.registerApproveCommand(ctx, d.App.ID)
+				c.registerSlashCommands(ctx, d.App.ID)
 			case "RESUMED":
 				if err := c.gatewayBackfill(ctx); err != nil {
 					return ready, err

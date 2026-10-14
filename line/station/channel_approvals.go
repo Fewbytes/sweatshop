@@ -19,6 +19,7 @@ const (
 	interactionApplicationCommand = 2
 	interactionAutocomplete       = 4
 	optionTypeString              = 3
+	optionTypeInteger             = 4
 	callbackChannelMessage        = 4
 	callbackAutocompleteResult    = 8
 	flagEphemeral                 = 1 << 6
@@ -54,15 +55,20 @@ func (c *Channel) listCards(ctx context.Context, f ListFilter) ([]cardSummary, e
 	return cards, nil
 }
 
-// registerApproveCommand makes /approve available in the line's guild. A
-// failure is logged: text and reaction approvals still work without it.
-func (c *Channel) registerApproveCommand(ctx context.Context, app string) {
+// registerSlashCommands makes /approve and /card available in the line's
+// guild. A failure is logged: text and reaction approvals still work without
+// them.
+func (c *Channel) registerSlashCommands(ctx context.Context, app string) {
 	guild, err := c.Discord.GuildOf(ctx, c.ChannelID)
-	if err == nil {
-		err = c.Discord.RegisterApproveCommand(ctx, app, guild)
-	}
 	if err != nil {
+		log.Printf("channel: register slash commands: %v", err)
+		return
+	}
+	if err := c.Discord.RegisterApproveCommand(ctx, app, guild); err != nil {
 		log.Printf("channel: register /approve: %v", err)
+	}
+	if err := c.Discord.RegisterCardCommand(ctx, app, guild); err != nil {
+		log.Printf("channel: register /card: %v", err)
 	}
 }
 
@@ -116,8 +122,8 @@ func (c *Channel) gatewayReaction(ctx context.Context, raw json.RawMessage) {
 	}
 }
 
-// gatewayInteraction serves /approve and its autocomplete for the king; every
-// other user's interaction is ignored.
+// gatewayInteraction serves /approve, its autocomplete and /card for the king;
+// every other user's interaction is ignored.
 func (c *Channel) gatewayInteraction(ctx context.Context, raw json.RawMessage) {
 	var in struct {
 		ID        string `json:"id"`
@@ -133,11 +139,8 @@ func (c *Channel) gatewayInteraction(ctx context.Context, raw json.RawMessage) {
 			ID string `json:"id"`
 		} `json:"user"`
 		Data struct {
-			Name    string `json:"name"`
-			Options []struct {
-				Name  string `json:"name"`
-				Value string `json:"value"`
-			} `json:"options"`
+			Name    string          `json:"name"`
+			Options []commandOption `json:"options"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &in); err != nil {
@@ -148,13 +151,27 @@ func (c *Channel) gatewayInteraction(ctx context.Context, raw json.RawMessage) {
 	if userID == "" {
 		userID = in.User.ID
 	}
-	if c.King == "" || userID != c.King || in.ChannelID != c.ChannelID || in.Data.Name != approveCommandName {
+	if c.King == "" || userID != c.King || in.ChannelID != c.ChannelID {
+		return
+	}
+	switch in.Data.Name {
+	case cardCommandName:
+		if in.Type != interactionApplicationCommand {
+			return
+		}
+		text := c.fileCard(ctx, in.Data.Options, "discord interaction "+in.ID)
+		if err := c.Discord.RespondEphemeral(ctx, in.ID, in.Token, text); err != nil {
+			log.Printf("channel: card reply: %v", err)
+		}
+		return
+	case approveCommandName:
+	default:
 		return
 	}
 	card := ""
 	for _, o := range in.Data.Options {
 		if o.Name == approveCardOption {
-			card = o.Value
+			card = o.stringValue()
 		}
 	}
 	switch in.Type {

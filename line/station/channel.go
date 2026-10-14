@@ -75,6 +75,8 @@ type Discord interface {
 	GuildOf(ctx context.Context, channel string) (string, error)
 	// RegisterApproveCommand creates or updates the /approve guild command.
 	RegisterApproveCommand(ctx context.Context, app, guild string) error
+	// RegisterCardCommand creates or updates the /card guild command.
+	RegisterCardCommand(ctx context.Context, app, guild string) error
 	// RespondEphemeral answers an interaction with a reply only its user sees.
 	RespondEphemeral(ctx context.Context, interactionID, token, text string) error
 	// RespondChoices answers an autocomplete interaction.
@@ -216,6 +218,22 @@ func (d HTTPDiscord) RegisterApproveCommand(ctx context.Context, app, guild stri
 		"options": []map[string]any{{
 			"type": optionTypeString, "name": approveCardOption, "description": "Card ID", "required": true, "autocomplete": true,
 		}},
+	}, nil)
+}
+
+func (d HTTPDiscord) RegisterCardCommand(ctx context.Context, app, guild string) error {
+	typeChoices := make([]CommandChoice, len(cardTypes))
+	for i, t := range cardTypes {
+		typeChoices[i] = CommandChoice{Name: t, Value: t}
+	}
+	return d.do(ctx, http.MethodPost, "/applications/"+url.PathEscape(app)+"/guilds/"+url.PathEscape(guild)+"/commands", map[string]any{
+		"name": cardCommandName, "type": 1, "description": "File a card onto the line",
+		"options": []map[string]any{
+			{"type": optionTypeString, "name": cardTitleOption, "description": "Card title", "required": true, "max_length": maxTitle},
+			{"type": optionTypeString, "name": cardDescriptionOption, "description": "What to do and why", "max_length": maxCommandOptionChars},
+			{"type": optionTypeString, "name": cardTypeOption, "description": "Card type (default " + defaultCardType + ")", "choices": typeChoices},
+			{"type": optionTypeInteger, "name": cardPriorityOption, "description": "Priority 0 (highest) to 4 (default " + strconv.Itoa(defaultCardPriority) + ")", "min_value": 0, "max_value": 4},
+		},
 	}, nil)
 }
 

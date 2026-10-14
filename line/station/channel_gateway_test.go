@@ -244,8 +244,8 @@ func TestGatewayIdentifyHeartbeatAndMessageDedupe(t *testing.T) {
 	}
 	fg.cmu.Lock()
 	defer fg.cmu.Unlock()
-	if len(fg.commands) != 1 {
-		t.Fatalf("approve command registrations: %v", fg.commands)
+	if len(fg.commands) != 2 { // /approve and /card, once each
+		t.Fatalf("slash command registrations: %v", fg.commands)
 	}
 }
 
@@ -411,5 +411,49 @@ func TestChannelTypingRoute(t *testing.T) {
 	}
 	if err := m.ChannelTyping(ctx); err == nil || !strings.Contains(err.Error(), "403") {
 		t.Fatalf("maker typing: %v", err)
+	}
+}
+
+func TestGatewayCardCommandFilesCardForSovereignOnly(t *testing.T) {
+	cards := &fakeCards{}
+	ch, fg := newGatewayChan(t, cards)
+	ctx := context.Background()
+	card := func(user string, options ...map[string]any) json.RawMessage {
+		b, _ := json.Marshal(map[string]any{
+			"id": "I9" + user, "token": "tk", "type": interactionApplicationCommand, "channel_id": "555",
+			"member": map[string]any{"user": map[string]string{"id": user}},
+			"data":   map[string]any{"name": "card", "options": options},
+		})
+		return b
+	}
+	opt := func(name string, value any) map[string]any { return map[string]any{"name": name, "value": value} }
+
+	ch.gatewayInteraction(ctx, card("666", opt("title", "Add widgets")))
+	if len(cards.calls) != 0 || len(fg.callbackLog()) != 0 {
+		t.Fatalf("non-sovereign /card acted: calls %v callbacks %v", cards.calls, fg.callbackLog())
+	}
+
+	ch.gatewayInteraction(ctx, card(kingID, opt("title", "Add widgets")))
+	want := NewCard{Title: "Add widgets", Type: "task", Priority: 2}
+	if cards.last != want {
+		t.Fatalf("defaults: created %+v, want %+v", cards.last, want)
+	}
+	if got := strings.Join(cards.calls, "|"); got != "create Add widgets|label x-2 line|comment x-2 approved by the king (discord interaction I9"+kingID+")" {
+		t.Fatalf("file calls %q", got)
+	}
+	if cb := fg.callbackLog(); len(cb) != 1 || !strings.Contains(cb[0], `"filed x-2"`) || !strings.Contains(cb[0], `"flags":64`) {
+		t.Fatalf("ephemeral ack %v", cb)
+	}
+
+	ch.gatewayInteraction(ctx, card(kingID, opt("title", "Fix gadgets"), opt("description", "they jam"), opt("type", "bug"), opt("priority", 0)))
+	want = NewCard{Title: "Fix gadgets", Description: "they jam", Type: "bug", Priority: 0}
+	if cards.last != want {
+		t.Fatalf("explicit options: created %+v, want %+v", cards.last, want)
+	}
+
+	before := len(cards.calls)
+	ch.gatewayInteraction(ctx, card(kingID, opt("title", "Bad"), opt("type", "saga")))
+	if cb := fg.callbackLog(); len(cards.calls) != before || !strings.Contains(cb[len(cb)-1], "invalid card") {
+		t.Fatalf("invalid type: calls %v callbacks %v", cards.calls, cb)
 	}
 }
