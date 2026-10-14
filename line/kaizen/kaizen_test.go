@@ -336,3 +336,12 @@ func TestOnceDeclinesARequestWhileAndonIsPulled(t *testing.T) {
 		t.Fatalf("answers %+v, want %+v", reqs.answers, want)
 	}
 }
+
+func TestPromptAsksForTheAnalysisReportBeforeTheEdit(t *testing.T) {
+	p := Prompt("kaizen-x")
+	report := strings.Index(p, "sweatshop line kaizen report")
+	baseline := strings.Index(p, "Record the baseline")
+	if report < 0 || baseline < 0 || report > baseline {
+		t.Fatalf("report step at %d, baseline step at %d", report, baseline)
+	}
+}

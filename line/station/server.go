@@ -62,6 +62,7 @@ type Server struct {
 	Cards       Cards                    // nil: the cards routes return 503
 	Channel     *Channel                 // nil: the channel routes return 503
 	Viceroy     *Supervisor              // nil: the viceroy routes return 503, no generation guard
+	Reports     report.ObjectStore       // object store for kaizen analysis reports; nil: that route returns 503
 	RunsPath    string                   // runs.jsonl written by the Reporter; "": the runs route returns 503
 	Deploy      *DeployState             // nil: the deploy routes return 503
 	Epics       *EpicApprovals           // nil: no epic is approved, so nothing inherits
@@ -154,6 +155,7 @@ func NewFromLine(l linedir.Line) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.Reports = objects
 	s.RunsPath = filepath.Join(l.Dir, "runs.jsonl")
 	s.Deploy = &DeployState{Path: filepath.Join(l.Dir, "deploy.json")}
 	s.Epics = &EpicApprovals{Path: filepath.Join(l.Dir, "approved-epics.json")}

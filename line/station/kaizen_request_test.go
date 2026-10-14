@@ -3,15 +3,19 @@ package station
 import (
 	"context"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Fewbytes/sweatshop/line/gitx"
 	"github.com/Fewbytes/sweatshop/line/guard"
+	"github.com/Fewbytes/sweatshop/line/report"
 )
 
 type kaizenRig struct {
 	srv                   *Server
+	reportsDir            string
 	repo                  gitx.Repo
 	heijunka, kaizen, mkr Client
 }
@@ -22,8 +26,10 @@ func newKaizenRig(t *testing.T) *kaizenRig {
 	repo := gitx.Repo{Dir: t.TempDir()}
 	ok(t)(repo.Git(ctx, "init", "--quiet", "--initial-branch=master"))
 	ok(t)(repo.Git(ctx, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "--quiet", "--allow-empty", "-m", "seed"))
+	reportsDir := t.TempDir()
 	srv := &Server{
-		Guard: guard.Guard{Repo: repo, Ref: "refs/heads/master"},
+		Guard:   guard.Guard{Repo: repo, Ref: "refs/heads/master"},
+		Reports: report.FSStore{Root: reportsDir},
 		Stations: []*Station{
 			{Name: "h", Role: "heijunka", Token: "ht"},
 			{Name: "k", Role: "kaizen", Token: "kt"},
@@ -32,7 +38,7 @@ func newKaizenRig(t *testing.T) *kaizenRig {
 	}
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
-	return &kaizenRig{srv: srv, repo: repo,
+	return &kaizenRig{srv: srv, reportsDir: reportsDir, repo: repo,
 		heijunka: Client{URL: ts.URL, Token: "ht"}, kaizen: Client{URL: ts.URL, Token: "kt"}, mkr: Client{URL: ts.URL, Token: "mt"}}
 }
 
@@ -126,5 +132,43 @@ func TestKaizenRoutesAreRoleGated(t *testing.T) {
 	}
 	if err := r.heijunka.AnswerKaizen(ctx, KaizenAnswer{State: KaizenRequestStarted}); err == nil || !strings.Contains(err.Error(), "403") {
 		t.Fatalf("heijunka answer: %v", err)
+	}
+}
+
+func TestKaizenAnalysisIsStoredUnderItsRun(t *testing.T) {
+	r := newKaizenRig(t)
+	key, err := r.kaizen.PublishKaizenAnalysis(context.Background(), KaizenAnalysis{Run: "kaizen-20261014T120000Z", Markdown: "# findings\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "kaizen/kaizen-20261014T120000Z/analysis.md"; key != want {
+		t.Fatalf("key %q, want %q", key, want)
+	}
+	got, err := os.ReadFile(filepath.Join(r.reportsDir, filepath.FromSlash(key)))
+	if err != nil || string(got) != "# findings\n" {
+		t.Fatalf("stored %q, %v", got, err)
+	}
+}
+
+func TestKaizenAnalysisRejectsBadBodies(t *testing.T) {
+	r := newKaizenRig(t)
+	ctx := context.Background()
+	for _, a := range []KaizenAnalysis{{Run: "../escape", Markdown: "x"}, {Run: "a/b", Markdown: "x"}, {Run: "", Markdown: "x"}, {Run: "kaizen-1"}} {
+		if _, err := r.kaizen.PublishKaizenAnalysis(ctx, a); err == nil || !strings.Contains(err.Error(), "400") {
+			t.Fatalf("%+v: %v", a, err)
+		}
+	}
+}
+
+func TestKaizenAnalysisIsKaizenOnlyAndNeedsAStore(t *testing.T) {
+	r := newKaizenRig(t)
+	ctx := context.Background()
+	a := KaizenAnalysis{Run: "kaizen-1", Markdown: "x"}
+	if _, err := r.mkr.PublishKaizenAnalysis(ctx, a); err == nil || !strings.Contains(err.Error(), "403") {
+		t.Fatalf("maker publish: %v", err)
+	}
+	r.srv.Reports = nil
+	if _, err := r.kaizen.PublishKaizenAnalysis(ctx, a); err == nil || !strings.Contains(err.Error(), "503") {
+		t.Fatalf("no store: %v", err)
 	}
 }

@@ -78,6 +78,8 @@ const usage = `usage:
                                         work ready "gemba" beads (acceptance-test add/fix/retire) in station containers
   sweatshop line kaizen --dir D --station NAME [--once] [--engine E] [--url URL] [--timeout 2h] [--interval 24h] [--memory 4g] [--pids 1024] [--cpus 2]
                                         run one measured refactoring per interval, when master has moved, in a station container
+  sweatshop line kaizen report (Markdown on stdin)
+                                        kaizen run: publish this run's analysis report to the line's object store (SWEATSHOP_BEAD names the run)
   sweatshop viceroy run [--heartbeat 6h]
                                         the viceroy container's wake loop (reads SWEATSHOP_VICEROY_GEN, SWEATSHOP_PREDECESSOR)
 
@@ -135,6 +137,8 @@ func run(args []string, stdout io.Writer) error {
 		return lineMaker(args[2:])
 	case len(args) >= 2 && args[0] == "line" && args[1] == "gemba":
 		return lineGemba(args[2:])
+	case len(args) >= 3 && args[0] == "line" && args[1] == "kaizen" && args[2] == "report":
+		return lineKaizenReport(os.Stdin, stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "kaizen":
 		return lineKaizen(args[2:])
 	case len(args) == 3 && args[0] == "line" && args[1] == "evidence":
@@ -582,6 +586,29 @@ func lineGemba(args []string) error {
 		return err
 	}
 	return r.Loop(ctx, station.MakerPollInterval)
+}
+
+// lineKaizenReport publishes the analysis report read from stdin under the
+// run ID the runner put in SWEATSHOP_BEAD.
+func lineKaizenReport(stdin io.Reader, stdout io.Writer) error {
+	run := os.Getenv("SWEATSHOP_BEAD")
+	if run == "" {
+		return errors.New("SWEATSHOP_BEAD is not set: line kaizen report runs inside a kaizen run")
+	}
+	c, err := lineClient()
+	if err != nil {
+		return err
+	}
+	md, err := io.ReadAll(io.LimitReader(stdin, 1<<20))
+	if err != nil {
+		return err
+	}
+	key, err := c.PublishKaizenAnalysis(context.Background(), station.KaizenAnalysis{Run: run, Markdown: string(md)})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(stdout, "published", key)
+	return nil
 }
 
 // lineKaizen runs a Kaizen station on the host, like lineMaker but with no

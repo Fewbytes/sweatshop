@@ -2,7 +2,9 @@ package station
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"regexp"
 	"time"
 )
 
@@ -37,8 +39,23 @@ type KaizenAnswer struct {
 	Reason string             `json:"reason,omitempty"`
 }
 
-// routeKaizen serves the request/answer pair between Heijunka and Kaizen.
-// The line only relays: a request is refused while the cord is pulled or
+// KaizenAnalysis is the body of POST /v1/kaizen/analysis: the Markdown report
+// of one Kaizen run's code-base analysis. Run is the run ID (the run's
+// SWEATSHOP_BEAD) and names the stored object.
+type KaizenAnalysis struct {
+	Run      string `json:"run"`
+	Markdown string `json:"markdown"`
+}
+
+// kaizenRunID is the shape of a run ID the line accepts into an object key. It
+// excludes separators, so a run cannot write outside its own key prefix.
+var kaizenRunID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// KaizenAnalysisKey is the object-store key of a run's analysis report.
+func KaizenAnalysisKey(run string) string { return "kaizen/" + run + "/analysis.md" }
+
+// routeKaizen serves the request/answer pair between Heijunka and Kaizen, and
+// the analysis reports Kaizen publishes. The line only relays requests: a request is refused while the cord is pulled or
 // another is pending, and Kaizen alone decides whether to run.
 func (s *Server) routeKaizen(w http.ResponseWriter, r *http.Request, st *Station) (string, error) {
 	if r.Method != http.MethodPost {
@@ -56,9 +73,36 @@ func (s *Server) routeKaizen(w http.ResponseWriter, r *http.Request, st *Station
 			return "", fail(http.StatusForbidden, "role %q may not answer a kaizen request", st.Role)
 		}
 		return s.answerKaizen(w, r)
+	case "/v1/kaizen/analysis":
+		if st.Role != kaizenRole {
+			return "", fail(http.StatusForbidden, "role %q may not publish a kaizen analysis", st.Role)
+		}
+		return s.publishKaizenAnalysis(w, r)
 	default:
 		return "", fail(http.StatusNotFound, "no route %s", r.URL.Path)
 	}
+}
+
+func (s *Server) publishKaizenAnalysis(w http.ResponseWriter, r *http.Request) (string, error) {
+	if s.Reports == nil {
+		return "", fail(http.StatusServiceUnavailable, "no object store configured")
+	}
+	var a KaizenAnalysis
+	if err := decodeBody(w, r, &a); err != nil {
+		return "", err
+	}
+	if !kaizenRunID.MatchString(a.Run) {
+		return "", fail(http.StatusBadRequest, "run %q is not a valid run ID", a.Run)
+	}
+	if a.Markdown == "" {
+		return "", fail(http.StatusBadRequest, "markdown is empty")
+	}
+	key := KaizenAnalysisKey(a.Run)
+	if err := s.Reports.Put(r.Context(), key, "text/markdown; charset=utf-8", []byte(a.Markdown)); err != nil {
+		return "", err
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"key": key})
+	return "kaizen analysis " + key, nil
 }
 
 func (s *Server) requestKaizen(w http.ResponseWriter, r *http.Request) (string, error) {
@@ -127,4 +171,21 @@ func (c Client) RequestKaizen(ctx context.Context) error {
 func (c Client) AnswerKaizen(ctx context.Context, a KaizenAnswer) error {
 	_, err := c.postJSON(ctx, "/v1/kaizen/answer", a)
 	return err
+}
+
+// PublishKaizenAnalysis stores the Markdown analysis report of a Kaizen run in
+// the line's object store; the caller's token must be a kaizen station's. It
+// returns the object key.
+func (c Client) PublishKaizenAnalysis(ctx context.Context, a KaizenAnalysis) (string, error) {
+	out, err := c.postJSON(ctx, "/v1/kaizen/analysis", a)
+	if err != nil {
+		return "", err
+	}
+	var res struct {
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal(out, &res); err != nil {
+		return "", err
+	}
+	return res.Key, nil
 }

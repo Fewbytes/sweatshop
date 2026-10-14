@@ -267,7 +267,12 @@ below) exists, the prompt switches to filing cards and this section goes.
 - **Landing is detected like a Maker's.** The run ID `kaizen-<UTC time>` is
   the container's `SWEATSHOP_BEAD`, so the existing `Bead:` trailer check and
   `maker.Landed` apply unchanged.
-- **Not yet:** liveness heartbeats for the kaizen station.
+- **Analysis report.** Before editing, the agent pipes a Markdown report of
+  its measured signals and ranked findings to `sweatshop line kaizen report`
+  (`POST /v1/kaizen/analysis`, kaizen role only). The line stores it in the
+  same object store as witness reports (S3 when `SWEATSHOP_S3_BUCKET` is set,
+  else `<line>/reports`) at `kaizen/<run id>/analysis.md`. A run that finds
+  nothing worth changing still publishes its report.
 
 ## Open questions
 
