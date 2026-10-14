@@ -117,7 +117,8 @@ func (f *fakeGateway) serveWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	g := &gwConn{conn: conn, ctx: r.Context(), frames: make(chan gatewayFrame, 64)}
-	hello, _ := json.Marshal(map[string]int{"heartbeat_interval": 20})
+	// Long enough that a client busy with a REST backfill still acks in time under load.
+	hello, _ := json.Marshal(map[string]int{"heartbeat_interval": 250})
 	out, _ := json.Marshal(gatewayFrame{Op: opHello, D: hello})
 	_ = conn.Write(g.ctx, websocket.MessageText, out)
 	f.conns <- g
