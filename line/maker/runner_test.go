@@ -262,10 +262,15 @@ type fakeEngine struct {
 	specs []ContainerSpec
 	run   func(spec ContainerSpec) (int, error)
 	block bool // run until the context ends
+
+	started chan struct{} // if non-nil, closed when Run begins
 }
 
 func (f *fakeEngine) Run(ctx context.Context, spec ContainerSpec) (int, error) {
 	f.specs = append(f.specs, spec)
+	if f.started != nil {
+		close(f.started)
+	}
 	if f.block {
 		<-ctx.Done()
 		return 143, nil
@@ -615,11 +620,15 @@ func TestOnceHeartbeatsIdleThenWorkingTheCard(t *testing.T) {
 func TestOnceSignalLogsExitAndReleasesClaim(t *testing.T) {
 	bare, _ := remote(t)
 	fb := &fakeBeads{ready: []Bead{{ID: "b-1", Priority: 1}}}
-	r := newRunner(t, bare, fb, &fakeEngine{block: true})
+	fe := &fakeEngine{block: true, started: make(chan struct{})}
+	r := newRunner(t, bare, fb, fe)
 	var logs bytes.Buffer
 	r.Log = log.New(&logs, "", 0)
 	ctx, cancel := context.WithCancelCause(context.Background())
-	time.AfterFunc(50*time.Millisecond, func() { cancel(SignalCause(syscall.SIGTERM)) })
+	go func() {
+		<-fe.started
+		cancel(SignalCause(syscall.SIGTERM))
+	}()
 	if err := r.Loop(ctx, time.Hour); err != nil {
 		t.Fatal(err)
 	}
