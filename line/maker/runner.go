@@ -98,7 +98,10 @@ type Runner struct {
 	// Attempts are counted in this process; runs cut short by the engine or
 	// by interruption do not count against the bead.
 	MaxAttempts int
-	Log         *log.Logger
+	// StopPoll is how often a run of a non-andon card checks whether the cord
+	// was pulled (default DefaultStopPoll).
+	StopPoll time.Duration
+	Log      *log.Logger
 	// Heartbeats tells the line this maker is alive; nil sends none. Commit is
 	// the maker binary's commit, reported with each heartbeat.
 	Heartbeats Heartbeater
@@ -110,6 +113,13 @@ type Runner struct {
 // DefaultTimeout bounds a Maker run so a stuck agent cannot hold a card (and
 // the station) forever.
 const DefaultTimeout = 2 * time.Hour
+
+// DefaultStopPoll is how often a running maker looks for a pulled cord.
+const DefaultStopPoll = 5 * time.Second
+
+// errCordPulled is the cancel cause of a run cut short because the andon
+// cord was pulled while it worked a non-andon card.
+var errCordPulled = errors.New("andon cord pulled")
 
 // EngineErrorExit is the exit code docker and podman use when they could not
 // run the container at all, as opposed to the container's own exit code.
@@ -244,6 +254,33 @@ func BeatEveryPoll(ctx context.Context, beat func(context.Context)) (stop func()
 	return func() { cancel(); <-done }
 }
 
+// cancelWhenCordPulled cancels run with errCordPulled once the cord is pulled,
+// polling every StopPoll until ctx ends. Check failures are logged and retried.
+func (r *Runner) cancelWhenCordPulled(ctx context.Context, cancel context.CancelCauseFunc) {
+	poll := r.StopPoll
+	if poll <= 0 {
+		poll = DefaultStopPoll
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(poll):
+		}
+		pulled, err := r.stopped(ctx)
+		if err != nil {
+			if ctx.Err() == nil {
+				r.logf("read andon state: %v", err)
+			}
+			continue
+		}
+		if pulled {
+			cancel(errCordPulled)
+			return
+		}
+	}
+}
+
 // Once works one card: pick → claim → run → settle. It reports whether there
 // was a card to work.
 func (r *Runner) Once(ctx context.Context) (bool, error) {
@@ -311,11 +348,18 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
-	runCtx, cancelRun := context.WithTimeout(ctx, timeout)
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, timeout)
+	runCtx, cancelCause := context.WithCancelCause(timeoutCtx)
+	cancelRun := func() { cancelCause(nil); cancelTimeout() }
+	if !slices.Contains(b.Labels, "andon") {
+		// An andon card is the one thing a pulled cord asks makers to work.
+		go r.cancelWhenCordPulled(runCtx, cancelCause)
+	}
 	stopBeating := r.beatWhileWorking(ctx, b.ID)
 	code, runErr := r.Engine.Run(runCtx, spec)
 	stopBeating()
-	timedOut := errors.Is(runCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
+	cordPulled := errors.Is(context.Cause(runCtx), errCordPulled)
+	timedOut := errors.Is(timeoutCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
 	cancelRun()
 	r.logf("%s: container exited %d (err %v)", b.ID, code, runErr)
 
@@ -327,6 +371,9 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 	case ctx.Err() != nil:
 		r.logf("exiting on %v: releasing %s", context.Cause(ctx), b.ID)
 		note = fmt.Sprintf("maker run interrupted by %v without landing (exit %d)", context.Cause(ctx), code)
+		counts = false
+	case cordPulled:
+		note = fmt.Sprintf("maker run stopped: andon cord pulled (exit %d)", code)
 		counts = false
 	case runErr == nil && code == EngineErrorExit:
 		// docker/podman exit 125 when they could not run the container at

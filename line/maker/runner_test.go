@@ -356,6 +356,44 @@ func TestOnceTimesOut(t *testing.T) {
 	}
 }
 
+func TestOnceStopsRunAndReleasesWithoutAttemptWhenCordPulled(t *testing.T) {
+	bare, _ := remote(t)
+	fb := &fakeBeads{ready: []Bead{{ID: "b-1", Priority: 1, Labels: []string{"line"}}}}
+	fe := &fakeEngine{block: true, started: make(chan struct{})}
+	r := newRunner(t, bare, fb, fe)
+	r.StopPoll = 10 * time.Millisecond
+	go func() {
+		<-fe.started
+		ok(t)(bare.Git(context.Background(), "update-ref", "refs/line/andon", head(t, bare)))
+	}()
+	worked, err := r.Once(context.Background())
+	if err != nil || !worked {
+		t.Fatalf("Once = %v %v", worked, err)
+	}
+	want := []string{"ready line", "claim b-1 maker-1", "release b-1 maker run stopped: andon cord pulled (exit 143)"}
+	if !reflect.DeepEqual(fb.calls, want) {
+		t.Fatalf("calls = %q, want %q (no attempt counted)", fb.calls, want)
+	}
+	if r.attempts["b-1"] != 0 {
+		t.Fatalf("attempts = %v, want none counted", r.attempts)
+	}
+}
+
+func TestOnceLetsAndonCardRunWhileCordPulled(t *testing.T) {
+	bare, _ := remote(t)
+	ok(t)(bare.Git(context.Background(), "update-ref", "refs/line/andon", head(t, bare)))
+	fb := &fakeBeads{ready: []Bead{{ID: "b-9", Priority: 0, Labels: []string{"line", "andon"}, Description: "event: e1"}}}
+	r := newRunner(t, bare, fb, &fakeEngine{block: true})
+	r.StopPoll = 10 * time.Millisecond
+	r.Timeout = 100 * time.Millisecond
+	if _, err := r.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if last := fb.calls[len(fb.calls)-1]; !strings.Contains(last, "timed out after 100ms") {
+		t.Fatalf("last call = %q, want the andon run to continue until timeout", last)
+	}
+}
+
 func TestOnceEngineExit125IsAnError(t *testing.T) {
 	bare, _ := remote(t)
 	fb := &fakeBeads{ready: []Bead{{ID: "b-1", Priority: 1}}}
