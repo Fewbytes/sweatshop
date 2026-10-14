@@ -80,6 +80,11 @@ type Server struct {
 
 	liveness liveness
 
+	// kaizenRequest is the latest request for a Kaizen run, in memory: after
+	// a restart of line serve Heijunka simply asks again.
+	kaizenMu      sync.Mutex
+	kaizenRequest *KaizenRequest
+
 	// commentCounts tallies comments non-viceroy agents made this run.
 	commentMu     sync.Mutex
 	commentCounts map[commentKey]int
@@ -125,6 +130,8 @@ type Status struct {
 	// Stations is every maker's liveness, plus any other station that has sent
 	// a heartbeat.
 	Stations []StationStatus `json:"stations"`
+	// KaizenRequest is the latest request for a Kaizen run; nil if none was made.
+	KaizenRequest *KaizenRequest `json:"kaizen_request,omitempty"`
 }
 
 // NewFromLine builds the server for a line directory: one witness per
@@ -310,6 +317,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 		return s.routeConstitution(w, r, st)
 	case path == "/v1/testament":
 		return s.routeTestament(w, r, st)
+	case strings.HasPrefix(path, "/v1/kaizen/"):
+		return s.routeKaizen(w, r, st)
 	case strings.HasPrefix(path, "/v1/deploy/"):
 		return s.routeDeploy(w, r, st)
 	case strings.HasPrefix(path, "/v1/viceroy/"):
@@ -451,7 +460,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	writeJSON(w, http.StatusOK, Status{Master: master, Event: id, Andon: event, Stations: s.liveness.snapshot(s.Stations, time.Now())})
+	writeJSON(w, http.StatusOK, Status{Master: master, Event: id, Andon: event, Stations: s.liveness.snapshot(s.Stations, time.Now()), KaizenRequest: s.latestKaizenRequest()})
 	return "master=" + master + " event=" + id, nil
 }
 

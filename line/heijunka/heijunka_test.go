@@ -3,6 +3,7 @@ package heijunka
 import (
 	"context"
 	"errors"
+	"github.com/Fewbytes/sweatshop/line/station"
 	"path/filepath"
 	"testing"
 	"time"
@@ -132,5 +133,65 @@ func TestStepPublishesBalancedLevelsFromBacklog(t *testing.T) {
 	}
 	if published, err := levels.Read(); err != nil || published != want {
 		t.Fatalf("published %+v, %v; want %+v", published, err, want)
+	}
+}
+
+// idleLine is a line with spare capacity: no backlog, one idle maker, an idle
+// kaizen station that has not run for a day.
+func idleLine() Snapshot {
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	return Snapshot{MakersAlive: 1, Now: now, Master: "m2", KaizenIdle: true, KaizenLastRun: now.Add(-24 * time.Hour)}
+}
+
+func TestShouldRequestKaizen(t *testing.T) {
+	p := DefaultPolicy
+	for _, tc := range []struct {
+		name   string
+		mutate func(*Snapshot)
+		want   bool
+	}{
+		{"spare capacity", func(*Snapshot) {}, true},
+		{"kaizen never ran", func(s *Snapshot) { s.KaizenLastRun = time.Time{} }, true},
+		{"previous request answered on an older master", func(s *Snapshot) {
+			s.KaizenRequest = &station.KaizenRequest{State: station.KaizenRequestDeclined, Master: "m1"}
+		}, true},
+		{"cord pulled", func(s *Snapshot) { s.Stopped = true }, false},
+		{"cards ready", func(s *Snapshot) { s.Ready = 1 }, false},
+		{"every maker busy", func(s *Snapshot) { s.InProgress = 1 }, false},
+		{"no maker alive", func(s *Snapshot) { s.MakersAlive = 0 }, false},
+		{"kaizen busy or silent", func(s *Snapshot) { s.KaizenIdle = false }, false},
+		{"kaizen ran inside the gap", func(s *Snapshot) { s.KaizenLastRun = s.Now.Add(-time.Hour) }, false},
+		{"request pending", func(s *Snapshot) {
+			s.KaizenRequest = &station.KaizenRequest{State: station.KaizenRequestPending, Master: "m1"}
+		}, false},
+		{"declined on this master", func(s *Snapshot) {
+			s.KaizenRequest = &station.KaizenRequest{State: station.KaizenRequestDeclined, Master: "m2", Reason: "master has not moved since the last run"}
+		}, false},
+	} {
+		s := idleLine()
+		tc.mutate(&s)
+		if got := ShouldRequestKaizen(s, p); got != tc.want {
+			t.Errorf("%s: got %t, want %t", tc.name, got, tc.want)
+		}
+	}
+}
+
+type fakeKaizen struct{ requests int }
+
+func (f *fakeKaizen) RequestKaizen(context.Context) error { f.requests++; return nil }
+
+func TestStepRequestsKaizenOnlyWhenTheLineHasCapacity(t *testing.T) {
+	obs := &fakeObserver{snap: idleLine()}
+	kz := &fakeKaizen{}
+	w := &Worker{Observer: obs, Actuator: &fakeActuator{}, Policy: DefaultPolicy, Kaizen: kz}
+	if _, err := w.Step(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	obs.snap.Ready = 3
+	if _, err := w.Step(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if kz.requests != 1 {
+		t.Fatalf("got %d requests, want 1", kz.requests)
 	}
 }

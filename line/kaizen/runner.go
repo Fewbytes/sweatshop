@@ -25,11 +25,20 @@ const DefaultPoll = time.Minute
 
 var unsafeNameChars = regexp.MustCompile(`[^A-Za-z0-9_.-]`)
 
+// RequestAPI is the line's Kaizen request channel: Heijunka files a request
+// and Kaizen answers it.
+type RequestAPI interface {
+	Status(ctx context.Context) (station.Status, error)
+	AnswerKaizen(ctx context.Context, a station.KaizenAnswer) error
+}
+
 // Runner is the Kaizen station's host-side loop. A run starts when
 // Interval has passed since the last one and master differs from the master
 // that run started on: an unmoved master has no new hotspot, so Kaizen
-// sleeps instead of making work. The state lives in memory; a restarted
-// runner runs once at once, which is cheap and safe.
+// sleeps instead of making work. A request from Heijunka stands in for the
+// Interval only; the master and andon guards still apply, and a request they
+// refuse is declined, which the line records. The state lives in memory; a
+// restarted runner runs once at once, which is cheap and safe.
 type Runner struct {
 	Memory, CPUs string
 	Pids         int
@@ -46,9 +55,11 @@ type Runner struct {
 	// when it last ran and may next; nil sends none. Commit is the binary's
 	// commit, reported with each heartbeat.
 	Heartbeats maker.Heartbeater
-	Commit     string
-	Log        *log.Logger
-	Now        func() time.Time // default time.Now
+	// Requests carries Heijunka's run requests; nil ignores them.
+	Requests RequestAPI
+	Commit   string
+	Log      *log.Logger
+	Now      func() time.Time // default time.Now
 
 	lastRun    time.Time
 	lastMaster string
@@ -79,6 +90,32 @@ func (r *Runner) beat(ctx context.Context, state station.StationState, card stri
 	}
 }
 
+// requestPending reports whether Heijunka has a request waiting for an answer.
+func (r *Runner) requestPending(ctx context.Context) (bool, error) {
+	if r.Requests == nil {
+		return false, nil
+	}
+	st, err := r.Requests.Status(ctx)
+	if err != nil {
+		return false, fmt.Errorf("read kaizen request: %w", err)
+	}
+	return st.KaizenRequest != nil && st.KaizenRequest.State == station.KaizenRequestPending, nil
+}
+
+// declineRequest answers a pending request with the reason Kaizen will not
+// run; without one it does nothing. The line records the answer, so the
+// request is not asked again on this master.
+func (r *Runner) declineRequest(ctx context.Context, requested bool, reason string) error {
+	if !requested {
+		return nil
+	}
+	r.logf("declining kaizen request: %s", reason)
+	if err := r.Requests.AnswerKaizen(ctx, station.KaizenAnswer{State: station.KaizenRequestDeclined, Reason: reason}); err != nil {
+		return fmt.Errorf("answer kaizen request: %w", err)
+	}
+	return nil
+}
+
 // Once starts one run if the schedule and master allow it and reports
 // whether it did. A run that lands nothing is not an error: the agent may
 // find nothing worth improving.
@@ -97,8 +134,12 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("read line master: %w", err)
 	}
-	if !r.lastRun.IsZero() && (now().Sub(r.lastRun) < interval || master == r.lastMaster) {
-		return false, nil
+	requested, err := r.requestPending(ctx)
+	if err != nil {
+		return false, err
+	}
+	if !r.lastRun.IsZero() && (master == r.lastMaster || (!requested && now().Sub(r.lastRun) < interval)) {
+		return false, r.declineRequest(ctx, requested, "master has not moved since the last run")
 	}
 	// Merges are refused while the cord is pulled, and only a fix may land.
 	stopped, err := remote.RefExists(ctx, guard.StopRef)
@@ -106,7 +147,7 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("read andon state: %w", err)
 	}
 	if stopped {
-		return false, nil
+		return false, r.declineRequest(ctx, requested, "the andon cord is pulled")
 	}
 	token := r.Token
 	if token == "" {
@@ -115,6 +156,11 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 		}
 	}
 
+	if requested {
+		if err := r.Requests.AnswerKaizen(ctx, station.KaizenAnswer{State: station.KaizenRequestStarted}); err != nil {
+			return false, fmt.Errorf("answer kaizen request: %w", err)
+		}
+	}
 	start := now()
 	runID := "kaizen-" + start.UTC().Format("20060102T150405Z")
 	url := r.URL

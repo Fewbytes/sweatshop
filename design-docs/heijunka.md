@@ -63,6 +63,20 @@ On the server, with systemd (`line/deploy/systemd/sweatshop-heijunka.service`):
 restart loses nothing. Poke with
 `systemctl --user kill -s USR1 sweatshop-heijunka`.
 
+## Kaizen runs
+
+Kaizen runs on its own timer; heijunka can also ask for a run when the line
+has spare capacity (`heijunka.ShouldRequestKaizen`, pure): the cord is not
+pulled, no card is ready, a maker is idle, a kaizen station is idle and its
+last run began over `KaizenMinGap` (6h) ago, and no request was made on the
+current master. It asks with `POST /v1/kaizen/request` (heijunka role); the
+line refuses while the cord is pulled or a request is pending. The kaizen
+runner sees the pending request in `GET /v1/status` and answers with
+`POST /v1/kaizen/answer` (kaizen role): `started`, or `declined` with a
+reason. A request replaces only the runner's interval; its master-moved and
+andon guards still apply. Because the answered request keeps the master it was
+made on, a decline is not asked again until master moves.
+
 ## Stale needs:<role> cards
 
 A card labelled `needs:<role>` that nobody touches can deadlock. Each wake the

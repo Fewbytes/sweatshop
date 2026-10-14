@@ -414,6 +414,7 @@ func lineHeijunka(args []string) error {
 	w := &heijunka.Worker{
 		Needs:    &heijunka.NeedsTriager{Cards: heijunka.BeadsNeeds{Dir: *beads}, Timeout: needsTimeout, Log: logger},
 		Observer: heijunka.BeadsObserver{API: c, Dir: *beads, Label: station.LabelLine, Levels: levels},
+		Kaizen:   c,
 		Actuator: levels, Policy: policy, Interval: *interval, Poke: poke, Log: logger,
 	}
 	return w.Run(ctx)
@@ -638,7 +639,7 @@ func lineKaizen(args []string) error {
 		Commit: binaryCommit(),
 	}
 	if c, err := lineClient(); err == nil {
-		r.Heartbeats, r.Token = c, c.Token
+		r.Heartbeats, r.Requests, r.Token = c, c, c.Token
 	} else {
 		logger.Printf("no heartbeats: %v", err)
 	}

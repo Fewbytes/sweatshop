@@ -251,3 +251,88 @@ func TestOnceHeartbeatsScheduleIdleThenWorkingTheRun(t *testing.T) {
 		t.Fatalf("heartbeats %+v, want %+v", hb.beat, want)
 	}
 }
+
+type fakeRequests struct {
+	status  station.Status
+	answers []station.KaizenAnswer
+}
+
+func (f *fakeRequests) Status(context.Context) (station.Status, error) { return f.status, nil }
+func (f *fakeRequests) AnswerKaizen(_ context.Context, a station.KaizenAnswer) error {
+	f.answers = append(f.answers, a)
+	return nil
+}
+
+func pendingRequest() station.Status {
+	return station.Status{KaizenRequest: &station.KaizenRequest{State: station.KaizenRequestPending}}
+}
+
+func TestOnceRunsARequestedRunBeforeTheIntervalAndAnswersStarted(t *testing.T) {
+	ctx := context.Background()
+	bare, work := seededRemote(t)
+	now := time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)
+	e := &fakeEngine{}
+	reqs := &fakeRequests{}
+	r := newRunner(t, bare, e, &now)
+	r.Requests = reqs
+	if ran, err := r.Once(ctx); err != nil || !ran {
+		t.Fatalf("first run: %v, %v", ran, err)
+	}
+	moveMaster(t, work, "feature")
+	now = now.Add(time.Minute) // well inside the 24h interval
+	if ran, err := r.Once(ctx); err != nil || ran {
+		t.Fatalf("unrequested run inside the interval: %v, %v", ran, err)
+	}
+	reqs.status = pendingRequest()
+	if ran, err := r.Once(ctx); err != nil || !ran {
+		t.Fatalf("requested run: %v, %v", ran, err)
+	}
+	if want := []station.KaizenAnswer{{State: station.KaizenRequestStarted}}; !reflect.DeepEqual(reqs.answers, want) {
+		t.Fatalf("answers %+v, want %+v", reqs.answers, want)
+	}
+}
+
+func TestOnceDeclinesARequestWhenMasterHasNotMoved(t *testing.T) {
+	ctx := context.Background()
+	bare, _ := seededRemote(t)
+	now := time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)
+	e := &fakeEngine{}
+	reqs := &fakeRequests{}
+	r := newRunner(t, bare, e, &now)
+	r.Requests = reqs
+	if _, err := r.Once(ctx); err != nil {
+		t.Fatal(err)
+	}
+	reqs.status = pendingRequest()
+	if ran, err := r.Once(ctx); err != nil || ran || len(e.specs) != 1 {
+		t.Fatalf("Once = %v, %v with %d runs; want a decline and no new run", ran, err, len(e.specs))
+	}
+	want := []station.KaizenAnswer{{State: station.KaizenRequestDeclined, Reason: "master has not moved since the last run"}}
+	if !reflect.DeepEqual(reqs.answers, want) {
+		t.Fatalf("answers %+v, want %+v", reqs.answers, want)
+	}
+}
+
+func TestOnceDeclinesARequestWhileAndonIsPulled(t *testing.T) {
+	ctx := context.Background()
+	bare, _ := seededRemote(t)
+	master, err := bare.Ref(ctx, "refs/heads/master")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bare.Git(ctx, "update-ref", guard.StopRef, master); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	e := &fakeEngine{}
+	reqs := &fakeRequests{status: pendingRequest()}
+	r := newRunner(t, bare, e, &now)
+	r.Requests = reqs
+	if ran, err := r.Once(ctx); err != nil || ran || len(e.specs) != 0 {
+		t.Fatalf("Once = %v, %v with %d runs", ran, err, len(e.specs))
+	}
+	want := []station.KaizenAnswer{{State: station.KaizenRequestDeclined, Reason: "the andon cord is pulled"}}
+	if !reflect.DeepEqual(reqs.answers, want) {
+		t.Fatalf("answers %+v, want %+v", reqs.answers, want)
+	}
+}

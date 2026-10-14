@@ -33,23 +33,33 @@ type Snapshot struct {
 	Stopped     bool // the andon cord is pulled
 	MakersAlive int  // maker stations that heartbeated recently
 	Current     Levels
+
+	Now    time.Time
+	Master string // line master's commit
+	// KaizenIdle is true when a kaizen station heartbeated recently and is
+	// not running; KaizenLastRun is when its last run began, zero if never.
+	KaizenIdle    bool
+	KaizenLastRun time.Time
+	// KaizenRequest is the line's latest request for a Kaizen run, nil if none.
+	KaizenRequest *station.KaizenRequest
 }
 
 // Policy bounds and shapes the levels. Zero values are invalid; use
 // DefaultPolicy.
 type Policy struct {
 	MinAgents, MaxAgents int
-	CardsPerAgent        int // backlog one agent is expected to absorb
-	WIPPerAgent          int // kanban slots each agent gets
-	MaxStep              int // most agents added or removed per wake
+	CardsPerAgent        int           // backlog one agent is expected to absorb
+	WIPPerAgent          int           // kanban slots each agent gets
+	MaxStep              int           // most agents added or removed per wake
+	KaizenMinGap         time.Duration // least time from one Kaizen run's start to the next request
 }
 
 // DefaultPolicy keeps one agent warm, caps at four, and moves one at a time.
-var DefaultPolicy = Policy{MinAgents: 1, MaxAgents: 4, CardsPerAgent: 2, WIPPerAgent: 1, MaxStep: 1}
+var DefaultPolicy = Policy{MinAgents: 1, MaxAgents: 4, CardsPerAgent: 2, WIPPerAgent: 1, MaxStep: 1, KaizenMinGap: 6 * time.Hour}
 
 // Validate rejects policies that would divide by zero or never converge.
 func (p Policy) Validate() error {
-	if p.MinAgents < 0 || p.MaxAgents < p.MinAgents || p.CardsPerAgent < 1 || p.WIPPerAgent < 1 || p.MaxStep < 1 {
+	if p.MinAgents < 0 || p.MaxAgents < p.MinAgents || p.CardsPerAgent < 1 || p.WIPPerAgent < 1 || p.MaxStep < 1 || p.KaizenMinGap < 0 {
 		return fmt.Errorf("invalid heijunka policy %+v", p)
 	}
 	return nil
@@ -81,6 +91,31 @@ func Decide(s Snapshot, p Policy) Levels {
 	return Levels{Agents: agents, WIPLimit: agents * p.WIPPerAgent}
 }
 
+// ShouldRequestKaizen reports whether to ask Kaizen for a run now. It is pure.
+// Heijunka only asks; Kaizen keeps its own guards and may decline. It asks
+// when the line has spare capacity and Kaizen has had no request on this
+// master:
+//
+//   - the cord is not pulled;
+//   - the backlog is empty and a maker is idle, so a run costs no card its maker;
+//   - a kaizen station is idle, with no request pending, and its last run began
+//     at least KaizenMinGap ago;
+//   - the latest request, answered either way, was made on an older master. A
+//     declined request is therefore not repeated until master moves.
+func ShouldRequestKaizen(s Snapshot, p Policy) bool {
+	switch {
+	case s.Stopped, !s.KaizenIdle:
+		return false
+	case s.Ready > 0 || s.InProgress >= s.MakersAlive:
+		return false
+	case !s.KaizenLastRun.IsZero() && s.Now.Sub(s.KaizenLastRun) < p.KaizenMinGap:
+		return false
+	case s.KaizenRequest != nil && (s.KaizenRequest.State == station.KaizenRequestPending || s.KaizenRequest.Master == s.Master):
+		return false
+	}
+	return true
+}
+
 // Observer reads the line.
 type Observer interface {
 	Observe(ctx context.Context) (Snapshot, error)
@@ -91,6 +126,11 @@ type Actuator interface {
 	Apply(ctx context.Context, l Levels) error
 }
 
+// KaizenRequester asks the line for a Kaizen run.
+type KaizenRequester interface {
+	RequestKaizen(ctx context.Context) error
+}
+
 // Worker is one heijunka loop.
 type Worker struct {
 	Observer Observer
@@ -98,7 +138,8 @@ type Worker struct {
 	Policy   Policy
 	Interval time.Duration // periodic wake, default 5m
 	Poke     <-chan struct{}
-	Needs    *NeedsTriager // nil leaves stale needs:<role> cards alone
+	Needs    *NeedsTriager   // nil leaves stale needs:<role> cards alone
+	Kaizen   KaizenRequester // nil never requests a Kaizen run
 	Log      *log.Logger
 }
 
@@ -113,6 +154,15 @@ func (w *Worker) Step(ctx context.Context) (Levels, error) {
 	snap, err := w.Observer.Observe(ctx)
 	if err != nil {
 		return Levels{}, fmt.Errorf("observe: %w", err)
+	}
+	if w.Kaizen != nil && ShouldRequestKaizen(snap, w.Policy) {
+		if err := w.Kaizen.RequestKaizen(ctx); err != nil {
+			if w.Log != nil {
+				w.Log.Printf("kaizen request: %v", err)
+			}
+		} else if w.Log != nil {
+			w.Log.Printf("requested a kaizen run on master %s", snap.Master)
+		}
 	}
 	want := Decide(snap, w.Policy)
 	if want == snap.Current {
@@ -190,7 +240,20 @@ func (b BeadsObserver) Observe(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	return Snapshot{Ready: len(ready), InProgress: len(rows), Stopped: st.Event != "", MakersAlive: st.MakersAlive(), Current: cur}, nil
+	snap := Snapshot{
+		Ready: len(ready), InProgress: len(rows), Stopped: st.Event != "", MakersAlive: st.MakersAlive(), Current: cur,
+		Now: time.Now(), Master: st.Master, KaizenRequest: st.KaizenRequest,
+	}
+	for _, s := range st.Stations {
+		if s.Role == "kaizen" {
+			snap.KaizenIdle = s.Alive && s.State == station.StateIdle
+			if s.LastRun != nil {
+				snap.KaizenLastRun = *s.LastRun
+			}
+			break
+		}
+	}
+	return snap, nil
 }
 
 // LevelsFile publishes the levels as JSON for the actuators that run makers
