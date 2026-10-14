@@ -77,6 +77,10 @@ types = ["bug"]
 offer = "line"
 parent = "sweatshop-0mw.2"          # this milestone's cards and their children
 
+[[viceroy.delegations]]
+offer = "line"
+inherit = true                      # non-epic cards under an epic the king approved
+
 [[viceroy.delegations]]             # cards the viceroy may close without the king
 close = true
 ids = ["sweatshop-0mw.1.4"]         # or parent = "<card id>", types = [...], labels = [...]

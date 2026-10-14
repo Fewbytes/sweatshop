@@ -386,6 +386,9 @@ func (s *Server) viceroyClose(w http.ResponseWriter, r *http.Request, cards Card
 	if err := cards.Close(r.Context(), id, st.AgentID, body.Reason); err != nil {
 		return "", err
 	}
+	if err := s.revokeEpicApproval(id); err != nil {
+		return "", err
+	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	return "close " + id, nil
 }
@@ -434,6 +437,9 @@ func (s *Server) settle(w http.ResponseWriter, r *http.Request, cards Cards, st 
 		}
 	case "close":
 		err = cards.Close(ctx, id, st.AgentID, body.Reason)
+		if err == nil {
+			err = s.revokeEpicApproval(id)
+		}
 	case "release":
 		err = cards.Release(ctx, id, st.AgentID, body.Reason)
 	case "give-up":
@@ -490,7 +496,11 @@ func (s *Server) offer(w http.ResponseWriter, r *http.Request, cards Cards, id s
 	}
 	typ, ancestors := cardLineage(raw, id)
 	res := Offer{Label: LabelProposed}
-	if s.Guard.Constitution.Delegates(typ, ancestors) {
+	inherited, err := s.underApprovedEpic(r.Context(), cards, ancestors)
+	if err != nil {
+		return "", err
+	}
+	if s.Guard.Constitution.Delegates(typ, ancestors, inherited) {
 		res = Offer{Offered: true, Label: LabelLine}
 	}
 	if err := cards.AddLabel(r.Context(), id, res.Label); err != nil {

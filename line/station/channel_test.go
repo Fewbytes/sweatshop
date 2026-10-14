@@ -155,6 +155,25 @@ func TestChannelKingApprove(t *testing.T) {
 	}
 }
 
+func TestChannelKingApproveLedgersEpicsOnly(t *testing.T) {
+	cards := &epicShowCards{shows: map[string]string{"x-2": `{"issue_type":"epic"}`, "x-3": `{"issue_type":"task"}`}}
+	ch, fd := newChan(t, cards)
+	ch.Epics = &EpicApprovals{Path: filepath.Join(t.TempDir(), "approved-epics.json")}
+	ctx := context.Background()
+	fd.add("1", "5", "x")
+	_ = ch.Poll(ctx)
+	fd.add("2", kingID, "approve x-2")
+	fd.add("3", kingID, "approve x-3")
+	if err := ch.Poll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]bool{"x-2": true, "x-3": false} {
+		if got, err := ch.Epics.Approved(id); err != nil || got != want {
+			t.Errorf("%s: approved=%v err=%v want %v", id, got, err, want)
+		}
+	}
+}
+
 func TestChannelApproveFailureAndNoKing(t *testing.T) {
 	cards := &fakeCards{err: os.ErrNotExist}
 	ch, fd := newChan(t, cards)

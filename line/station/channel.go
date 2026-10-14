@@ -254,7 +254,9 @@ type Channel struct {
 	King      string // sovereign Discord user ID; "" means no king
 	Discord   Discord
 	Cards     Cards // nil: approve replies that cards are off
-	Interval  time.Duration
+	// Epics records the epics the king approves. Nil: approval is not recorded.
+	Epics    *EpicApprovals
+	Interval time.Duration
 	// Constitution applies `approve constitution <n>`; Restart then makes
 	// serve reload. Nil: the command replies that it is off.
 	Constitution func(ctx context.Context, n int, msgID string) error
@@ -520,6 +522,10 @@ func (c *Channel) approveCard(ctx context.Context, id, via string) string {
 	if c.Cards == nil {
 		return fmt.Sprintf("cannot approve %s: cards are not configured", id)
 	}
+	if err := c.recordEpicApproval(ctx, id, via); err != nil {
+		log.Printf("channel: approve %s: %v", id, err)
+		return fmt.Sprintf("could not approve %s", id)
+	}
 	if err := c.Cards.AddLabel(ctx, id, LabelLine); err != nil {
 		log.Printf("channel: approve %s: %v", id, err)
 		return fmt.Sprintf("could not approve %s", id)
@@ -528,6 +534,23 @@ func (c *Channel) approveCard(ctx context.Context, id, via string) string {
 		log.Printf("channel: approve %s comment: %v", id, err)
 	}
 	return "approved " + id
+}
+
+// recordEpicApproval ledgers id when it is an epic, so its descendants inherit
+// the approval.
+func (c *Channel) recordEpicApproval(ctx context.Context, id, via string) error {
+	if c.Epics == nil {
+		return nil
+	}
+	raw, err := c.Cards.Show(ctx, id)
+	if err != nil {
+		return err
+	}
+	typ, _ := cardLineage(raw, id)
+	if typ != constitution.EpicType {
+		return nil
+	}
+	return c.Epics.Approve(id, via)
 }
 
 func (c *Channel) approveDeploy(ctx context.Context, m InboxMessage, short string) {

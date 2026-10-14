@@ -89,6 +89,10 @@ const (
 	TransportGateway = "gateway"
 )
 
+// EpicType is the issue type that needs the king's approval and whose
+// approval descendants inherit.
+const EpicType = "epic"
+
 type Viceroy struct {
 	Succession  bool         `toml:"succession"`
 	Delegations []Delegation `toml:"delegations"`
@@ -96,8 +100,9 @@ type Viceroy struct {
 
 // Delegation grants the viceroy one bounded power without the king: either
 // offering matching cards (Offer = "line") or closing them (Close). An offer
-// matches a card by issue type or by having Parent in its ancestor chain. A
-// close matches the listed IDs, descendants of Parent, cards of a listed issue
+// matches a card by issue type, by having Parent in its ancestor chain, or
+// (Inherit) by having an approved epic in its ancestor chain; epics are never
+// covered by Inherit. A close matches the listed IDs, descendants of Parent, cards of a listed issue
 // type, or cards carrying a listed label. Types are the safer category: any
 // agent may set a label, while a card's issue type is harder to game.
 type Delegation struct {
@@ -105,13 +110,17 @@ type Delegation struct {
 	Close  bool     `toml:"close"`
 	Types  []string `toml:"types"`
 	Parent string   `toml:"parent"`
-	IDs    []string `toml:"ids"`
-	Labels []string `toml:"labels"`
+	// Inherit offers any non-epic card with an approved epic among its
+	// ancestors. Approval comes from the station's ledger, not a label.
+	Inherit bool     `toml:"inherit"`
+	IDs     []string `toml:"ids"`
+	Labels  []string `toml:"labels"`
 }
 
 // Delegates reports whether some offer delegation covers a card of cardType
-// whose ancestor chain is given.
-func (c Constitution) Delegates(cardType string, ancestors []string) bool {
+// whose ancestor chain is given. underApprovedEpic says some ancestor is an
+// epic the king approved; only an Inherit delegation consults it.
+func (c Constitution) Delegates(cardType string, ancestors []string, underApprovedEpic bool) bool {
 	for _, d := range c.Viceroy.Delegations {
 		if d.Offer != "line" {
 			continue
@@ -120,6 +129,9 @@ func (c Constitution) Delegates(cardType string, ancestors []string) bool {
 			return true
 		}
 		if d.Parent != "" && slices.Contains(ancestors, d.Parent) {
+			return true
+		}
+		if d.Inherit && underApprovedEpic && cardType != EpicType {
 			return true
 		}
 	}
@@ -177,7 +189,7 @@ func (c Constitution) validateGovernance() error {
 	}
 	for i, d := range c.Viceroy.Delegations {
 		if d.Close {
-			if d.Offer != "" {
+			if d.Offer != "" || d.Inherit {
 				return fmt.Errorf("viceroy.delegations[%d]: close takes only ids, parent, types or labels", i)
 			}
 			if len(d.IDs) == 0 && d.Parent == "" && len(d.Types) == 0 && len(d.Labels) == 0 {
@@ -198,8 +210,8 @@ func (c Constitution) validateGovernance() error {
 			if len(d.Labels) > 0 {
 				return fmt.Errorf("viceroy.delegations[%d].labels: only a close delegation takes labels", i)
 			}
-			if len(d.Types) == 0 && d.Parent == "" {
-				return fmt.Errorf("viceroy.delegations[%d]: needs types or parent", i)
+			if len(d.Types) == 0 && d.Parent == "" && !d.Inherit {
+				return fmt.Errorf("viceroy.delegations[%d]: needs types, parent or inherit", i)
 			}
 		}
 		if slices.Contains(d.Labels, "") {

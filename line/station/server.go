@@ -64,6 +64,7 @@ type Server struct {
 	Viceroy     *Supervisor              // nil: the viceroy routes return 503, no generation guard
 	RunsPath    string                   // runs.jsonl written by the Reporter; "": the runs route returns 503
 	Deploy      *DeployState             // nil: the deploy routes return 503
+	Epics       *EpicApprovals           // nil: no epic is approved, so nothing inherits
 	DeployToken string                   // the actuator's bearer token; "": no actuator
 	Releases    ReleaseBuilder           // nil: releases are commits only
 
@@ -148,6 +149,7 @@ func NewFromLine(l linedir.Line) (*Server, error) {
 	}
 	s.RunsPath = filepath.Join(l.Dir, "runs.jsonl")
 	s.Deploy = &DeployState{Path: filepath.Join(l.Dir, "deploy.json")}
+	s.Epics = &EpicApprovals{Path: filepath.Join(l.Dir, "approved-epics.json")}
 	if tok, err := os.ReadFile(filepath.Join(l.Dir, "deploy.token")); err == nil {
 		s.DeployToken = strings.TrimSpace(string(tok))
 	} else if !errors.Is(err, fs.ErrNotExist) {

@@ -437,3 +437,78 @@ esac
 		t.Fatalf("show output %s", out)
 	}
 }
+
+// epicShow answers Show by card ID, like bd show for a small tree.
+type epicShowCards struct {
+	fakeCards
+	shows map[string]string
+}
+
+func (f *epicShowCards) Show(_ context.Context, id string) (json.RawMessage, error) {
+	return json.RawMessage(f.shows[id]), f.rec("show " + id)
+}
+
+func TestCardsOfferInheritsApprovalFromLedgeredOpenEpic(t *testing.T) {
+	cases := []struct {
+		name, id, show string
+		epic           string
+		ledgered       bool
+		offered        bool
+	}{
+		{"task under approved epic", "x-3.1", `{"issue_type":"task"}`, `{"issue_type":"epic","status":"open"}`, true, true},
+		{"epic itself", "x-3", `{"issue_type":"epic"}`, `{"issue_type":"epic","status":"open"}`, true, false},
+		{"epic carries only the label", "x-3.1", `{"issue_type":"task"}`, `{"issue_type":"epic","status":"open","labels":["line"]}`, false, false},
+		{"closed epic", "x-3.1", `{"issue_type":"task"}`, `{"issue_type":"epic","status":"closed"}`, true, false},
+		{"ledgered card is not an epic", "x-3.1", `{"issue_type":"task"}`, `{"issue_type":"feature","status":"open"}`, true, false},
+	}
+	for _, tc := range cases {
+		f := &epicShowCards{shows: map[string]string{tc.id: tc.show, "x-3": tc.epic}}
+		srv, _, v, _ := cardsRig(t, f)
+		srv.Guard.Constitution.Viceroy.Delegations = []constitution.Delegation{{Offer: "line", Inherit: true}}
+		srv.Epics = &EpicApprovals{Path: filepath.Join(t.TempDir(), "approved-epics.json")}
+		if tc.ledgered {
+			if err := srv.Epics.Approve("x-3", "test"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		out, err := v.CardOffer(context.Background(), tc.id)
+		var got Offer
+		if err != nil || json.Unmarshal(out, &got) != nil || got.Offered != tc.offered {
+			t.Fatalf("%s: %s %v", tc.name, out, err)
+		}
+	}
+}
+
+func TestClosedEpicStaysUnapprovedAfterReopen(t *testing.T) {
+	f := &epicShowCards{shows: map[string]string{"x-3.1": `{"issue_type":"task"}`, "x-3": `{"issue_type":"epic","status":"closed"}`}}
+	srv, _, v, _ := cardsRig(t, f)
+	srv.Guard.Constitution.Viceroy.Delegations = []constitution.Delegation{{Offer: "line", Inherit: true}}
+	srv.Epics = &EpicApprovals{Path: filepath.Join(t.TempDir(), "approved-epics.json")}
+	if err := srv.Epics.Approve("x-3", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := v.CardOffer(context.Background(), "x-3.1"); err != nil || !strings.Contains(string(out), `"line-proposed"`) {
+		t.Fatalf("closed: %s %v", out, err)
+	}
+	f.shows["x-3"] = `{"issue_type":"epic","status":"open"}` // reopened
+	if out, err := v.CardOffer(context.Background(), "x-3.1"); err != nil || !strings.Contains(string(out), `"line-proposed"`) {
+		t.Fatalf("reopened: %s %v", out, err)
+	}
+}
+
+func TestClosingEpicRevokesApproval(t *testing.T) {
+	f := &epicShowCards{shows: map[string]string{"x-3": `{"issue_type":"epic","comments":[{"text":"decided"}]}`}}
+	srv, _, v, _ := cardsRig(t, f)
+	srv.Guard.Constitution.Viceroy.Delegations = []constitution.Delegation{{Close: true, IDs: []string{"x-3"}}}
+	srv.Stations[0].AgentID = "vice"
+	srv.Epics = &EpicApprovals{Path: filepath.Join(t.TempDir(), "approved-epics.json")}
+	if err := srv.Epics.Approve("x-3", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.CardClose(context.Background(), "x-3", "done"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := srv.Epics.Approved("x-3"); err != nil || ok {
+		t.Fatalf("approved=%v err=%v", ok, err)
+	}
+}

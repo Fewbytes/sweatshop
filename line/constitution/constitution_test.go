@@ -274,7 +274,7 @@ parent = "sweatshop-0mw.2"
 		{"bad transport", "[channel]\nkind=\"discord\"\nchannel=\"1\"\ntransport=\"smoke\"\n", "channel.transport"},
 		{"bad channel", "[channel]\nkind=\"discord\"\nchannel=\"x\"\n", "channel.channel"},
 		{"bad offer", "[[viceroy.delegations]]\noffer=\"all\"\ntypes=[\"bug\"]\n", "offer"},
-		{"empty delegation", "[[viceroy.delegations]]\noffer=\"line\"\n", "types or parent"},
+		{"empty delegation", "[[viceroy.delegations]]\noffer=\"line\"\n", "types, parent or inherit"},
 		{"bad parent", "[[viceroy.delegations]]\noffer=\"line\"\nparent=\"A B\"\n", "parent"},
 		{"close by ids", "[[viceroy.delegations]]\nclose=true\nids=[\"m-1\"]\n", ""},
 		{"close by parent", "[[viceroy.delegations]]\nclose=true\nparent=\"m-2\"\n", ""},
@@ -326,12 +326,38 @@ func TestDelegates(t *testing.T) {
 		{"empty", "", nil, false},
 	}
 	for _, tc := range cases {
-		if got := c.Delegates(tc.typ, tc.ancestors); got != tc.want {
+		if got := c.Delegates(tc.typ, tc.ancestors, false); got != tc.want {
 			t.Errorf("%s: got %v want %v", tc.name, got, tc.want)
 		}
 	}
-	if (Constitution{}).Delegates("bug", []string{"m-2"}) {
+	if (Constitution{}).Delegates("bug", []string{"m-2"}, false) {
 		t.Error("empty constitution delegates")
+	}
+}
+
+func TestDelegatesInheritCoversNonEpicsUnderApprovedEpic(t *testing.T) {
+	c := Constitution{Viceroy: Viceroy{Delegations: []Delegation{{Offer: "line", Inherit: true}}}}
+	cases := []struct {
+		name     string
+		typ      string
+		approved bool
+		want     bool
+	}{
+		{"task under approved epic", "task", true, true},
+		{"feature under approved epic", "feature", true, true},
+		{"task without approved epic", "task", false, false},
+		{"epic is never covered", EpicType, true, false},
+	}
+	for _, tc := range cases {
+		if got := c.Delegates(tc.typ, []string{"m-2"}, tc.approved); got != tc.want {
+			t.Errorf("%s: got %v want %v", tc.name, got, tc.want)
+		}
+	}
+	if err := (Constitution{Viceroy: Viceroy{Delegations: []Delegation{{Close: true, Inherit: true, Types: []string{"bug"}}}}}).validateGovernance(); err == nil {
+		t.Error("close delegation accepted inherit")
+	}
+	if err := c.validateGovernance(); err != nil {
+		t.Errorf("inherit-only offer rejected: %v", err)
 	}
 }
 
@@ -364,7 +390,7 @@ func TestDelegatesClose(t *testing.T) {
 			t.Errorf("%s: got %v want %v", tc.name, got, tc.want)
 		}
 	}
-	if c.Delegates("task", []string{"m-2"}) {
+	if c.Delegates("task", []string{"m-2"}, false) {
 		t.Error("close delegation grants offer")
 	}
 }
