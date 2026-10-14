@@ -117,3 +117,20 @@ func TestLevelsFileRoundTrip(t *testing.T) {
 		t.Fatalf("got %+v, %v; want %+v", got, err, want)
 	}
 }
+
+func TestStepPublishesBalancedLevelsFromBacklog(t *testing.T) {
+	levels := LevelsFile{Path: filepath.Join(t.TempDir(), "heijunka.json")}
+	obs := &fakeObserver{snap: Snapshot{Ready: 5, InProgress: 1, Current: Levels{1, 1}}}
+	w := &Worker{Observer: obs, Actuator: levels, Policy: DefaultPolicy}
+	got, err := w.Step(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Levels{Agents: 2, WIPLimit: 2} // backlog 6 wants 3 agents; one step per wake
+	if got != want {
+		t.Fatalf("Step returned %+v, want %+v", got, want)
+	}
+	if published, err := levels.Read(); err != nil || published != want {
+		t.Fatalf("published %+v, %v; want %+v", published, err, want)
+	}
+}

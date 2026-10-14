@@ -39,6 +39,30 @@ Levels are published atomically to `<line dir>/heijunka.json`
 deployer scaling a Deployment) reads it; wiring those consumers is follow-up
 work.
 
+## Running as a service
+
+`Worker` (`line/heijunka`) knows nothing about its host: it takes an `Observer`,
+an `Actuator` and a `Poke` channel. `sweatshop line heijunka` is the service
+host (flags, signals, bd and station-API observer). A k8s controller would
+be another host that supplies its own observer and actuator and reuses
+`Worker` unchanged; it is a separate card.
+
+On the server, with systemd (`line/deploy/systemd/sweatshop-heijunka.service`):
+
+1. Install the `sweatshop` binary (`just install`) and make sure `bd` is on
+   the service's `PATH`; the observer and the needs triage call it.
+2. Run the station API (`line serve`) and give the worker a station token:
+   put `SWEATSHOP_LINE_TOKEN=<token>` in the unit's `EnvironmentFile`.
+3. Copy the unit to `~/.config/systemd/user/`, fix the paths, then
+   `systemctl --user daemon-reload && systemctl --user enable --now sweatshop-heijunka`.
+   `loginctl enable-linger $USER` keeps it running without a login session.
+4. Check: `journalctl --user -u sweatshop-heijunka` shows level changes, and
+   `<line dir>/heijunka.json` holds the current levels.
+
+`Restart=always` restarts it on failure; state is re-read on every wake, so a
+restart loses nothing. Poke with
+`systemctl --user kill -s USR1 sweatshop-heijunka`.
+
 ## Stale needs:<role> cards
 
 A card labelled `needs:<role>` that nobody touches can deadlock. Each wake the
