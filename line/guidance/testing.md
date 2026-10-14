@@ -1,9 +1,9 @@
 # Testing Guide
 
 How to decide what to test, at which level, and what a test must prove. It
-agrees with the [writer guide](../line/guidance/writer.md) (every behavior
+agrees with the [writer guide](writer.md) (every behavior
 change ships with a test that fails without it; assert behavior, not
-implementation) and the [kaizen guide](../line/guidance/kaizen.md) (refactor
+implementation) and the [kaizen guide](kaizen.md) (refactor
 only under tests that would catch a behavior change; weak assertions are a
 P9 finding). Where it adds to them, it says so.
 
@@ -84,7 +84,7 @@ Tests pin meaning, and the line treats them accordingly:
 - Kaizen deletes redundant tests only when another test proves the same claim.
 - Acceptance tests, which define "works" from outside, are owned by gemba; see
   the gemba testing guide (card `sweatshop-u1g`) and
-  [`design-docs/gemba-agent.md`](../design-docs/gemba-agent.md). This guide
+  [`design-docs/gemba-agent.md`](../../design-docs/gemba-agent.md). This guide
   covers how to write tests; that one covers which tests are acceptance tests
   and who may change them.
 

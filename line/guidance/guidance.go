@@ -25,13 +25,19 @@ var Kaizen string
 //go:embed gemba.md
 var Gemba string
 
+// Testing is the guide to deciding what to test, at which level, and what a
+// test must prove. Roles that write or change tests get it.
+//
+//go:embed testing.md
+var Testing string
+
 // byRole lists each constitution role's guides in prompt order. Every role
 // has an entry, even an empty one, so adding a role forces a decision here.
 var byRole = map[string][]string{
-	"maker":   {Writer},
+	"maker":   {Writer, Testing},
 	"andon":   {Writer},
-	"kaizen":  {Writer, Kaizen},
-	"gemba":   {Writer, Gemba},
+	"kaizen":  {Writer, Testing, Kaizen},
+	"gemba":   {Writer, Testing, Gemba},
 	"viceroy": nil, // files cards; writes no code
 }
 

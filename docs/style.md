@@ -4,7 +4,7 @@ Short rules for code in this repo, drawn from
 [`research-docs/llm-code-quality/README.md`](../research-docs/llm-code-quality/README.md).
 It agrees with the [writer guide](../line/guidance/writer.md) and the
 [kaizen guide](../line/guidance/kaizen.md); where they give rationale, this
-guide gives the checkable rule. Testing rules live in [testing.md](testing.md).
+guide gives the checkable rule. Testing rules live in [testing.md](../line/guidance/testing.md).
 How the quality signals are computed: [quality-signals.md](quality-signals.md).
 
 Most agents read this code by searching it, and copy the patterns they find.

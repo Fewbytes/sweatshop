@@ -15,6 +15,9 @@ func TestGuidesEmbedded(t *testing.T) {
 	if !strings.HasPrefix(Kaizen, "# Kaizen Guide") {
 		t.Errorf("Kaizen starts %q, want the kaizen guide", Kaizen[:min(40, len(Kaizen))])
 	}
+	if !strings.HasPrefix(Testing, "# Testing Guide") {
+		t.Errorf("Testing starts %q, want the testing guide", Testing[:min(40, len(Testing))])
+	}
 	if !strings.HasPrefix(Gemba, "# Gemba Guide") {
 		t.Errorf("Gemba starts %q, want the gemba guide", Gemba[:min(40, len(Gemba))])
 	}
@@ -35,24 +38,29 @@ func TestEveryConstitutionRoleHasAnEntry(t *testing.T) {
 }
 
 func TestCodeWritingRolesGetWriterGuide(t *testing.T) {
-	for _, r := range []string{"maker", "andon"} {
-		if g, _ := For(r); g != Writer {
-			t.Errorf("For(%q) is not exactly the writer guide", r)
-		}
+	if g, _ := For("andon"); g != Writer {
+		t.Errorf("For(andon) is not exactly the writer guide")
+	}
+}
+
+func TestMakerGetsWriterThenTestingGuide(t *testing.T) {
+	g, _ := For("maker")
+	if g != Writer+"\n\n"+Testing {
+		t.Errorf("For(maker) is not writer guide followed by testing guide")
 	}
 }
 
 func TestGembaGetsWriterThenGembaGuide(t *testing.T) {
 	g, _ := For("gemba")
-	if g != Writer+"\n\n"+Gemba {
-		t.Errorf("For(gemba) is not writer guide followed by gemba guide")
+	if g != Writer+"\n\n"+Testing+"\n\n"+Gemba {
+		t.Errorf("For(gemba) is not writer and testing guides followed by gemba guide")
 	}
 }
 
 func TestKaizenGetsWriterThenKaizenGuide(t *testing.T) {
 	g, _ := For("kaizen")
-	if g != Writer+"\n\n"+Kaizen {
-		t.Errorf("For(kaizen) is not writer guide followed by kaizen guide")
+	if g != Writer+"\n\n"+Testing+"\n\n"+Kaizen {
+		t.Errorf("For(kaizen) is not writer and testing guides followed by kaizen guide")
 	}
 }
 
