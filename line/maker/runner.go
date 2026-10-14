@@ -84,8 +84,12 @@ type Runner struct {
 	Line    linedir.Line
 	Station linedir.Station
 	Beads   Beads
-	Engine  Engine
-	URL     string // as seen from inside the container; default http://host.containers.internal:<port>
+	// Label is the label a card needs to be offered; default station.LabelLine.
+	Label string
+	// PromptFor builds the agent's instruction for a card; default Prompt.
+	PromptFor func(Bead) string
+	Engine    Engine
+	URL       string // as seen from inside the container; default http://host.containers.internal:<port>
 	// Token is the station's bearer token; empty reads Station.TokenFile.
 	Token   string
 	Creds   map[string]string // model credentials passed through to the container
@@ -238,7 +242,11 @@ func (r *Runner) beatWhileWorking(ctx context.Context, card string) (stop func()
 // was a card to work.
 func (r *Runner) Once(ctx context.Context) (bool, error) {
 	r.beat(ctx, station.StateIdle, "")
-	ready, err := r.Beads.Ready(ctx, "line")
+	label := r.Label
+	if label == "" {
+		label = station.LabelLine
+	}
+	ready, err := r.Beads.Ready(ctx, label)
 	if err != nil {
 		return false, fmt.Errorf("ready beads: %w", err)
 	}
@@ -280,6 +288,9 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 	env["SWEATSHOP_BEAD"] = b.ID
 	env["SWEATSHOP_AGENT_ID"] = r.Station.AgentID
 	env["SWEATSHOP_PROMPT"] = Prompt(b, AndonEvent(b))
+	if r.PromptFor != nil {
+		env["SWEATSHOP_PROMPT"] = r.PromptFor(b)
+	}
 	if ev := AndonEvent(b); ev != "" {
 		env["SWEATSHOP_ANDON_EVENT"] = ev
 	}

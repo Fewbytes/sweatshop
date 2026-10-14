@@ -26,6 +26,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/Fewbytes/sweatshop/line/constitution"
 	"github.com/Fewbytes/sweatshop/line/deploy"
+	"github.com/Fewbytes/sweatshop/line/gemba"
 	"github.com/Fewbytes/sweatshop/line/gitx"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/heijunka"
@@ -73,6 +74,8 @@ const usage = `usage:
                                         level flow: publish agent and WIP-limit levels to D/heijunka.json (SIGUSR1 wakes it now)
   sweatshop line maker --dir D --station NAME (--beads DIR | --cards api) [--once] [--engine E] [--url URL] [--timeout 2h] [--max-attempts 3] [--memory 4g] [--pids 1024] [--cpus 2]
                                         work ready "line" beads in station containers
+  sweatshop line gemba --dir D --station NAME --beads DIR [--once] [--engine E] [--url URL] [--timeout 2h] [--max-attempts 3] [--memory 4g] [--pids 1024] [--cpus 2]
+                                        work ready "gemba" beads (acceptance-test add/fix/retire) in station containers
   sweatshop line kaizen --dir D --station NAME [--once] [--engine E] [--url URL] [--timeout 2h] [--interval 24h] [--memory 4g] [--pids 1024] [--cpus 2]
                                         run one measured refactoring per interval, when master has moved, in a station container
   sweatshop viceroy run [--heartbeat 6h]
@@ -130,6 +133,8 @@ func run(args []string, stdout io.Writer) error {
 		return lineHeijunka(args[2:])
 	case len(args) >= 2 && args[0] == "line" && args[1] == "maker":
 		return lineMaker(args[2:])
+	case len(args) >= 2 && args[0] == "line" && args[1] == "gemba":
+		return lineGemba(args[2:])
 	case len(args) >= 2 && args[0] == "line" && args[1] == "kaizen":
 		return lineKaizen(args[2:])
 	case len(args) == 3 && args[0] == "line" && args[1] == "evidence":
@@ -500,6 +505,80 @@ func lineMaker(args []string) error {
 		}
 		logger.Printf("exiting: --once done (card worked: %t)", worked)
 		return nil
+	}
+	return r.Loop(ctx, station.MakerPollInterval)
+}
+
+// lineGemba runs a Gemba station on the host: lineMaker's runner, offered
+// only cards labelled gemba. It reads cards through bd only: the cards API
+// restricts claim, release and close to role maker.
+func lineGemba(args []string) error {
+	fs := flag.NewFlagSet("line gemba", flag.ContinueOnError)
+	dir := fs.String("dir", "", "line directory")
+	name := fs.String("station", "", "gemba station name (e.g. gemba-1)")
+	beads := fs.String("beads", "", "directory whose beads database holds the cards")
+	once := fs.Bool("once", false, "work at most one card, then exit")
+	engine := fs.String("engine", "", "container engine CLI (default: the line's engine)")
+	url := fs.String("url", "", "station API URL as seen from the container (default http://host.containers.internal:<port>)")
+	timeout := fs.Duration("timeout", maker.DefaultTimeout, "longest one card's container may run")
+	maxAttempts := fs.Int("max-attempts", maker.DefaultMaxAttempts, "runs one card gets before it is labelled "+maker.GaveUpLabel)
+	memory := fs.String("memory", constitution.DefaultMemory, "station container memory limit (engine --memory syntax)")
+	pids := fs.Int("pids", constitution.DefaultPids, "station container process limit")
+	cpus := fs.String("cpus", constitution.DefaultCPUs, "station container CPU limit")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 || *dir == "" || *name == "" || *beads == "" {
+		return errors.New(usage)
+	}
+	if *pids < 1 || *memory == "" || *cpus == "" {
+		return errors.New("--memory, --pids and --cpus must be set (limits cannot be disabled)")
+	}
+	if *maxAttempts < 1 {
+		return fmt.Errorf("--max-attempts %d: must be at least 1", *maxAttempts)
+	}
+	l, err := linedir.Load(*dir)
+	if err != nil {
+		return err
+	}
+	var st *linedir.Station
+	for i := range l.Stations {
+		if l.Stations[i].Name == *name {
+			st = &l.Stations[i]
+		}
+	}
+	if st == nil {
+		return fmt.Errorf("line %s has no station %q", l.Dir, *name)
+	}
+	if st.Role != "gemba" {
+		return fmt.Errorf("station %q has role %q, not gemba", *name, st.Role)
+	}
+	if *engine == "" {
+		*engine = l.Engine
+	}
+	logger := log.New(os.Stderr, "gemba: ", log.LstdFlags)
+	r := &maker.Runner{
+		Line: l, Station: *st, URL: *url, Timeout: *timeout, MaxAttempts: *maxAttempts,
+		Memory: *memory, Pids: *pids, CPUs: *cpus,
+		Beads:  maker.BeadsCLI{Dir: *beads, Actor: st.AgentID},
+		Engine: maker.DockerEngine{Bin: *engine, Log: logger},
+		Creds:  maker.HostCreds(os.LookupEnv),
+		Log:    logger,
+	}
+	gemba.Configure(r)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigs)
+	go func() {
+		if sig, ok := <-sigs; ok {
+			cancel(maker.SignalCause(sig))
+		}
+	}()
+	if *once {
+		_, err := r.Once(ctx)
+		return err
 	}
 	return r.Loop(ctx, station.MakerPollInterval)
 }

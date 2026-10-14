@@ -31,9 +31,21 @@ func AndonEvent(b Bead) string {
 // Prompt is the whole instruction the station's agent gets: the card and the
 // line protocol. The agent's only route to the line is `sweatshop line`.
 func Prompt(b Bead, andonEvent string) string {
+	return RolePrompt("maker", "", b, andonEvent)
+}
+
+// RolePrompt is Prompt for the station of role: the same protocol, with the
+// needs:<role> question label and the guides of guidance.For(role). mandate,
+// if not empty, follows the card as the role's standing orders. Stations that
+// work cards through this runner (gemba) differ from a Maker only in these.
+func RolePrompt(role, mandate string, b Bead, andonEvent string) string {
 	var p strings.Builder
-	fmt.Fprintf(&p, "You are a Maker station on an assembly line. Your card:\n\n")
+	fmt.Fprintf(&p, "You are a %s station on an assembly line. Your card:\n\n", strings.ToUpper(role[:1])+role[1:])
 	fmt.Fprintf(&p, "ID: %s\nTitle: %s\n\n%s\n\n", b.ID, b.Title, strings.TrimSpace(b.Description))
+
+	if mandate != "" {
+		fmt.Fprintf(&p, "%s\n\n", strings.TrimSpace(mandate))
+	}
 
 	trailers := "Bead: " + b.ID
 	if andonEvent != "" {
@@ -55,7 +67,7 @@ func Prompt(b Bead, andonEvent string) string {
    `+"`sweatshop line cards list [--parent ID] [--label L] [--status S]`"+`.
    Read the cards this one depends on or descends from when it refers to
    them or leaves something unclear. Reading is optional.
-   Before starting, run `+"`sweatshop line cards list --label needs:maker`"+`: cards
+   Before starting, run `+"`sweatshop line cards list --label needs:%s`"+`: cards
    labelled so are questions addressed to you. Answer each you can by
    commenting (`+"`sweatshop line cards comment <id>`"+`, text on stdin); you may
    decline, and the asker decides how to proceed. Otherwise you cannot write
@@ -80,9 +92,8 @@ func Prompt(b Bead, andonEvent string) string {
    RESULT: merged <sha>
    or
    RESULT: gave-up <reason>
-`, indent(trailers, "   "), maxSubmissions, maxSubmissions)
-	// Andon cards are fixed by the same maker; both get the maker's guides.
-	guide, _ := guidance.For("maker")
+`, role, indent(trailers, "   "), maxSubmissions, maxSubmissions)
+	guide, _ := guidance.For(role)
 	fmt.Fprintf(&p, "\nCode quality guide (applies to every change you make):\n\n%s\n", guide)
 	return p.String()
 }
