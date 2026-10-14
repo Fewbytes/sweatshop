@@ -116,6 +116,57 @@ func TestAttestSignsPassingCommit(t *testing.T) {
 	}
 }
 
+// modeRecordingRunner records the permission bits of everything in the
+// checkout it is asked to run in, then passes.
+type modeRecordingRunner struct{ modes map[string]os.FileMode }
+
+func (r *modeRecordingRunner) Run(_ context.Context, dir, _ string) (RunResult, error) {
+	r.modes = map[string]os.FileMode{}
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.Type()&os.ModeSymlink != 0 {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(dir, path)
+		r.modes[rel] = info.Mode().Perm()
+		return nil
+	})
+	return RunResult{}, err
+}
+
+func TestCheckoutIsReadableAndWritableByAnyUID(t *testing.T) {
+	s := newSource(t)
+	s.commit("src/a.go", "package a")
+	ok(t)(s.repo.Git(s.ctx, "update-index", "--chmod=+x", "check.sh"))
+	ok(t)(s.repo.Git(s.ctx, "commit", "--quiet", "-m", "make check.sh executable"))
+	w, _ := newWitness(t)
+	recorder := &modeRecordingRunner{}
+	w.Runner = recorder
+	if _, err := w.Attest(s.ctx, s.repo.Dir, "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{".", "src", "src/a.go", "check.sh", ".git", ".git/HEAD"} {
+		mode, found := recorder.modes[name]
+		if !found {
+			t.Fatalf("%s missing from the checkout; saw %v", name, recorder.modes)
+		}
+		if mode&0o006 != 0o006 {
+			t.Errorf("%s is %o, want other read and write", name, mode)
+		}
+	}
+	for _, name := range []string{".", "src", ".git", "check.sh"} {
+		if recorder.modes[name]&0o001 == 0 {
+			t.Errorf("%s is %o, want other execute or search", name, recorder.modes[name])
+		}
+	}
+	if recorder.modes["src/a.go"]&0o001 != 0 {
+		t.Errorf("src/a.go became executable: %o", recorder.modes["src/a.go"])
+	}
+}
+
 // blockingRunner waits for its context, like a check that never finishes,
 // then reports a failing result the way a careless runner might.
 type blockingRunner struct{}

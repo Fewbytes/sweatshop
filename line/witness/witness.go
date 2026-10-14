@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -431,5 +432,36 @@ func (w *Witness) checkout(ctx context.Context, cache gitx.Repo, commit string) 
 			return "", nil, err
 		}
 	}
+	if err := makeCheckoutWorldWritable(dir); err != nil {
+		cleanup()
+		return "", nil, err
+	}
 	return dir, cleanup, nil
+}
+
+// makeCheckoutWorldWritable lets any uid read and write the checkout. A
+// container runner bind-mounts it at /src and runs the check as the image's
+// unprivileged user with every capability dropped; where the container shares
+// the host's uids (rootful podman on Linux) that user cannot enter a
+// root-owned 0700 directory. Docker Desktop and the podman machine on macOS
+// remap ownership, which is why this only shows on Linux. The checkout is
+// disposable and private to this attestation.
+func makeCheckoutWorldWritable(dir string) error {
+	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		perm := info.Mode().Perm() | 0o666
+		if d.IsDir() || info.Mode().Perm()&0o111 != 0 {
+			perm |= 0o111
+		}
+		return os.Chmod(path, perm)
+	})
 }
