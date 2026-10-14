@@ -783,3 +783,17 @@ func TestServeUntilDoneDrainsInFlightRequestOnCancel(t *testing.T) {
 		t.Fatalf("serveUntilDone = %v, want nil", err)
 	}
 }
+
+func TestStationLineShowsLastAndNextRunOfScheduledStation(t *testing.T) {
+	last := time.Date(2026, 10, 13, 1, 0, 0, 0, time.UTC)
+	next := last.Add(24 * time.Hour)
+	got := stationLine(station.StationStatus{Name: "kaizen-1", Role: "kaizen", State: station.StateIdle, Alive: true, LastRun: &last, NextRun: &next})
+	want := "station kaizen-1 (kaizen) idle  alive=true last_run=2026-10-13T01:00:00Z next_run=2026-10-14T01:00:00Z"
+	if got != want {
+		t.Errorf("stationLine = %q, want %q", got, want)
+	}
+	got = stationLine(station.StationStatus{Name: "maker-1", Role: "maker", State: station.StateIdle})
+	if want := "station maker-1 (maker) idle  alive=false"; got != want {
+		t.Errorf("stationLine = %q, want %q", got, want)
+	}
+}

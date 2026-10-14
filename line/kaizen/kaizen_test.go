@@ -3,6 +3,7 @@ package kaizen
 import (
 	"context"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/guidance"
 	"github.com/Fewbytes/sweatshop/line/linedir"
 	"github.com/Fewbytes/sweatshop/line/maker"
+	"github.com/Fewbytes/sweatshop/line/station"
 )
 
 const goodReport = `refactor: unify retry backoff
@@ -212,5 +214,40 @@ func TestOnceContainerGetsRunIDPromptAndKaizenMarker(t *testing.T) {
 	}
 	if env["SWEATSHOP_LINE_TOKEN"] != "tok" {
 		t.Errorf("token not passed to the container")
+	}
+}
+
+type fakeHeartbeats struct{ beat []station.Heartbeat }
+
+func (f *fakeHeartbeats) Heartbeat(_ context.Context, hb station.Heartbeat) error {
+	hb.Clock = nil
+	f.beat = append(f.beat, hb)
+	return nil
+}
+
+func TestOnceHeartbeatsScheduleIdleThenWorkingTheRun(t *testing.T) {
+	bare, _ := seededRemote(t)
+	start := time.Date(2026, 10, 13, 1, 2, 3, 0, time.UTC)
+	now := start
+	hb := &fakeHeartbeats{}
+	r := newRunner(t, bare, &fakeEngine{}, &now)
+	r.Heartbeats, r.Commit, r.Interval = hb, "abc123", time.Hour
+
+	if _, err := r.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	now = start.Add(time.Minute)
+	if _, err := r.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	next := start.Add(time.Hour)
+	want := []station.Heartbeat{
+		{State: station.StateIdle, Commit: "abc123", NextRun: &start}, // never run: eligible now
+		{State: station.StateWorking, Card: "kaizen-20261013T010203Z", Commit: "abc123", NextRun: &start},
+		{State: station.StateIdle, Commit: "abc123", LastRun: &start, NextRun: &next},
+	}
+	if !reflect.DeepEqual(hb.beat, want) {
+		t.Fatalf("heartbeats %+v, want %+v", hb.beat, want)
 	}
 }

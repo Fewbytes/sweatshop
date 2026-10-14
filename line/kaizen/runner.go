@@ -12,6 +12,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/linedir"
 	"github.com/Fewbytes/sweatshop/line/maker"
+	"github.com/Fewbytes/sweatshop/line/station"
 )
 
 // DefaultInterval is the least time between two runs. Kaizen is a standing
@@ -41,8 +42,13 @@ type Runner struct {
 	Creds    map[string]string
 	Timeout  time.Duration // bounds one container run; default maker.DefaultTimeout
 	Interval time.Duration // default DefaultInterval
-	Log      *log.Logger
-	Now      func() time.Time // default time.Now
+	// Heartbeats tells the line this station is alive, idle or running, and
+	// when it last ran and may next; nil sends none. Commit is the binary's
+	// commit, reported with each heartbeat.
+	Heartbeats maker.Heartbeater
+	Commit     string
+	Log        *log.Logger
+	Now        func() time.Time // default time.Now
 
 	lastRun    time.Time
 	lastMaster string
@@ -51,6 +57,25 @@ type Runner struct {
 func (r *Runner) logf(format string, args ...any) {
 	if r.Log != nil {
 		r.Log.Printf(format, args...)
+	}
+}
+
+// beat sends one heartbeat; a line that cannot be reached must not stop
+// Kaizen, so a failure is only logged. A run that has never happened leaves
+// LastRun nil and is eligible now.
+func (r *Runner) beat(ctx context.Context, state station.StationState, card string, now time.Time, interval time.Duration) {
+	if r.Heartbeats == nil {
+		return
+	}
+	hb := station.Heartbeat{State: state, Card: card, Commit: r.Commit}
+	next := now
+	if !r.lastRun.IsZero() {
+		last := r.lastRun
+		hb.LastRun, next = &last, last.Add(interval)
+	}
+	hb.NextRun = &next
+	if err := r.Heartbeats.Heartbeat(ctx, hb); err != nil && ctx.Err() == nil {
+		r.logf("heartbeat: %v", err)
 	}
 }
 
@@ -66,6 +91,7 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 	if interval <= 0 {
 		interval = DefaultInterval
 	}
+	r.beat(ctx, station.StateIdle, "", now(), interval)
 	remote := gitx.Repo{Dir: r.Line.Remote}
 	master, err := remote.Ref(ctx, "refs/heads/master")
 	if err != nil {
@@ -112,6 +138,9 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	r.logf("%s: starting on master %s", runID, master)
+	stopBeats := maker.BeatEveryPoll(ctx, func(ctx context.Context) {
+		r.beat(ctx, station.StateWorking, runID, now(), interval)
+	})
 	code, runErr := r.Engine.Run(runCtx, maker.ContainerSpec{
 		Image:  r.Line.Image,
 		Name:   unsafeNameChars.ReplaceAllString("sweatshop-"+r.Station.Name+"-"+runID, "_"),
@@ -119,6 +148,7 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 		Mounts: []maker.Mount{{Host: r.Line.Remote, Container: "/line/remote.git", ReadOnly: true}},
 		Memory: r.Memory, CPUs: r.CPUs, Pids: r.Pids,
 	})
+	stopBeats()
 	if ctx.Err() != nil {
 		return true, errors.Join(runErr, context.Cause(ctx)) // interrupted: do not count as a run
 	}

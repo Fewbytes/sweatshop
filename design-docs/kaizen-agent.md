@@ -328,3 +328,31 @@ step 6, after the spend ledger and heijunka (step 5).
 
 Cards 1-6 are the minimum to see a Kaizen station file useful cards; 7-8
 close the loop; 9-13 extend it.
+
+## Running as a service
+
+`sweatshop line kaizen` is the host-side loop (`line/kaizen`). It polls master
+every minute and starts a run when `--interval` (default 24h) has passed since
+the last run and master has moved.
+
+On the server, with systemd (`line/deploy/systemd/sweatshop-kaizen.service`):
+
+1. Install the `sweatshop` binary (`just install`) and a container engine the
+   service can reach.
+2. Put `SWEATSHOP_LINE_TOKEN=<kaizen station token>` and the model credential
+   in the unit's `EnvironmentFile`.
+3. Copy the unit to `~/.config/systemd/user/`, fix the paths, then
+   `systemctl --user daemon-reload && systemctl --user enable --now sweatshop-kaizen`.
+   `loginctl enable-linger $USER` keeps it running without a login session.
+
+`Restart=always` restarts it on failure; a restarted runner runs once at once.
+
+### Heartbeats and schedule
+
+With `SWEATSHOP_LINE_URL` and `SWEATSHOP_LINE_TOKEN` set, the station
+heartbeats every poll: `idle` between runs and `working <run id>` during one.
+`sweatshop line status` lists it with `alive=` (heartbeat within three polls),
+`last_run=` (start of the last run, absent before the first) and `next_run=`
+(earliest time of the next; the time of the beat when it has never run). A run
+also needs master to have moved, so `next_run` in the past with `idle` means
+Kaizen is waiting for master.

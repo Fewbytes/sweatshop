@@ -635,6 +635,12 @@ func lineKaizen(args []string) error {
 		Engine: maker.DockerEngine{Bin: *engine, Log: logger},
 		Creds:  maker.HostCreds(os.LookupEnv),
 		Log:    logger,
+		Commit: binaryCommit(),
+	}
+	if c, err := lineClient(); err == nil {
+		r.Heartbeats, r.Token = c, c.Token
+	} else {
+		logger.Printf("no heartbeats: %v", err)
 	}
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
@@ -762,6 +768,19 @@ func tail(s string, n int) string {
 	return strings.Join(lines, "\n")
 }
 
+// stationLine is one station's row in `line status`; a scheduled station also
+// shows when it last ran and when it may next.
+func stationLine(s station.StationStatus) string {
+	line := fmt.Sprintf("station %s (%s) %s %s alive=%t", s.Name, s.Role, s.State, s.Card, s.Alive)
+	if s.LastRun != nil {
+		line += " last_run=" + s.LastRun.Format(time.RFC3339)
+	}
+	if s.NextRun != nil {
+		line += " next_run=" + s.NextRun.Format(time.RFC3339)
+	}
+	return line
+}
+
 func lineStatus(stdout io.Writer) error {
 	c, err := lineClient()
 	if err != nil {
@@ -773,7 +792,7 @@ func lineStatus(stdout io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "master %s\n", st.Master)
 	for _, s := range st.Stations {
-		fmt.Fprintf(stdout, "station %s (%s) %s %s alive=%t\n", s.Name, s.Role, s.State, s.Card, s.Alive)
+		fmt.Fprintln(stdout, stationLine(s))
 	}
 	if st.Event == "" {
 		fmt.Fprintln(stdout, "andon clear")

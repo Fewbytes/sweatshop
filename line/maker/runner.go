@@ -222,12 +222,18 @@ func (r *Runner) beat(ctx context.Context, state station.StationState, card stri
 // until the returned stop is called: a run lasts far longer than the line's
 // silence limit.
 func (r *Runner) beatWhileWorking(ctx context.Context, card string) (stop func()) {
+	return BeatEveryPoll(ctx, func(ctx context.Context) { r.beat(ctx, station.StateWorking, card) })
+}
+
+// BeatEveryPoll calls beat at once and then every station.MakerPollInterval
+// until the returned stop is called, which waits for the last beat to finish.
+func BeatEveryPoll(ctx context.Context, beat func(context.Context)) (stop func()) {
 	ctx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		for {
-			r.beat(ctx, station.StateWorking, card)
+			beat(ctx)
 			select {
 			case <-ctx.Done():
 				return

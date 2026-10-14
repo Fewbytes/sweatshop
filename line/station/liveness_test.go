@@ -188,3 +188,16 @@ func TestClientHeartbeatCarriesStationClock(t *testing.T) {
 		t.Fatalf("clock %v not stamped between %v and now", seen.Clock, before)
 	}
 }
+
+func TestHeartbeatCarriesRunScheduleToStatus(t *testing.T) {
+	srv, m1, _ := livenessRig(t)
+	last := time.Date(2026, 10, 13, 1, 0, 0, 0, time.UTC)
+	next := last.Add(24 * time.Hour)
+	if err := m1.Heartbeat(context.Background(), Heartbeat{State: StateIdle, LastRun: &last, NextRun: &next}); err != nil {
+		t.Fatal(err)
+	}
+	got := srv.liveness.snapshot(srv.Stations, time.Now())[0]
+	if got.LastRun == nil || !got.LastRun.Equal(last) || got.NextRun == nil || !got.NextRun.Equal(next) {
+		t.Fatalf("schedule = %v / %v, want %v / %v", got.LastRun, got.NextRun, last, next)
+	}
+}

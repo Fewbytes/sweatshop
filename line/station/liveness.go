@@ -43,6 +43,11 @@ type Heartbeat struct {
 	// Clock is the station's own time when it sent the heartbeat; Client.Heartbeat
 	// fills it in. Nil from a station that predates the field.
 	Clock *time.Time `json:"clock,omitempty"`
+	// LastRun and NextRun are a scheduled station's last run start and the
+	// earliest time of its next; nil for stations that run no schedule or have
+	// not run yet.
+	LastRun *time.Time `json:"last_run,omitempty"`
+	NextRun *time.Time `json:"next_run,omitempty"`
 }
 
 // StationStatus is one station's liveness in GET /v1/status.
@@ -58,6 +63,9 @@ type StationStatus struct {
 	ClockSkewSeconds int64 `json:"clock_skew_seconds,omitempty"`
 	// Alive is true when the station heartbeated within MakerSilenceLimit.
 	Alive bool `json:"alive"`
+	// LastRun and NextRun are as in Heartbeat, from the last heartbeat.
+	LastRun *time.Time `json:"last_run,omitempty"`
+	NextRun *time.Time `json:"next_run,omitempty"`
 }
 
 type seenStation struct {
@@ -103,6 +111,7 @@ func (l *liveness) snapshot(stations []*Station, now time.Time) []StationStatus 
 		out = append(out, StationStatus{
 			Name: st.Name, Role: st.Role, State: seen.State, Card: seen.Card, Commit: seen.Commit,
 			LastSeen: &at, ClockSkewSeconds: int64(skew / time.Second), Alive: now.Sub(at) <= MakerSilenceLimit,
+			LastRun: seen.LastRun, NextRun: seen.NextRun,
 		})
 	}
 	return out
