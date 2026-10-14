@@ -67,14 +67,82 @@ feature test that uses it.
   attestations, anything reading cards or telemetry): test the rejection, not
   only the accept path.
 
-## 4. Slow and external tests
+## 4. Make tests deterministic with the harness
+
+"No sleeps" is the floor. A test is deterministic when every source of
+variation is an input the test controls. Give the code a port for each, and
+let the harness (or the test's fake) supply the controlled version:
+
+- **Logical clocks.** Code takes a `now func() time.Time` or a clock
+  interface, never calls `time.Now` or `time.Sleep` itself. The test owns a
+  fake clock and moves it with an explicit `Advance(d)`. Timeouts, liveness
+  limits and backoff are then asserted by advancing the clock past the limit,
+  in microseconds, not by waiting. See `MaxClockSkew` and the heartbeat clock
+  in `line/station/liveness.go`.
+- **Pseudo-random with fixed seeds.** Code takes a `*rand.Rand` (or a
+  source) from its caller. Tests seed it with a constant written in the test,
+  so a failure replays exactly. Randomized or property tests print the seed
+  on failure.
+- **Injected IDs.** Card IDs, run IDs, nonces and temp names come from an
+  injected generator that the test makes sequential (`run-1`, `run-2`).
+  Assertions then compare to literal expected values instead of patterns.
+- **Controlled scheduling.** Do not rely on goroutines racing in the right
+  order. Make concurrency a step the test drives: run the worker's one
+  iteration on the test goroutine, or have the fake block on a channel the
+  test releases. Wait on a condition (channel, `sync.WaitGroup`, a
+  state-change callback), never on elapsed time. Two racing makers in
+  `TestLostRaceRebasesAndRetries` are ordered by the test's own calls, not by
+  timing.
+- **Everything else that varies:** map iteration order (sort before
+  asserting), the filesystem (`t.TempDir()`), environment (`t.Setenv`),
+  locale and time zone (set explicitly), and ports (`httptest`, not fixed
+  numbers).
+
+A test that fails one run in a hundred is a bug in the test or in a missing
+port; fix the cause, never add a retry or a longer wait. Where a test must
+cope with a loaded machine, widen a deadline in the fake clock, not a real
+sleep.
+
+## 5. Write tests in the language of the business
+
+A test reads best when it says what happens in the domain: a maker's change
+is merged, a stopped line rejects it, a forged witness is refused. Wiring
+(temp dirs, keys, git plumbing, JSON) is noise that fills the context of
+whoever reads or edits the test and invites copy-paste of the wrong things.
+
+So give each package that owns a workflow a small test SDK: helpers named for
+business actions and outcomes, built once on the harness.
+
+- **Actions are verbs of the domain.** `l.agent("maker-1", "maker")`,
+  `a.change("f.txt", "x")`, `a.merge()`, `a.rebase()` in `line/harness`
+  hide repository setup, signing and submission. Add `l.pullCord()` or
+  `l.fileCard(...)`, not a block of HTTP calls inline.
+- **Assertions are domain outcomes.** `expect(t, result, guard.Rejected,
+  guard.ReasonBaseMoved)` states the business result. Prefer helpers that
+  say `requireMerged`, `requireCardClosed` over comparing raw fields.
+- **A test body is a short story**: arrange the line, act as an agent,
+  assert the outcome. If a test needs more than a few lines of plumbing,
+  the SDK is missing a verb; add it where all tests in the package can use it.
+- **The SDK is the harness's public surface.** It fails loudly (helpers call
+  `t.Fatal` with what was expected and what happened), takes the clock, seed
+  and ID generator from section 4 as constructor options, and has defaults
+  that make the common test one line.
+- **Keep it honest.** SDK helpers contain no assertions about unrelated
+  behavior and no logic worth its own bugs; if a helper needs a test, it is
+  too clever. Adapters are still proved once (section 1); the SDK drives the
+  feature through its port.
+- **One SDK per workflow, not per test file.** Before adding a helper,
+  search the package for an existing one. Do not grow a second vocabulary
+  for the same action.
+
+## 6. Slow and external tests
 
 Tests needing a container engine, a real network or minutes of time are
 integration tests of the outer edge. Mark them `//go:build !short` (as in
 `agentsh/internal/integration`) and keep their number small; the feature
 logic behind them is tested at the lower levels above.
 
-## 5. Who may change which tests
+## 7. Who may change which tests
 
 Tests pin meaning, and the line treats them accordingly:
 
@@ -88,11 +156,13 @@ Tests pin meaning, and the line treats them accordingly:
   covers how to write tests; that one covers which tests are acceptance tests
   and who may change them.
 
-## 6. Checklist
+## 8. Checklist
 
 - [ ] I can state in one sentence what each new test proves.
 - [ ] No existing test already proves it; adapters are tested once, not per feature.
 - [ ] The test is at the highest fast, hermetic level, not a per-function mirror.
+- [ ] Clocks, randomness, IDs and scheduling are injected; no sleeps.
+- [ ] The test body reads as business steps; plumbing lives in the package's test SDK.
 - [ ] It fails without my change.
 - [ ] It asserts outcomes, with a behavior-stating name.
 - [ ] `just ci` passes.
