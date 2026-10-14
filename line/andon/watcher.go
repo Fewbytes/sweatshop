@@ -25,6 +25,8 @@ type API interface {
 	AttestLine(ctx context.Context, commit string) (witness.AttestResult, error)
 	Pull(ctx context.Context, env attest.Envelope) (guard.Result, error)
 	Clear(ctx context.Context, env attest.Envelope) (guard.Result, error)
+	// PassingRuns lists the stored runs of commit that passed.
+	PassingRuns(ctx context.Context, commit string) ([]station.RunInfo, error)
 }
 
 // Cards files work items for andon events.
@@ -33,6 +35,17 @@ type Cards interface {
 	// filing a P0 card when there is none. master is the line's current
 	// master.
 	Raise(ctx context.Context, event string, ev guard.AndonEvent, master string) (string, error)
+	// RaiseFlake returns the live bug card for a check that both passed and
+	// failed on one commit, filing one when there is none.
+	RaiseFlake(ctx context.Context, f Flake) (string, error)
+}
+
+// Flake is a check that passed and failed on the same commit.
+type Flake struct {
+	Check  string
+	Commit string
+	FailID string // evidence ID of the failing attestation
+	PassID string // evidence ID of the passing attestation, or the report key of an earlier passing run
 }
 
 // Resolver is implemented by Cards that can retire cards once their event is
@@ -100,9 +113,27 @@ func (w *Watcher) Step(ctx context.Context) error {
 		}
 		return err
 	}
+	// A failure is confirmed before it stops the line: a pass of the same
+	// commit, earlier in the run history or on a second attestation, means the
+	// check is flaky, not that master is broken.
+	passed := res.Passed
+	if !res.Passed {
+		var flake *Flake
+		res, flake, err = w.confirmFailure(ctx, st.Master, res)
+		if err != nil {
+			return err
+		}
+		if flake != nil {
+			if _, err := w.Cards.RaiseFlake(ctx, *flake); err != nil {
+				return fmt.Errorf("raise flake card for %s on %s: %w", flake.Check, flake.Commit, err)
+			}
+			w.logf("check %s is flaky on master %s; not pulling the andon cord", flake.Check, flake.Commit)
+			passed = true
+		}
+	}
 	w.last = st.Master
 
-	if !res.Passed {
+	if !passed {
 		w.logf("master %s fails its checks; pulling the andon cord", st.Master)
 		pr, err := w.API.Pull(ctx, *res.Envelope)
 		if err != nil {
@@ -140,6 +171,12 @@ func (w *Watcher) Step(ctx context.Context) error {
 		w.logf("master %s passes", st.Master)
 		return nil
 	}
+	if !res.Passed {
+		// Only a history pass contradicted the failure: there is no passing
+		// envelope to clear with, and the guard refuses the failing one.
+		w.logf("master %s passes in the run history only; waiting for a newer master to clear the andon", st.Master)
+		return w.ensureCard(ctx, st.Event, stoppedEvent(), st.Master)
+	}
 	cr, err := w.API.Clear(ctx, *res.Envelope)
 	if err != nil {
 		w.last = ""
@@ -164,6 +201,41 @@ func (w *Watcher) Step(ctx context.Context) error {
 			w.ensureCard(ctx, st.Event, stoppedEvent(), st.Master))
 	}
 	return nil
+}
+
+// confirmFailure decides whether failed, the first attestation of commit, is
+// a real failure. It returns the attestation to act on and, when the failure
+// is contradicted by a pass of the same commit, the flake to report. An
+// earlier passing run in the history contradicts it without a second
+// attestation; the returned result is then still the failed one.
+func (w *Watcher) confirmFailure(ctx context.Context, commit string, failed witness.AttestResult) (witness.AttestResult, *Flake, error) {
+	failure := eventFromResult(failed)
+	flake := Flake{Check: failure.Check, Commit: commit, FailID: failure.EvidenceID}
+	runs, err := w.API.PassingRuns(ctx, commit)
+	if err != nil {
+		return failed, nil, fmt.Errorf("runs of %s: %w", commit, err)
+	}
+	if len(runs) > 0 {
+		flake.PassID = runs[0].ReportKey
+		return failed, &flake, nil
+	}
+	w.logf("master %s fails %s; attesting it once more before pulling the andon cord", commit, failure.Check)
+	second, err := w.API.AttestLine(ctx, commit)
+	if err == nil && second.Envelope == nil {
+		err = errors.New("no envelope returned")
+	}
+	if err != nil {
+		return failed, nil, fmt.Errorf("confirm attest %s: %w", commit, err)
+	}
+	if !second.Passed {
+		return second, nil, nil
+	}
+	for _, c := range second.Statement.Predicate.Checks {
+		if c.Name == failure.Check {
+			flake.PassID = c.EvidenceID
+		}
+	}
+	return second, &flake, nil
 }
 
 // resolveCards closes the cards of a cleared event that are still live, so a
@@ -242,16 +314,17 @@ type BeadCards struct{ Dir string } // runs `bd create` in Dir
 // a fixer has claimed never yields a duplicate. A closed card does not count:
 // if the line is still stopped, its fix did not work.
 func (b BeadCards) existing(ctx context.Context, event string) (string, error) {
-	ids, err := b.live(ctx, event)
+	ids, err := b.live(ctx, "andon", "event: "+event)
 	if err != nil || len(ids) == 0 {
 		return "", err
 	}
 	return ids[0], nil
 }
 
-// live returns the IDs of every live andon card naming event.
-func (b BeadCards) live(ctx context.Context, event string) ([]string, error) {
-	cmd := exec.CommandContext(ctx, "bd", "list", "--label", "andon", "--status", "open,in_progress", "--limit", "0", "--json")
+// live returns the IDs of every live card with label whose description has
+// descLine as a line of its own.
+func (b BeadCards) live(ctx context.Context, label, descLine string) ([]string, error) {
+	cmd := exec.CommandContext(ctx, "bd", "list", "--label", label, "--status", "open,in_progress", "--limit", "0", "--json")
 	cmd.Dir = b.Dir
 	out, err := cmd.Output()
 	if err != nil {
@@ -267,7 +340,7 @@ func (b BeadCards) live(ctx context.Context, event string) ([]string, error) {
 	var ids []string
 	for _, is := range issues {
 		for _, line := range strings.Split(is.Description, "\n") {
-			if line == "event: "+event {
+			if line == descLine {
 				ids = append(ids, is.ID)
 				break
 			}
@@ -278,7 +351,7 @@ func (b BeadCards) live(ctx context.Context, event string) ([]string, error) {
 
 // Resolve closes every live andon card naming event with `bd close`.
 func (b BeadCards) Resolve(ctx context.Context, event, master string) error {
-	ids, err := b.live(ctx, event)
+	ids, err := b.live(ctx, "andon", "event: "+event)
 	if err != nil {
 		return err
 	}
@@ -332,6 +405,11 @@ func (b BeadCards) Raise(ctx context.Context, event string, ev guard.AndonEvent,
 		fmt.Sprintf("andon: master %s fails %s", short, ev.Check),
 		"-t", "bug", "-p", "0", "-l", "line", "-l", "andon", "-d", desc, "--json")
 	cmd.Dir = b.Dir
+	return runBdCreate(cmd)
+}
+
+// runBdCreate runs a prepared `bd create --json` and returns the new issue's ID.
+func runBdCreate(cmd *exec.Cmd) (string, error) {
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -348,4 +426,37 @@ func (b BeadCards) Raise(ctx context.Context, event string, ev guard.AndonEvent,
 		return "", errors.New("bd create: no id in output")
 	}
 	return created.ID, nil
+}
+
+// RaiseFlake runs `bd create` for a flaky check unless a live flake card
+// already names the same check and commit.
+func (b BeadCards) RaiseFlake(ctx context.Context, f Flake) (string, error) {
+	key := "flake: " + f.Check + " " + f.Commit
+	ids, err := b.live(ctx, "flake", key)
+	if err != nil {
+		return "", err
+	}
+	if len(ids) > 0 {
+		return ids[0], nil
+	}
+	short := f.Commit
+	if len(short) > 12 {
+		short = short[:12]
+	}
+	desc := strings.Join([]string{
+		"The check passed and failed on the same commit, so the andon cord was not pulled.",
+		"",
+		key,
+		"check: " + f.Check,
+		"commit: " + f.Commit,
+		"failing evidence: " + f.FailID,
+		"passing evidence: " + f.PassID,
+		"",
+		"Fix the flakiness at its source.",
+	}, "\n")
+	cmd := exec.CommandContext(ctx, "bd", "create",
+		fmt.Sprintf("flaky check %s on %s", f.Check, short),
+		"-t", "bug", "-l", "line", "-l", "flake", "-d", desc, "--json")
+	cmd.Dir = b.Dir
+	return runBdCreate(cmd)
 }

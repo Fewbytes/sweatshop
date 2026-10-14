@@ -3,6 +3,7 @@ package andon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -19,6 +20,8 @@ import (
 type fakeAPI struct {
 	status    station.Status
 	passed    map[string]bool
+	outcomes  map[string][]bool // commit -> results of its next attestations, before passed applies
+	history   map[string][]station.RunInfo
 	attestErr error
 	pullErr   error
 	clearErr  error
@@ -35,7 +38,17 @@ func (f *fakeAPI) AttestLine(_ context.Context, c string) (witness.AttestResult,
 	if f.attestErr != nil {
 		return witness.AttestResult{}, f.attestErr
 	}
-	return witness.AttestResult{Commit: c, Passed: f.passed[c], Envelope: &attest.Envelope{}}, nil
+	passed := f.passed[c]
+	if q := f.outcomes[c]; len(q) > 0 {
+		passed, f.outcomes[c] = q[0], q[1:]
+	}
+	return witness.AttestResult{Commit: c, Passed: passed, Envelope: &attest.Envelope{},
+		Statement: attest.Statement{Predicate: attest.ChecksPredicate{Checks: []attest.CheckResult{
+			{Name: "ci", ExitCode: map[bool]int{true: 0, false: 1}[passed], EvidenceID: fmt.Sprintf("ev-%d", len(f.attests))},
+		}}}}, nil
+}
+func (f *fakeAPI) PassingRuns(_ context.Context, c string) ([]station.RunInfo, error) {
+	return f.history[c], nil
 }
 func (f *fakeAPI) Pull(context.Context, attest.Envelope) (guard.Result, error) {
 	f.pulls++
@@ -55,6 +68,7 @@ type fakeCards struct {
 	live     map[string]bool // event -> has a live card
 	failures int             // Raise calls that fail before it starts succeeding
 	calls    int
+	flakes   []Flake // flake cards filed
 
 	resolved   []string // events passed to Resolve
 	resolveErr error
@@ -76,6 +90,11 @@ func (c *fakeCards) Raise(_ context.Context, event string, _ guard.AndonEvent, m
 	c.events = append(c.events, event)
 	c.masters = append(c.masters, master)
 	return "card-new", nil
+}
+
+func (c *fakeCards) RaiseFlake(_ context.Context, f Flake) (string, error) {
+	c.flakes = append(c.flakes, f)
+	return "card-flake", nil
 }
 
 func (c *fakeCards) Resolve(_ context.Context, event, _ string) error {
@@ -117,8 +136,60 @@ func TestFailingMasterPullsOnceAndRaisesCard(t *testing.T) {
 	w, cards := newWatcher(api)
 	step(t, w)
 	step(t, w)
-	if api.pulls != 1 || len(api.attests) != 1 || len(cards.events) != 1 || cards.events[0] != "ev1" {
+	if api.pulls != 1 || len(api.attests) != 2 || len(cards.events) != 1 || cards.events[0] != "ev1" {
 		t.Fatalf("pulls=%d attests=%v cards=%v", api.pulls, api.attests, cards.events)
+	}
+}
+
+func TestFailureOnSecondAttestationPullsTheCord(t *testing.T) {
+	api := &fakeAPI{
+		status:  station.Status{Master: "bbb"},
+		pullRes: guard.Result{Status: guard.Stopped, Event: "ev1"},
+	}
+	w, cards := newWatcher(api)
+	step(t, w)
+	if api.pulls != 1 || len(api.attests) != 2 || len(cards.flakes) != 0 || len(cards.events) != 1 {
+		t.Fatalf("pulls=%d attests=%v flakes=%v cards=%v", api.pulls, api.attests, cards.flakes, cards.events)
+	}
+}
+
+func TestFlakyMasterIsNotPulledAndRaisesFlakeCard(t *testing.T) {
+	api := &fakeAPI{
+		status:   station.Status{Master: "bbb"},
+		outcomes: map[string][]bool{"bbb": {false, true}},
+	}
+	w, cards := newWatcher(api)
+	step(t, w)
+	step(t, w)
+	want := Flake{Check: "ci", Commit: "bbb", FailID: "ev-1", PassID: "ev-2"}
+	if api.pulls != 0 || len(api.attests) != 2 || len(cards.events) != 0 || len(cards.flakes) != 1 || cards.flakes[0] != want {
+		t.Fatalf("pulls=%d attests=%v flakes=%+v cards=%v", api.pulls, api.attests, cards.flakes, cards.events)
+	}
+}
+
+func TestEarlierPassInRunHistoryContradictsFailure(t *testing.T) {
+	api := &fakeAPI{
+		status:  station.Status{Master: "bbb"},
+		history: map[string][]station.RunInfo{"bbb": {{Commit: "bbb", Passed: true, ReportKey: "reports/maker-run"}}},
+	}
+	w, cards := newWatcher(api)
+	step(t, w)
+	want := Flake{Check: "ci", Commit: "bbb", FailID: "ev-1", PassID: "reports/maker-run"}
+	if api.pulls != 0 || len(api.attests) != 1 || len(cards.flakes) != 1 || cards.flakes[0] != want {
+		t.Fatalf("pulls=%d attests=%v flakes=%+v", api.pulls, api.attests, cards.flakes)
+	}
+}
+
+func TestFlakyMasterClearsAnEarlierAndon(t *testing.T) {
+	api := &fakeAPI{
+		status:   station.Status{Master: "ccc", Event: "ev1", Andon: &guard.AndonEvent{Commit: "bbb"}},
+		outcomes: map[string][]bool{"ccc": {false, true}},
+		clearRes: guard.Result{Status: guard.Cleared},
+	}
+	w, _ := newWatcher(api)
+	step(t, w)
+	if api.clears != 1 || api.pulls != 0 {
+		t.Fatalf("clears=%d pulls=%d", api.clears, api.pulls)
 	}
 }
 
@@ -137,7 +208,7 @@ func TestNewPassingMasterClears(t *testing.T) {
 		t.Fatalf("clears=%d", api.clears)
 	}
 	step(t, w)
-	if api.clears != 1 || len(api.attests) != 2 {
+	if api.clears != 1 || len(api.attests) != 3 {
 		t.Fatalf("repeat work: clears=%d attests=%v", api.clears, api.attests)
 	}
 }
@@ -270,7 +341,7 @@ func TestFixLandsMasterStillFailsCardClosedFilesNewCard(t *testing.T) {
 	// Still stopped, card live: further steps raise idempotently, file nothing.
 	step(t, w)
 	step(t, w)
-	if len(cards.events) != 2 || len(api.attests) != 2 {
+	if len(cards.events) != 2 || len(api.attests) != 4 {
 		t.Fatalf("events=%v attests=%v", cards.events, api.attests)
 	}
 }

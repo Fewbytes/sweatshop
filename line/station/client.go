@@ -223,6 +223,13 @@ func (c Client) Clear(ctx context.Context, env attest.Envelope) (guard.Result, e
 	return c.andon(ctx, "/v1/andon/clear", env)
 }
 
+// PassingRuns returns the stored runs of commit that passed, newest first.
+func (c Client) PassingRuns(ctx context.Context, commit string) ([]RunInfo, error) {
+	var res RunsResponse
+	_, err := c.do(ctx, http.MethodGet, "/v1/runs", url.Values{"commit": {commit}, "passed": {"true"}}, nil, &res)
+	return res.Runs, err
+}
+
 func (c Client) Status(ctx context.Context) (Status, error) {
 	var st Status
 	_, err := c.do(ctx, http.MethodGet, "/v1/status", nil, nil, &st)

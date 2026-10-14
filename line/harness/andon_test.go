@@ -32,6 +32,10 @@ func (c *recordingCards) Raise(_ context.Context, event string, _ guard.AndonEve
 	return "card-" + event, nil
 }
 
+func (c *recordingCards) RaiseFlake(context.Context, andon.Flake) (string, error) {
+	return "card-flake", nil
+}
+
 // TestAndonStopFixClear walks the whole andon cycle through the real station
 // API, witness, guard and watcher: break, stop, fix, clear.
 func TestAndonStopFixClear(t *testing.T) {
