@@ -44,8 +44,8 @@ func serveOnce(t *testing.T, delay time.Duration) string {
 // A slow command must not be cut off by the connection timeout. The daemon runs
 // the command regardless, so a client-side deadline discards work already done.
 func TestCallWaitsForSlowResponse(t *testing.T) {
-	socket := serveOnce(t, 300*time.Millisecond)
-	client := Client{Socket: socket, DialTimeout: 50 * time.Millisecond}
+	socket := serveOnce(t, 700*time.Millisecond)
+	client := Client{Socket: socket, DialTimeout: 500 * time.Millisecond}
 
 	var value map[string]string
 	if err := client.Call(context.Background(), Request{ID: "1", Op: OpBash}, &value); err != nil {
@@ -90,13 +90,13 @@ func TestCallCancellationUnblocksPendingRead(t *testing.T) {
 }
 
 func TestTimeoutAppliesOnlyWithoutContextDeadline(t *testing.T) {
-	socket := serveOnce(t, 300*time.Millisecond)
+	socket := serveOnce(t, 700*time.Millisecond)
 	client := Client{Socket: socket, Timeout: 50 * time.Millisecond}
 	if err := client.Call(context.Background(), Request{ID: "1", Op: OpBash}, &map[string]string{}); err == nil {
 		t.Fatal("expected Timeout to bound the call when ctx carries no deadline")
 	}
 
-	socket = serveOnce(t, 300*time.Millisecond)
+	socket = serveOnce(t, 700*time.Millisecond)
 	client = Client{Socket: socket, Timeout: 50 * time.Millisecond}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

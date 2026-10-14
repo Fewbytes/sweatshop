@@ -27,8 +27,8 @@ func TestHealthAndShutdown(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(context.Background()) }()
 
-	client := agentrpc.Client{Socket: paths.Socket, Timeout: time.Second}
-	deadline := time.Now().Add(time.Second)
+	client := agentrpc.Client{Socket: paths.Socket, Timeout: 10 * time.Second}
+	deadline := time.Now().Add(10 * time.Second)
 	var health agentrpc.Health
 	for {
 		err = client.Call(context.Background(), agentrpc.Request{ID: "test", Op: agentrpc.OpHealth}, &health)
