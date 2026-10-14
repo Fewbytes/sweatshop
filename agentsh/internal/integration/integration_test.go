@@ -77,7 +77,8 @@ func TestStreamSeparationAndLargeOutput(t *testing.T) {
 
 func TestDaemonReconciliation(t *testing.T) {
 	e, root := newExecutor(t)
-	inv, err := e.Execute(context.Background(), executor.Request{Command: `sleep .1`, CWD: root, Background: true})
+	// Must outlive the test even on a loaded machine, or the job finishes before Reconcile sees it running.
+	inv, err := e.Execute(context.Background(), executor.Request{Command: `sleep 10`, CWD: root, Background: true})
 	if err != nil {
 		t.Fatal(err)
 	}
