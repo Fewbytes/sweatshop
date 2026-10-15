@@ -88,14 +88,7 @@ func waitForNoRunningInvocations(t *testing.T, server *Server) {
 	// TestServicesSurviveDaemonRestartAsStopped failure in GitHub Actions
 	// run 32249829023) — widened for headroom, not because the logic needed
 	// fixing.
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if len(server.exec.Processes("")) == 0 {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatal("invocations still running after deadline")
+	pollUntil(t, 10*time.Second, "running invocations to drain", func() bool { return len(server.exec.Processes("")) == 0 })
 }
 
 func TestServicesSurviveDaemonRestartAsStopped(t *testing.T) {
@@ -134,13 +127,7 @@ func TestServicesSurviveDaemonRestartAsStopped(t *testing.T) {
 	if err := syscall.Kill(-svc.PID, syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && processAlive(svc.PID) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if processAlive(svc.PID) {
-		t.Fatal("service process did not die")
-	}
+	pollUntil(t, 2*time.Second, "service process to die", func() bool { return !processAlive(svc.PID) })
 	waitForNoRunningInvocations(t, first)
 
 	first.Shutdown()

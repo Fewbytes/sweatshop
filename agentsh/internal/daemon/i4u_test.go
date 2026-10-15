@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -18,14 +19,27 @@ import (
 
 func waitForFile(t *testing.T, path string) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(path); err == nil {
-			return
+	pollUntil(t, 2*time.Second, "file "+path, func() bool {
+		_, err := os.Stat(path)
+		return err == nil
+	})
+}
+
+// waitForPIDFile returns the pid a test command wrote with `echo $$ > path`,
+// tolerating the window where the file exists but is still empty.
+func waitForPIDFile(t *testing.T, path string) int {
+	t.Helper()
+	var pid int
+	pollUntil(t, 2*time.Second, "pid file "+path, func() bool {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return false
 		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatalf("file %s never appeared", path)
+		n, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		pid = n
+		return err == nil
+	})
+	return pid
 }
 
 func TestClientDisconnectCancelsForegroundInvocation(t *testing.T) {
@@ -47,7 +61,8 @@ func TestClientDisconnectCancelsForegroundInvocation(t *testing.T) {
 	waitForSocket(t, paths.Socket)
 
 	marker := filepath.Join(root, "marker")
-	cmd := fmt.Sprintf(`echo started >> %s; sleep 30; echo done >> %s`, marker, marker)
+	pidFile := filepath.Join(root, "pid")
+	cmd := fmt.Sprintf(`echo $$ > %s; sleep 30; echo done >> %s`, pidFile, marker)
 	reqParams, _ := json.Marshal(agentrpc.BashRequest{Command: cmd, Session: "default"})
 	req := agentrpc.Request{Version: agentrpc.Version, ID: "disconnect-me", Op: agentrpc.OpBash, Params: reqParams}
 
@@ -60,24 +75,16 @@ func TestClientDisconnectCancelsForegroundInvocation(t *testing.T) {
 	}
 	// Wait for the process to actually start before disconnecting, so this
 	// races a live process rather than one that hasn't been spawned yet.
-	waitForFile(t, marker)
+	pid := waitForPIDFile(t, pidFile)
 	conn.Close() // disconnect without reading the response
 
-	// If cancellation works, "done" is never appended (SIGTERM/SIGKILL cuts
-	// off the sleep) and a fresh health check keeps succeeding, proving the
-	// daemon itself stayed healthy throughout.
+	// If cancellation works, the shell dies (SIGTERM/SIGKILL cuts off the
+	// sleep) before it can append "done", and the daemon still answers health.
+	pollUntil(t, 3*time.Second, "cancelled command to exit", func() bool { return !processAlive(pid) })
 	client := agentrpc.Client{Socket: paths.Socket, Timeout: 2 * time.Second}
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		var health agentrpc.Health
-		if err := client.Call(context.Background(), agentrpc.Request{ID: "h", Op: agentrpc.OpHealth}, &health); err != nil {
-			t.Fatal(err)
-		}
-		data, _ := os.ReadFile(marker)
-		if strings.Contains(string(data), "done") {
-			t.Fatal("process ran to completion; disconnect did not cancel it")
-		}
-		time.Sleep(50 * time.Millisecond)
+	var health agentrpc.Health
+	if err := client.Call(context.Background(), agentrpc.Request{ID: "h", Op: agentrpc.OpHealth}, &health); err != nil {
+		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(marker)
 	if strings.Contains(string(data), "done") {

@@ -27,18 +27,11 @@ func startServing(t *testing.T, paths workspace.Paths) *Server {
 	})
 
 	client := agentrpc.Client{Socket: paths.Socket, Timeout: time.Second}
-	deadline := time.Now().Add(3 * time.Second)
-	for {
+	pollUntil(t, 3*time.Second, "daemon to begin serving", func() bool {
 		var health agentrpc.Health
-		err := client.Call(context.Background(), agentrpc.Request{ID: "wait", Op: agentrpc.OpHealth}, &health)
-		if err == nil {
-			return server
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("daemon never began serving: %v", err)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+		return client.Call(context.Background(), agentrpc.Request{ID: "wait", Op: agentrpc.OpHealth}, &health) == nil
+	})
+	return server
 }
 
 // A second daemon for the same workspace must lose cleanly on the socket, not

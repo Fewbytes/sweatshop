@@ -28,18 +28,10 @@ func TestHealthAndShutdown(t *testing.T) {
 	go func() { done <- server.Serve(context.Background()) }()
 
 	client := agentrpc.Client{Socket: paths.Socket, Timeout: 10 * time.Second}
-	deadline := time.Now().Add(10 * time.Second)
 	var health agentrpc.Health
-	for {
-		err = client.Call(context.Background(), agentrpc.Request{ID: "test", Op: agentrpc.OpHealth}, &health)
-		if err == nil || time.Now().After(deadline) {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
+	pollUntil(t, 10*time.Second, "daemon to answer health", func() bool {
+		return client.Call(context.Background(), agentrpc.Request{ID: "test", Op: agentrpc.OpHealth}, &health) == nil
+	})
 	if health.Workspace != root || health.Status != "ok" {
 		t.Fatalf("unexpected health: %+v", health)
 	}
@@ -74,18 +66,30 @@ func TestSecondServerDoesNotStealLiveSocket(t *testing.T) {
 	}
 }
 
+// pollUntil is the only place daemon tests wait on wall-clock time: it
+// re-evaluates condition until it holds, failing the test after timeout.
+// Tests wait on observable state through it rather than sleeping a guess.
+func pollUntil(t *testing.T, timeout time.Duration, what string, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for !condition() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out after %v waiting for %s", timeout, what)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 func waitForSocket(t *testing.T, path string) {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
+	pollUntil(t, time.Second, "socket to accept connections", func() bool {
 		conn, err := net.Dial("unix", path)
-		if err == nil {
-			conn.Close()
-			return
+		if err != nil {
+			return false
 		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatal("socket did not become ready")
+		conn.Close()
+		return true
+	})
 }
 
 func TestBashOutputPagesViaIndex(t *testing.T) {

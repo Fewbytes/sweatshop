@@ -46,15 +46,12 @@ func TestBashServiceLogsPagesByLineRange(t *testing.T) {
 	if err := client.Call(context.Background(), agentrpc.Request{ID: "start", Op: agentrpc.OpBashService, Params: startParams}, nil); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		logsParams, _ := json.Marshal(agentrpc.BashServiceLogsRequest{Name: "counter", Lines: "1:20"})
+	fullLogParams, _ := json.Marshal(agentrpc.BashServiceLogsRequest{Name: "counter", Lines: "1:20"})
+	pollUntil(t, 2*time.Second, "service log to reach line 20", func() bool {
 		var result output.Result
-		if err := client.Call(context.Background(), agentrpc.Request{ID: "logs", Op: agentrpc.OpBashServiceLogs, Params: logsParams}, &result); err == nil && strings.Contains(result.Text, "line 20") {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+		err := client.Call(context.Background(), agentrpc.Request{ID: "logs", Op: agentrpc.OpBashServiceLogs, Params: fullLogParams}, &result)
+		return err == nil && strings.Contains(result.Text, "line 20")
+	})
 
 	logsParams, _ := json.Marshal(agentrpc.BashServiceLogsRequest{Name: "counter", Lines: "5:8"})
 	var result output.Result
@@ -80,14 +77,11 @@ func TestBashServiceLogsTailReturnsLastNLines(t *testing.T) {
 	}
 
 	var result output.Result
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		logsParams, _ := json.Marshal(agentrpc.BashServiceLogsRequest{Name: "counter", Tail: 3})
-		if err := client.Call(context.Background(), agentrpc.Request{ID: "logs", Op: agentrpc.OpBashServiceLogs, Params: logsParams}, &result); err == nil && strings.Contains(result.Text, "line 20") {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	logsParams, _ := json.Marshal(agentrpc.BashServiceLogsRequest{Name: "counter", Tail: 3})
+	pollUntil(t, 2*time.Second, "service log to reach line 20", func() bool {
+		err := client.Call(context.Background(), agentrpc.Request{ID: "logs", Op: agentrpc.OpBashServiceLogs, Params: logsParams}, &result)
+		return err == nil && strings.Contains(result.Text, "line 20")
+	})
 	if result.Text != "line 18\nline 19\nline 20" {
 		t.Fatalf("unexpected tail text: %q", result.Text)
 	}
