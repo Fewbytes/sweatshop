@@ -152,10 +152,10 @@ func TestSupervisorFailureIsNotReportedAsCommandExit(t *testing.T) {
 func TestChattyCommandIsNotReportedWaitingOnInput(t *testing.T) {
 	exec, _, root := testExecutor(t)
 	invocation, err := exec.Execute(context.Background(), Request{
-		Command:     "for i in 1 2 3 4 5 6; do echo tick; sleep 0.05; done",
+		Command:     "for i in 1 2 3 4 5 6 7; do echo tick; sleep 0.1; done",
 		CWD:         root,
 		Interactive: true,
-		IdleTimeout: 100 * time.Millisecond,
+		IdleTimeout: 500 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatal(err)
