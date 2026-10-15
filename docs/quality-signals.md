@@ -22,6 +22,16 @@ the number is a change in the code.
 | Tokenizer | `cl100k_base` | context closure |
 | Closure | function body + direct callees + direct types | context closure |
 
+## signals.json (schema 2)
+
+One adapter per language (`line/kaizen/signals/adapter.py`) declares the signals
+it computes and returns, for each, a number or `{"unavailable": reason}`.
+`tools` records every tool and rule-set version the numbers depend on (git,
+python, the Go adapter's version). Two runs with different `tools` (or a schema 1
+run, which recorded none) are different baselines: `delta` refuses to compare
+them and the report shows no trend across them. Bump `GO_ADAPTER_VERSION` in
+`go_adapter.py` when a change to the lexer or idiom table moves numbers.
+
 ## Hidden-coupling ratio (lower is better)
 
 Files that change together but have no static link force a reader to remember

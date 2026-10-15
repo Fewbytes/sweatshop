@@ -6,10 +6,12 @@ import subprocess
 import tempfile
 import unittest
 
+import go_adapter
 import golang
 import kaizen_signals
 import measure
 import render
+from adapter import Unavailable
 
 BRANCHY = """package a
 
@@ -136,12 +138,36 @@ class MeasureRepo(unittest.TestCase):
                          {"passed": True, "duration_ms": 10}, {"passed": True, "duration_ms": 20}]}
         self.assertEqual(measure.ci_runtime(runs), {"ci_runs": 3, "ci_median_ms": 20})
 
+    def test_ci_runtime_is_unavailable_with_the_reason_when_no_runs_given(self):
+        self.assertEqual(measure.ci_runtime(None)["ci_median_ms"], Unavailable("no CI runs file given"))
+
+    def test_signals_record_schema_2_and_every_tool_version(self):
+        s = self.measure()
+        self.assertEqual(s["schema"], 2)
+        self.assertEqual(sorted(s["tools"]), ["git", "kaizen-go-adapter", "python"])
+        self.assertEqual(s["tools"]["kaizen-go-adapter"], go_adapter.GO_ADAPTER_VERSION)
+
+    def test_unavailable_signal_is_written_as_its_reason(self):
+        written = json.loads(measure.dumps(self.measure()))
+        self.assertEqual(written["repo"]["ci_median_ms"], {"unavailable": "no CI runs file given"})
+
+    def test_adapter_omitting_a_declared_signal_fails_loudly(self):
+        class Lazy(go_adapter.GoAdapter):
+            def measure(self, root, history):
+                result = super().measure(root, history)
+                del result.repo["clones"]
+                return result
+
+        with self.assertRaisesRegex(ValueError, r"omitted repo signals \['clones'\]"):
+            measure.measure(self.root, "HEAD", None, (Lazy(),))
+
 
 class Rendering(unittest.TestCase):
-    def signals(self, commit, hotspot):
+    def signals(self, commit, hotspot, tools=(('git', '2'),)):
         pkg = {s: 0 for s in render.PACKAGE_SIGNALS} | {"hotspot": hotspot, "hotspot_rank": 1}
         repo = {s: 0 for s in render.REPO_SIGNALS} | {"hotspot": hotspot, "ci_median_ms": None}
-        return {"commit": commit, "measured_at": "t", "window_days": 90, "packages": {"p/q": pkg}, "repo": repo}
+        return {"commit": commit, "measured_at": "t", "window_days": 90, "tools": dict(tools),
+                "packages": {"p/q": pkg}, "repo": repo}
 
     def test_report_shows_trend_against_previous_run_and_after_values(self):
         page = render.render_report(
@@ -171,3 +197,25 @@ class Rendering(unittest.TestCase):
         before, worse = self.signals("a" * 40, 10), self.signals("b" * 40, 10)
         worse["packages"]["p/q"]["clones"] = 3
         self.assertEqual(render.regressions(before, worse, "p/q", "hotspot"), ["clones: 0 → 3"])
+
+    def test_delta_refuses_to_compare_runs_with_different_tool_versions(self):
+        with tempfile.TemporaryDirectory() as d:
+            for name, tools in {"before": (("git", "2"),), "after": (("git", "3"),)}.items():
+                with open(os.path.join(d, name), "w") as f:
+                    json.dump(self.signals(name, 10 if name == "before" else 4, tools), f)
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+                code = kaizen_signals.main(["delta", "--package", "p/q", "--signal", "hotspot",
+                                            "--before", os.path.join(d, "before"), "--after", os.path.join(d, "after")])
+        self.assertEqual(code, 1)
+        self.assertIn("new baseline", err.getvalue())
+
+    def test_report_drops_the_trend_when_the_previous_run_used_other_tools(self):
+        page = render.render_report(
+            self.signals("a" * 40, 10), self.signals("b" * 40, 12, (("git", "1"),)), None, None)
+        self.assertIn("new baseline", page)
+        self.assertNotIn('class="better"', page)
+
+    def test_unavailable_values_render_as_a_dash(self):
+        current = self.signals("a" * 40, 10)
+        current["repo"]["ci_median_ms"] = {"unavailable": "no CI runs file given"}
+        self.assertIn("<td>–</td>", render.render_report(current, None, None, None))

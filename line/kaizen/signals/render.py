@@ -41,6 +41,19 @@ class Pick:
     why: str
 
 
+def number(value):
+    """A signal's number, or None when the adapter reported it unavailable."""
+    return None if isinstance(value, dict) and "unavailable" in value else value
+
+
+def baseline_mismatch(before: dict, after: dict) -> str | None:
+    """Why two runs are not comparable, or None. A run measured with other tool
+    versions (or an older schema, which recorded none) starts a new baseline."""
+    if before.get("tools") == after.get("tools"):
+        return None
+    return f"tool versions differ ({before.get('tools')} vs {after.get('tools')}): new baseline"
+
+
 def fmt_delta(old, new) -> str:
     """The value, then its change against old as a coloured span; no span when
     old is unknown or equal."""
@@ -64,7 +77,7 @@ def status_table(current: dict, previous: dict | None) -> str:
     for pkg, cur in sorted(current["packages"].items(), key=lambda kv: kv[1]["hotspot_rank"]):
         old = prev_pkgs.get(pkg)
         row = [html.escape(pkg), str(cur["hotspot_rank"])]
-        row += [fmt_delta(old[s] if old else None, cur[s]) for s in PACKAGE_SIGNALS]
+        row += [fmt_delta(number(old[s]) if old else None, number(cur[s])) for s in PACKAGE_SIGNALS]
         rows.append(row)
     return _table(["Package", "Rank", *PACKAGE_SIGNALS.values()], rows)
 
@@ -72,10 +85,10 @@ def status_table(current: dict, previous: dict | None) -> str:
 def repo_table(current: dict, previous: dict | None, after: dict | None) -> str:
     rows = []
     for key, title in REPO_SIGNALS.items():
-        before = current["repo"][key]
-        row = [html.escape(title), fmt_delta((previous or {})["repo"].get(key) if previous else None, before)]
+        before = number(current["repo"][key])
+        row = [html.escape(title), fmt_delta(number(previous["repo"].get(key)) if previous else None, before)]
         if after is not None:
-            row.append(fmt_delta(before, after["repo"][key]))
+            row.append(fmt_delta(before, number(after["repo"][key])))
         rows.append(row)
     return _table(["Signal", "Baseline (trend vs previous run)", *(["After the change"] if after else [])], rows)
 
@@ -84,20 +97,28 @@ def package_change_table(before: dict, after: dict) -> str:
     rows = []
     for pkg in sorted(set(before["packages"]) | set(after["packages"])):
         b, a = before["packages"].get(pkg), after["packages"].get(pkg)
-        changed = [(s, b[s] if b else None, a[s] if a else None) for s in PACKAGE_SIGNALS]
+        changed = [(s, number(b[s]) if b else None, number(a[s]) if a else None) for s in PACKAGE_SIGNALS]
         if any(old != new for _, old, new in changed):
             rows.append([html.escape(pkg), *[fmt_delta(old, new) for _, old, new in changed]])
     return _table(["Package", *PACKAGE_SIGNALS.values()], rows) if rows else "<p>No package signal changed.</p>"
 
 
 def render_report(current: dict, previous: dict | None, after: dict | None, pick: Pick | None) -> str:
+    new_baseline = baseline_mismatch(previous, current) if previous else None
+    if new_baseline:
+        previous = None
+    if after is not None and baseline_mismatch(current, after):
+        raise ValueError(f"cannot compare the after run: {baseline_mismatch(current, after)}")
     parts = [
         f"<!doctype html><meta charset=utf-8><title>Kaizen status {html.escape(current['commit'][:12])}</title>",
         f"<style>{STYLE}</style>",
         f"<h1>Kaizen status at {html.escape(current['commit'][:12])}</h1>",
         f"<p>History window {current['window_days']} days ending {html.escape(current['measured_at'])}; "
         + (f"trend against {html.escape(previous['commit'][:12])}." if previous else "no previous run to compare."),
-        "</p><h2>Repository</h2>",
+        "</p>",
+        f"<p>{html.escape(new_baseline)}.</p>" if new_baseline else "",
+        "<p>Tools: " + html.escape(", ".join(f"{k} {v}" for k, v in current["tools"].items())) + ".</p>",
+        "<h2>Repository</h2>",
         repo_table(current, previous, after),
         "<h2>Modules by hotspot rank</h2>",
         status_table(current, previous),
@@ -115,7 +136,7 @@ def render_report(current: dict, previous: dict | None, after: dict | None, pick
 
 def signal_value(signals: dict, package: str, signal: str):
     """Package is a package directory, or '.' for the repo-wide value."""
-    return (signals["repo"] if package == "." else signals["packages"][package])[signal]
+    return number((signals["repo"] if package == "." else signals["packages"][package])[signal])
 
 
 def regressions(before: dict, after: dict, package: str, except_signal: str) -> list[str]:
