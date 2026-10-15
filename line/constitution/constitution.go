@@ -22,7 +22,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-var Roles = []string{"maker", "andon", "kaizen", "gemba", "viceroy"}
+var Roles = []string{"maker", "andon", "kaizen", "gemba", "viceroy", "heijunka"}
 
 type Constitution struct {
 	Trust  Trust  `toml:"trust"`

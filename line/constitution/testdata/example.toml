@@ -8,7 +8,7 @@
 level = "attest"
 
 # One entry per witness/station key. roles limits what the key may attest as
-# (maker, andon, kaizen, gemba, viceroy); empty or absent means any role.
+# (maker, andon, kaizen, gemba, viceroy, heijunka); empty or absent means any role.
 [[trust.keys]]
 name = "maker-1"
 public_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="   # base64 ed25519 public key (placeholder here)

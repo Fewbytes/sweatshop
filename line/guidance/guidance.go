@@ -34,11 +34,12 @@ var Testing string
 // byRole lists each constitution role's guides in prompt order. Every role
 // has an entry, even an empty one, so adding a role forces a decision here.
 var byRole = map[string][]string{
-	"maker":   {Writer, Testing},
-	"andon":   {Writer},
-	"kaizen":  {Writer, Testing, Kaizen},
-	"gemba":   {Writer, Testing, Gemba},
-	"viceroy": nil, // files cards; writes no code
+	"maker":    {Writer, Testing},
+	"andon":    {Writer},
+	"kaizen":   {Writer, Testing, Kaizen},
+	"gemba":    {Writer, Testing, Gemba},
+	"viceroy":  nil, // files cards; writes no code
+	"heijunka": nil, // levels the card flow; writes no code
 }
 
 // For returns role's guides as one prompt section, and false for a role the
