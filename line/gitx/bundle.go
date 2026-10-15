@@ -14,6 +14,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/format/packfile"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/go-git/go-git/v5/storage/memory"
 )
 
@@ -192,11 +193,35 @@ func (r Repo) FetchBundle(ctx context.Context, path, prerequisitesWithin string,
 			return fmt.Errorf("bundle %s: prerequisite %s is not in %s: %v", path, p, prerequisitesWithin, err)
 		}
 	}
+	dst, err := r.open(ctx)
+	if err != nil {
+		return err
+	}
 	objects := memory.NewStorage()
-	if err := packfile.UpdateObjectStorage(objects, br); err != nil {
+	parser, err := packfile.NewParserWithStorage(packfile.NewScanner(br), thinPackStorage{EncodedObjectStorer: objects, bases: dst.Storer})
+	if err == nil {
+		_, err = parser.Parse()
+	}
+	if err != nil {
 		return fmt.Errorf("bundle %s: read pack: %w", path, err)
 	}
 	return r.fetchFrom(ctx, refSource{refs: refs, objects: objects}, prune, refspecs)
+}
+
+// thinPackStorage lets go-git resolve deltas whose base is a prerequisite the
+// bundle omits (git writes bundle packs thin). Writes land in the embedded
+// store only, so the bundle's objects stay separate from the base's.
+type thinPackStorage struct {
+	storer.EncodedObjectStorer
+	bases storer.EncodedObjectStorer
+}
+
+func (s thinPackStorage) EncodedObject(t plumbing.ObjectType, h plumbing.Hash) (plumbing.EncodedObject, error) {
+	obj, err := s.EncodedObjectStorer.EncodedObject(t, h)
+	if errors.Is(err, plumbing.ErrObjectNotFound) {
+		return s.bases.EncodedObject(t, h)
+	}
+	return obj, err
 }
 
 func readBundleHeader(br *bufio.Reader) (prerequisites []plumbing.Hash, refs []*plumbing.Reference, err error) {

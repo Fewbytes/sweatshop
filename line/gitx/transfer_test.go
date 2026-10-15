@@ -172,6 +172,34 @@ func TestBundleRoundTripIsReadableByGitAndStoresOnlyTheNewHistory(t *testing.T) 
 	}
 }
 
+func TestFetchBundleResolvesDeltasAgainstPrerequisiteObjectsInThinPack(t *testing.T) {
+	ctx := context.Background()
+	line, agent, _, _ := lineAndAgent(t, ctx)
+	body := strings.Repeat("a line long enough to make a delta worthwhile\n", 200)
+	base := commitFile(t, agent, ctx, "big.txt", body)
+	mustGit(t, ctx, agent.Dir, "push", "--quiet", line.Dir, "HEAD:refs/heads/master")
+	tip := commitFile(t, agent, ctx, "big.txt", body+"one more line\n")
+
+	path := filepath.Join(t.TempDir(), "thin.bundle")
+	mustGit(t, ctx, agent.Dir, "update-ref", "refs/sweatshop/candidate", tip)
+	mustGit(t, ctx, agent.Dir, "bundle", "create", path, "refs/sweatshop/candidate", "^"+base)
+
+	cache := Repo{Dir: t.TempDir()}
+	if err := cache.Init(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.Fetch(ctx, line, true, "+refs/heads/*:refs/line/heads/*"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.FetchBundle(ctx, path, "refs/line/heads/", false, "+refs/sweatshop/*:refs/bundle/*"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := cache.Ref(ctx, "refs/bundle/candidate"); err != nil || got != tip {
+		t.Fatalf("bundle ref = %q, %v; want %s", got, err, tip)
+	}
+	mustGit(t, ctx, cache.Dir, "fsck", "--strict")
+}
+
 func TestFetchBundleRejectsPrerequisiteTheLineLacks(t *testing.T) {
 	ctx := context.Background()
 	_, agent, _, tip := lineAndAgent(t, ctx)
