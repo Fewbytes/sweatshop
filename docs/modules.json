@@ -1154,20 +1154,20 @@
       "purpose": ""
     },
     "line/heijunka": {
-      "entry_point_count": 31,
+      "entry_point_count": 39,
       "entry_points": [
+        "AbandonedReason",
         "Actuator",
         "AnalyzeFlow",
         "BeadsNeeds",
         "BeadsObserver",
+        "BeadsReap",
+        "ClaimedCard",
         "Decide",
         "DecideStaleNeed",
         "DefaultPolicy",
-        "FlowCard",
-        "FlowReport",
-        "KaizenRequester",
-        "Levels",
-        "LevelsFile"
+        "ErrCardMoved",
+        "FlowCard"
       ],
       "hidden_coupling_ratio": 0.0,
       "hotspot_rank": 15,
@@ -1180,7 +1180,7 @@
         "line/station"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "a4cf8f41f72237cfe0658a5889d1a8e7b7cd866e",
       "purpose": "Package heijunka is the host-side worker that levels the line's flow. It is"
     },
     "line/internal/testwait": {

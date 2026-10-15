@@ -429,6 +429,8 @@ func lineHeijunka(args []string) error {
 	levels := heijunka.LevelsFile{Path: filepath.Join(*dir, "heijunka.json")}
 	w := &heijunka.Worker{
 		Needs:    &heijunka.NeedsTriager{Cards: heijunka.BeadsNeeds{Dir: *beads}, Timeout: needsTimeout, Log: logger},
+		Reaper:   &heijunka.Reaper{Cards: heijunka.BeadsReap{BeadsNeeds: heijunka.BeadsNeeds{Dir: *beads}}, Log: logger},
+		Status:   c,
 		Observer: heijunka.BeadsObserver{API: c, Dir: *beads, Label: station.LabelLine, Levels: levels},
 		Kaizen:   c,
 		Actuator: levels, Policy: policy, Interval: *interval, Poke: poke, Log: logger,

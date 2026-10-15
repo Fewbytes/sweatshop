@@ -151,6 +151,8 @@ type Worker struct {
 	Interval time.Duration // periodic wake, default 5m
 	Poke     <-chan struct{}
 	Needs    *NeedsTriager   // nil leaves stale needs:<role> cards alone
+	Reaper   *Reaper         // nil leaves abandoned claims alone
+	Status   StatusAPI       // read by Reaper; required when Reaper is set
 	Kaizen   KaizenRequester // nil never requests a Kaizen run
 	Log      *log.Logger
 }
@@ -161,6 +163,11 @@ func (w *Worker) Step(ctx context.Context) (Levels, error) {
 	if w.Needs != nil {
 		if err := w.Needs.Triage(ctx, time.Now()); err != nil && w.Log != nil {
 			w.Log.Printf("needs: %v", err)
+		}
+	}
+	if w.Reaper != nil {
+		if err := w.reap(ctx); err != nil && w.Log != nil {
+			w.Log.Printf("reap: %v", err)
 		}
 	}
 	snap, err := w.Observer.Observe(ctx)
@@ -194,6 +201,14 @@ func (w *Worker) Step(ctx context.Context) (Levels, error) {
 			snap.Ready, snap.InProgress, snap.Stopped, snap.MakersAlive, snap.Current, want)
 	}
 	return want, nil
+}
+
+func (w *Worker) reap(ctx context.Context) error {
+	st, err := w.Status.Status(ctx)
+	if err != nil {
+		return fmt.Errorf("status: %w", err)
+	}
+	return w.Reaper.Reap(ctx, st)
 }
 
 // Run steps on start, then on every Interval tick or Poke, until ctx is done.
