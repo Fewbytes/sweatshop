@@ -41,7 +41,7 @@ def go_import_resolver(root: str, files: set[str]) -> ImportResolver:
 GO = LanguageSpec(
     name="go",
     tables_tool="kaizen-go-tables",
-    version="2",
+    version="3",
     grammar_package="tree-sitter-go",
     grammar=Language(tree_sitter_go.language()),
     extensions=(".go",),
@@ -73,6 +73,9 @@ GO = LanguageSpec(
           (const_declaration (const_spec name: (identifier) @name))
         ])""",
     is_exported=lambda name: name.text[:1].isupper(),
+    lsp_command=("gopls",),
+    lsp_language_id="go",
+    untyped_signature=re.compile(r"\bany\b|interface\s*\{\s*\}"),
     not_dead=re.compile(r"^(main|init|_|Test\w*|Benchmark\w*|Example\w*|Fuzz\w*)$"),
     identifier_types=frozenset({"identifier", "type_identifier", "field_identifier", "package_identifier", "label_name"}),
     # Pattern entropy is the Shannon entropy of the counts within one concern:

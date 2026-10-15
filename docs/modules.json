@@ -1231,7 +1231,7 @@
       "purpose": "Package kaizen runs a Kaizen station: a host-side loop that, on a schedule"
     },
     "line/kaizen/signals": {
-      "entry_point_count": 112,
+      "entry_point_count": 123,
       "entry_points": [
         "ADAPTERS",
         "ANONYMOUS_FUNCTION",
@@ -1241,17 +1241,17 @@
         "CLONE_WINDOW_TOKENS",
         "COHESION_GRAPH_MODULES",
         "COMPONENT_COLOURS",
+        "CallItem",
         "Commit",
         "DEFAULT_CAP_SECONDS",
-        "Finding",
-        "FunctionComplexity"
+        "Declaration"
       ],
       "hidden_coupling_ratio": 0.0,
       "hotspot_rank": 1,
       "imported_by": [],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "75292855b6e524bf779f8115b966e952a15eccb6",
+      "measured_at_commit": "daf5dd871ad0a804a9f8289ad183705fbee0b1e7",
       "purpose": "The per-language adapter interface and the types signals travel in."
     },
     "line/linedir": {

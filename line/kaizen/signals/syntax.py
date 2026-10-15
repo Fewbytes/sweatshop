@@ -53,7 +53,7 @@ class LanguageSpec:
     grammar: Language
     extensions: tuple[str, ...]
     is_test: Callable[[str], bool]  # repo-relative path -> test file?
-    module_marker: str  # file naming a module root, for dead-symbol scoping ("" = whole repo)
+    module_marker: str  # file naming a module root, one language server runs per module ("" = whole repo)
     repo_signal_prefix: str  # "" keeps a language's repo keys unprefixed, e.g. Go's baselines
 
     # (repo root, repo-relative paths of this language's files) -> how its imports resolve
@@ -74,8 +74,19 @@ class LanguageSpec:
     declaration_query: str
     not_dead: re.Pattern[str]  # declared names that are used without a textual reference
     is_exported: Callable[[Node], bool]  # declaration_query's @name node -> part of the module's public surface?
+    lsp_command: tuple[str, ...]  # the pinned language server, speaking stdio
+    lsp_language_id: str
+    untyped_signature: re.Pattern[str]  # matches a hover signature that leaves a parameter or result untyped
     identifier_types: frozenset[str]
     idioms: tuple[Idiom, ...]
+
+
+@dataclass(frozen=True)
+class Declaration:
+    name: str
+    line: int  # zero-based, where the language server looks the symbol up
+    character: int  # zero-based, in UTF-16 code units
+    exported: bool
 
 
 @dataclass
@@ -90,13 +101,17 @@ class SourceFile:
     is_test: bool
     imports: list[str]
     functions: list[FunctionComplexity]
-    symbols: list[str]
+    declarations: list[Declaration]
     symbol_refs: dict[str, frozenset[str]]  # symbol -> identifiers its declaration uses, itself excluded
     entry_points: list[str]  # the symbols the language exports
     purpose: str  # first line of the leading doc comment or docstring, "" when there is none
     identifiers: list[str]
     idioms: dict[tuple[str, str], int]
     tokens: list[str]  # leaf tokens without comments, for clone windows
+
+    @property
+    def symbols(self) -> list[str]:
+        return [d.name for d in self.declarations]
 
 
 @cache
@@ -207,6 +222,14 @@ def _purpose(spec: LanguageSpec, root: Node) -> str:
     return ""
 
 
+def _lsp_position(source: bytes, offset: int) -> tuple[int, int]:
+    """(zero-based line, UTF-16 column) of a byte offset. Computed from the
+    offset because reading Node.start_point segfaulted the pinned tree-sitter
+    binding when measuring this repo."""
+    line_start = source.rfind(b"\n", 0, offset) + 1
+    return source.count(b"\n", 0, offset), len(source[line_start:offset].decode("utf-8").encode("utf-16-le")) // 2
+
+
 def parse_source(spec: LanguageSpec, path: str, source: bytes) -> SourceFile:
     root = _parser(spec.grammar).parse(source).root_node
     nodes = list(_nodes(root))
@@ -227,7 +250,9 @@ def parse_source(spec: LanguageSpec, path: str, source: bytes) -> SourceFile:
         is_test=spec.is_test(path),
         imports=[_text(n).strip(_QUOTES) for n in _captured(spec, spec.import_query, root, "path")],
         functions=_functions(spec, root),
-        symbols=[name for name, _ in declared],
+        declarations=[
+            Declaration(name, *_lsp_position(source, n.start_byte), spec.is_exported(n)) for name, n in declared
+        ],
         symbol_refs=symbol_refs,
         entry_points=[name for name, n in declared if spec.is_exported(n)],
         purpose=_purpose(spec, root),

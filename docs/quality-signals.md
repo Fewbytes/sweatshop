@@ -43,6 +43,22 @@ resolver. Go's repo signals keep their plain names; Python's and TypeScript's
 are prefixed (`python.clones`, `typescript.clones`). Their package signals share
 the package table, so two languages in one directory is an error.
 
+## Language-server signals
+
+Dead symbols, call depth and the typed-boundary ratio come from a language
+server (`gopls`, `pyright-langserver`, `typescript-language-server`; the
+commands live in each language's table), run once per module through the client
+in `lsp.py`. A dead symbol is a top-level declaration the server finds no
+reference to, so shared names and reflection no longer mislead. Call depth is
+the longest outgoing call chain from an entry point that stays in the repo's
+non-test files (cycles are cut where they close). The typed-boundary ratio is
+the share of entry-point functions whose hover signature has no `any`,
+`interface{}`, `Any` or untyped parameter. A server that cannot start, index or
+answer a request within `REQUEST_TIMEOUT_SECONDS` makes all three
+`{"unavailable": reason}` for that language, never a number. The server and its
+version are recorded in `tools`. Measure on a clean checkout inside the station
+container so before and after use the same server.
+
 ## Hidden-coupling ratio (lower is better)
 
 Files that change together but have no static link force a reader to remember

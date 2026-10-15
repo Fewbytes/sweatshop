@@ -40,7 +40,7 @@ def _inside_export(node: Node) -> bool:
 TYPESCRIPT = LanguageSpec(
     name="typescript",
     tables_tool="kaizen-typescript-tables",
-    version="1",
+    version="2",
     grammar_package="tree-sitter-typescript",
     grammar=Language(tree_sitter_typescript.language_typescript()),
     extensions=(".ts", ".mts", ".cts"),
@@ -79,6 +79,9 @@ TYPESCRIPT = LanguageSpec(
             (lexical_declaration (variable_declarator name: (identifier) @name))])
         ])""",
     is_exported=_inside_export,
+    lsp_command=("typescript-language-server", "--stdio"),
+    lsp_language_id="typescript",
+    untyped_signature=re.compile(r"\bany\b"),
     not_dead=re.compile(r"^(main|_)$"),
     identifier_types=frozenset({
         "identifier", "type_identifier", "property_identifier",

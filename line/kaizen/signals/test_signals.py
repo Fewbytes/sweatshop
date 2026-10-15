@@ -1,8 +1,10 @@
 import contextlib
+import dataclasses
 import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 import unittest.mock
@@ -270,10 +272,6 @@ class MeasureRepo(RepoFixture):
         self.assertEqual((edges["a", "b"]["cochange"], edges["a", "b"]["hidden"]), (0, False))
         self.assertEqual((edges["a", "c"]["imports"], edges["a", "c"]["cochange"], edges["a", "c"]["hidden"]), (0, 2, True))
 
-    def test_dead_symbols_are_names_used_nowhere_else_in_the_module(self):
-        a = self.measure()["packages"]["a"]
-        self.assertEqual((a["dead_symbols"], a["dead_symbol_names"]), (1, ["unusedHelper"]))
-
     def test_hidden_coupling_counts_cochanging_packages_without_an_import(self):
         s = self.measure()
         self.assertEqual((s["repo"]["cochange_pairs"], s["repo"]["hidden_pairs"]), (1, 1))  # only a and c changed twice
@@ -378,8 +376,9 @@ class MeasureRepo(RepoFixture):
         s = self.measure()
         self.assertEqual(s["schema"], 4)
         self.assertEqual(sorted(s["tools"]), [
-            "git", "kaizen-go-tables", "kaizen-python-tables", "kaizen-source-adapter", "kaizen-typescript-tables",
-            "python", "tree-sitter", "tree-sitter-go", "tree-sitter-python", "tree-sitter-typescript",
+            "git", "gopls", "kaizen-go-tables", "kaizen-python-tables", "kaizen-source-adapter", "kaizen-typescript-tables",
+            "pyright-langserver", "python", "tree-sitter", "tree-sitter-go", "tree-sitter-python", "tree-sitter-typescript",
+            "typescript-language-server",
         ])
         self.assertEqual(s["tools"]["kaizen-source-adapter"], source_adapter.SOURCE_ADAPTER_VERSION)
         self.assertEqual(s["tools"]["kaizen-go-tables"], lang_go.GO.version)
@@ -397,6 +396,93 @@ class MeasureRepo(RepoFixture):
 
         with self.assertRaisesRegex(ValueError, r"omitted repo signals \['clones'\]"):
             measure.measure(self.root, "HEAD", None, (Lazy(lang_go.GO),))
+
+
+FAKE_LSP_SERVER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fake_lsp_server.py")
+GO_SOURCE_WITH_SERVER_CASES = BRANCHY + """
+func unusedHelper() {}
+
+func sharedName() {}
+
+type T struct{}
+
+func (T) sharedName() {}
+
+func ByReflection(v any) {}
+"""
+
+
+class LanguageServerSignals(RepoFixture):
+    """Signals read from a language server, here a scripted fake (fake_lsp_server.py)."""
+
+    def setUp(self):
+        super().setUp()
+        self.write("a/a.go", GO_SOURCE_WITH_SERVER_CASES)
+        self.commit("server cases")
+        self.script_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.script_dir.cleanup)
+
+    def at(self, path, name):
+        with open(os.path.join(self.root, path), "rb") as f:
+            declaration = next(d for d in syntax.parse_source(lang_go.GO, path, f.read()).declarations if d.name == name)
+        return f"{path}:{declaration.line}:{declaration.character}"
+
+    def measure_with(self, script, timeout=5.0, command=None):
+        script_path = os.path.join(self.script_dir.name, "script.json")
+        with open(script_path, "w") as f:
+            json.dump(script, f)
+        spec = dataclasses.replace(lang_go.GO, lsp_command=command or (sys.executable, FAKE_LSP_SERVER, script_path))
+        return measure.measure(self.root, "HEAD", None, (source_adapter.SourceAdapter(spec, timeout),))
+
+    def served(self):
+        branchy, helper, by_reflection, c = (self.at("a/a.go", "Branchy"), self.at("a/a.go", "unusedHelper"),
+                                             self.at("a/a.go", "ByReflection"), self.at("c/c.go", "C"))
+        return {
+            "references": {branchy: 1, by_reflection: 1, self.at("a/a.go", "T"): 1, c: 1},
+            "calls": {branchy: [helper], helper: [c, "/outside/lib.go:0:0"], by_reflection: [], c: [branchy]},
+            "hover": {branchy: "func Branchy(a, b bool) int", by_reflection: "func ByReflection(v any)", c: "func C()"},
+        }
+
+    def test_dead_symbols_are_declarations_the_server_finds_no_reference_to(self):
+        a = self.measure_with(self.served())["packages"]["a"]
+        # sharedName's name is also a method's, which a name count takes for a use; ByReflection is used only by reflection.
+        self.assertEqual((a["dead_symbols"], a["dead_symbol_names"]), (2, ["sharedName", "unusedHelper"]))
+
+    def test_call_depth_is_the_longest_call_chain_from_an_entry_point_within_the_repo(self):
+        s = self.measure_with(self.served())
+        # Branchy -> unusedHelper -> C -> Branchy (a cycle, cut where it closes); the call outside the repo does not count.
+        self.assertEqual((s["packages"]["a"]["call_depth"], s["packages"]["c"]["call_depth"], s["repo"]["call_depth"]), (3, 1, 3))
+
+    def test_typed_boundary_ratio_is_the_share_of_entry_point_functions_hovering_without_any(self):
+        s = self.measure_with(self.served())
+        self.assertEqual((s["packages"]["a"]["typed_boundary_ratio"], s["packages"]["c"]["typed_boundary_ratio"]), (0.5, 1.0))
+        self.assertEqual(s["repo"]["typed_boundary_ratio"], 0.667)
+
+    def test_server_version_is_recorded_as_a_tool(self):
+        self.assertEqual(self.measure_with(self.served())["tools"][sys.executable], "fake-lsp 1.2.3")
+
+    def test_server_that_cannot_start_makes_every_server_signal_unavailable_with_the_reason(self):
+        s = self.measure_with(self.served(), command=("no-such-language-server",))
+        reason = Unavailable("no-such-language-server: cannot start no-such-language-server: No such file or directory")
+        for signals in (s["repo"], s["packages"]["a"]):
+            self.assertEqual([signals[k] for k in ("dead_symbols", "call_depth", "typed_boundary_ratio")], [reason] * 3)
+        self.assertEqual(s["tools"]["no-such-language-server"], "unavailable")
+
+    def test_server_that_does_not_answer_in_time_is_unavailable_not_zero(self):
+        s = self.measure_with({**self.served(), "mode": "silent"}, timeout=0.3)
+        self.assertRegex(s["repo"]["dead_symbols"].reason, r"did not answer textDocument/references within 0\.3s")
+
+    def test_server_that_exits_is_unavailable_not_zero(self):
+        s = self.measure_with({**self.served(), "mode": "exit"})
+        self.assertRegex(s["repo"]["call_depth"].reason, r"exited during textDocument/references")
+
+    def test_edit_moves_server_signals_only_by_the_edit(self):
+        before = self.measure_with(self.served())
+        self.write("c/c.go", "package c\n\nfunc C() { _ = 2 }\n")
+        self.commit("edit")
+        after = self.measure_with(self.served())
+        for key in ("dead_symbols", "call_depth", "typed_boundary_ratio"):
+            self.assertEqual(before["repo"][key], after["repo"][key])
 
 
 class GateAgainstHead(RepoFixture):

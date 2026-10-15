@@ -13,14 +13,16 @@ import math
 import os
 from collections import Counter, defaultdict
 
-from adapter import AdapterResult, History, Signals
+from adapter import AdapterResult, History, Signals, Unavailable
 from file_signals import MIN_COCHANGES, cochanging_pairs, file_signals, lcom4, symbol_edges
-from syntax import SKIP_DIRS, ImportResolver, LanguageSpec, SourceFile, module_dir, package_of, parse_source
+from lsp import REQUEST_TIMEOUT_SECONDS, LspUnavailable
+from lsp_signals import ServerFacts, measure_with_servers
+from syntax import SKIP_DIRS, ImportResolver, LanguageSpec, SourceFile, package_of, parse_source
 
 # Bump when a change to the thresholds below or to this module moves numbers
 # without any code change: it marks the run as a new baseline. Changes to one
 # language's tables bump that spec's own version.
-SOURCE_ADAPTER_VERSION = "3"
+SOURCE_ADAPTER_VERSION = "4"
 CLONE_WINDOW_TOKENS = 50
 
 
@@ -141,6 +143,11 @@ def clone_fragments(files: dict[str, SourceFile]) -> Counter[str]:
     return fragments
 
 
+def typed_ratio(typed: int, boundary: int) -> float:
+    """1.0 when there are no entry-point functions: nothing crosses the boundary untyped."""
+    return round(typed / boundary, 3) if boundary else 1.0
+
+
 def entropy(counts: list[int]) -> float:
     total = sum(counts)
     return 0.0 - sum(c / total * math.log2(c / total) for c in counts if c) if total else 0.0
@@ -153,7 +160,7 @@ def concern_entropies(spec: LanguageSpec, idioms: Counter[tuple[str, str]]) -> d
 
 REPO_SIGNAL_NAMES = (
     "hotspot", "complexity", "hidden_coupling_ratio",
-    "clones", "import_cycles", "dead_symbols", "pattern_entropy",
+    "clones", "import_cycles", "dead_symbols", "pattern_entropy", "call_depth", "typed_boundary_ratio",
 )
 
 
@@ -165,11 +172,13 @@ class SourceAdapter:
 
     package_signals = (
         "hotspot", "churn", "complexity", "hidden_coupling_ratio", "lcom4",
-        "clones", "import_cycles", "dead_symbols", "pattern_entropy",
+        "clones", "import_cycles", "dead_symbols", "pattern_entropy", "call_depth", "typed_boundary_ratio",
     )
 
-    def __init__(self, spec: LanguageSpec):
+    def __init__(self, spec: LanguageSpec, request_timeout: float = REQUEST_TIMEOUT_SECONDS):
         self.spec = spec
+        self.request_timeout = request_timeout
+        self._server_versions: list[str] = []
         self.language = spec.name
         self.repo_signals = tuple(spec.repo_signal_prefix + s for s in REPO_SIGNAL_NAMES)
 
@@ -178,6 +187,7 @@ class SourceAdapter:
             "tree-sitter": importlib.metadata.version("tree-sitter"),
             self.spec.grammar_package: importlib.metadata.version(self.spec.grammar_package),
             self.spec.tables_tool: self.spec.version,
+            self.spec.lsp_command[0]: ", ".join(self._server_versions) or "unavailable",
             "kaizen-source-adapter": SOURCE_ADAPTER_VERSION,
         }
 
@@ -200,15 +210,14 @@ class SourceAdapter:
         hidden = {(a, b) for a, b in pairs if b not in graph[a] and a not in graph[b]}
 
         fragments = clone_fragments(files)
-        identifiers: dict[str, Counter[str]] = defaultdict(Counter)  # module dir -> name -> uses
-
-        for path, f in files.items():
-            identifiers[module_dir(modules, path)].update(f.identifiers)
-        dead: dict[str, list[str]] = defaultdict(list)
-        for path, f in source.items():
-            for name in f.symbols:
-                if identifiers[module_dir(modules, path)][name] == 1:
-                    dead[package_of(path)].append(name)
+        facts = ServerFacts()
+        unavailable: Unavailable | None = None
+        try:
+            facts = measure_with_servers(spec, root, files, modules, self.request_timeout)
+        except LspUnavailable as e:
+            unavailable = Unavailable(f"{spec.lsp_command[0]}: {e}")
+        self._server_versions = sorted(facts.server_versions)
+        dead = facts.dead
 
         pkg_idioms: dict[str, Counter[tuple[str, str]]] = defaultdict(Counter)
         for path, f in source.items():
@@ -238,8 +247,10 @@ class SourceAdapter:
                 "lcom4": lcom4(own),
                 "clones": fragments[pkg],
                 "import_cycles": int(pkg in cyclic),
-                "dead_symbols": len(dead[pkg]),
-                "dead_symbol_names": sorted(dead[pkg])[:10],
+                "dead_symbols": unavailable or len(dead[pkg]),
+                "dead_symbol_names": unavailable or sorted(dead[pkg])[:10],
+                "call_depth": unavailable or facts.call_depth[pkg],
+                "typed_boundary_ratio": unavailable or typed_ratio(facts.typed_functions[pkg], facts.boundary_functions[pkg]),
                 "pattern_entropy": round(sum(concern_entropies(spec, pkg_idioms[pkg]).values()), 3),
                 "top_functions": [{"name": fc.name, "complexity": fc.complexity} for fc in funcs[:3]],
             }
@@ -262,7 +273,9 @@ class SourceAdapter:
             "hidden_coupling_ratio": round(len(hidden) / len(pairs), 3) if pairs else 0.0,
             "clones": sum(fragments.values()),
             "import_cycles": cycles,
-            "dead_symbols": sum(len(v) for v in dead.values()),
+            "dead_symbols": unavailable or sum(len(v) for v in dead.values()),
+            "call_depth": unavailable or max(facts.call_depth.values(), default=0),
+            "typed_boundary_ratio": unavailable or typed_ratio(sum(facts.typed_functions.values()), sum(facts.boundary_functions.values())),
             "pattern_entropy": round(sum(by_concern.values()), 3),
             "pattern_entropy_by_concern": by_concern,
         }

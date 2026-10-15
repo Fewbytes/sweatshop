@@ -40,7 +40,7 @@ def python_import_resolver(root: str, files: set[str]) -> ImportResolver:
 PYTHON = LanguageSpec(
     name="python",
     tables_tool="kaizen-python-tables",
-    version="1",
+    version="2",
     grammar_package="tree-sitter-python",
     grammar=Language(tree_sitter_python.language()),
     extensions=(".py",),
@@ -72,6 +72,10 @@ PYTHON = LanguageSpec(
           (decorated_definition definition: (class_definition name: (identifier) @name))
         ])""",
     is_exported=lambda name: not name.text.startswith(b"_"),
+    lsp_command=("pyright-langserver", "--stdio"),
+    lsp_language_id="python",
+    # Any, or a parameter named with no annotation: pyright hovers `def f(a, b: int)`.
+    untyped_signature=re.compile(r"\bAny\b|[(,]\s*\*{0,2}[A-Za-z_]\w*\s*(?=[,)=])"),
     not_dead=re.compile(r"^(main|_|__\w+__|test_\w*|Test\w*)$"),
     identifier_types=frozenset({"identifier"}),
     idioms=(
