@@ -7,12 +7,14 @@ resolved while the tree is read from disk, so a before and an after
 measurement of an edited tree differ only by the edit.
 """
 
-import hashlib
 import importlib.metadata
 import math
 import os
+import subprocess
 from collections import Counter, defaultdict
+from typing import Callable
 
+from clone_signals import WindowSet, clone_fragments, clone_pairs, window_hashes
 from adapter import AdapterResult, History, Signals, Unavailable
 from file_signals import (
     MIN_COCHANGES, ViolationThresholds, cochanging_pairs, decayed_changes, file_signals, lcom4, modularity_violations, symbol_edges,
@@ -24,8 +26,7 @@ from syntax import SKIP_DIRS, ImportResolver, LanguageSpec, SourceFile, package_
 # Bump when a change to the thresholds below or to this module moves numbers
 # without any code change: it marks the run as a new baseline. Changes to one
 # language's tables bump that spec's own version.
-SOURCE_ADAPTER_VERSION = "6"
-CLONE_WINDOW_TOKENS = 50
+SOURCE_ADAPTER_VERSION = "7"
 
 
 def source_files(spec: LanguageSpec, root: str) -> dict[str, SourceFile]:
@@ -39,6 +40,21 @@ def source_files(spec: LanguageSpec, root: str) -> dict[str, SourceFile]:
             with open(os.path.join(root, path), "rb") as f:
                 files[path] = parse_source(spec, path, f.read())
     return files
+
+
+def git_windows(spec: LanguageSpec, root: str) -> Callable[[str, str], WindowSet]:
+    """Clone windows of a file as of a revision, read from git so the working
+    tree does not matter; empty when the file did not exist there. Memoized:
+    one pair's history reads each file revision more than once."""
+    seen: dict[tuple[str, str], WindowSet] = {}
+
+    def windows_at(rev: str, path: str) -> WindowSet:
+        if (rev, path) not in seen:
+            shown = subprocess.run(["git", "-C", root, "show", f"{rev}:{path}"], capture_output=True)
+            seen[rev, path] = window_hashes(parse_source(spec, path, shown.stdout).tokens) if shown.returncode == 0 else frozenset()
+        return seen[rev, path]
+
+    return windows_at
 
 
 def module_dirs(spec: LanguageSpec, root: str) -> set[str]:
@@ -120,29 +136,6 @@ def module_edges(
         {"a": a, "b": b, "imports": imports[a, b], "cochange": together.get((a, b), 0), "hidden": (a, b) in hidden}
         for a, b in sorted(imports.keys() | together.keys())
     ]
-
-
-def clone_fragments(files: dict[str, SourceFile]) -> Counter[str]:
-    """Duplicated code per package: runs of consecutive CLONE_WINDOW_TOKENS-token
-    windows (comments and whitespace are not tokens) that occur in 2+ places."""
-    windows: dict[str, list[tuple[str, int]]] = defaultdict(list)
-    for path, f in files.items():
-        if f.is_test:
-            continue
-        for i in range(len(f.tokens) - CLONE_WINDOW_TOKENS + 1):
-            text = "\x00".join(f.tokens[i:i + CLONE_WINDOW_TOKENS])
-            windows[hashlib.sha1(text.encode()).hexdigest()].append((path, i))
-    duplicated: dict[str, set[int]] = defaultdict(set)
-    for places in windows.values():
-        if len(places) > 1:
-            for path, i in places:
-                duplicated[path].add(i)
-    fragments: Counter[str] = Counter()
-    for path, starts in duplicated.items():
-        for i in starts:
-            if i - 1 not in starts:
-                fragments[package_of(path)] += 1
-    return fragments
 
 
 def typed_ratio(typed: int, boundary: int) -> float:
@@ -310,5 +303,6 @@ class SourceAdapter:
             cochange_pairs=top_pairs,
             hotspot_functions=top_functions,
             module_edges=module_edges(graph, cochange, hidden),
+            clone_pairs=clone_pairs(files, history.commits, git_windows(spec, root)),
             modularity_violations=violations,
         )

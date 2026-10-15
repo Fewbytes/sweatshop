@@ -144,6 +144,27 @@ def violations_section(current: dict) -> str:
     return "\n".join(parts)
 
 
+def clones_section(current: dict) -> str:
+    parts = [
+        "<h2>Clones with a history</h2>",
+        "<p>File pairs that share code now and either changed together while staying similar (live) or drifted apart. "
+        "Late propagation (a later change to one copy alone reconciled them) goes to a bug card, an unreconciled "
+        "divergence to review; neither is unified automatically. A pair is a refactor candidate only once it is old enough "
+        "(Kim et al. 2005: most short-lived clones vanish within about 8 check-ins).</p>",
+    ]
+    if not current["clone_pairs"]:
+        return "\n".join([*parts, "<p>None.</p>"])
+    rows = [
+        [
+            html.escape(c["a"]), html.escape(c["b"]), "live" if c["live"] else "–", str(c["support"]), f"{c['confidence']:.0%}",
+            html.escape(c["divergence"]), html.escape(c["route"] or "–"), str(c["age_commits"]), "yes" if c["refactor_candidate"] else "no",
+        ]
+        for c in current["clone_pairs"]
+    ]
+    parts.append(_table(["File", "File", "Live", "Support", "Confidence", "Divergence", "Route", "Age (commits)", "Refactor candidate"], rows))
+    return "\n".join(parts)
+
+
 def cohesion_section(current: dict) -> str:
     chosen = [
         p for p, s in sorted(current["packages"].items(), key=lambda kv: kv[1]["hotspot_rank"])
@@ -178,6 +199,7 @@ def render_report(current: dict, previous: dict | None, after: dict | None, pick
         status_table(current, previous),
         dependency_section(current),
         violations_section(current),
+        clones_section(current),
         cohesion_section(current),
     ]
     if pick:

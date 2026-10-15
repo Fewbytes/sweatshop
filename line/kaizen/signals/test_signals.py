@@ -19,10 +19,12 @@ import mutation
 import render
 import source_adapter
 import syntax
+import clone_signals
 import file_signals
 import gate
 import graphs
 import modules
+from clone_signals import PairRevision
 from adapter import Commit, Unavailable
 from file_signals import ViolationThresholds
 from source_adapter import SourceAdapter
@@ -284,7 +286,7 @@ class MeasureRepo(RepoFixture):
 
     def test_older_changes_weigh_exp_minus_alpha_age_less(self):
         source = {"x.go": parse(lang_go.GO, "package x\n")}
-        commits = [Commit(None, {"x.go": 0}, {"x.go": 9}, 0.0), Commit(None, {"x.go": 0}, {"x.go": 9}, 2.0)]
+        commits = [Commit(None, {"x.go": 0}, {"x.go": 9}, 0.0, "a"), Commit(None, {"x.go": 0}, {"x.go": 9}, 2.0, "b")]
         score = file_signals.decayed_changes(commits, source)["x.go"]
         self.assertAlmostEqual(score, math.log(10) * (1 + math.exp(-file_signals.DECAY_PER_YEAR * 2)))
 
@@ -418,9 +420,9 @@ class MeasureRepo(RepoFixture):
     def test_ci_runtime_is_unavailable_with_the_reason_when_no_runs_given(self):
         self.assertEqual(measure.ci_runtime(None)["ci_median_ms"], Unavailable("no CI runs file given"))
 
-    def test_signals_record_schema_6_and_every_tool_version(self):
+    def test_signals_record_schema_7_and_every_tool_version(self):
         s = self.measure()
-        self.assertEqual(s["schema"], 6)
+        self.assertEqual(s["schema"], 7)
         self.assertEqual(sorted(s["tools"]), [
             "git", "gopls", "kaizen-go-tables", "kaizen-python-tables", "kaizen-source-adapter", "kaizen-typescript-tables",
             "pyright-langserver", "python", "tree-sitter", "tree-sitter-go", "tree-sitter-python", "tree-sitter-typescript",
@@ -579,6 +581,79 @@ class GateAgainstHead(RepoFixture):
             self.assertEqual(kaizen_signals.main(["gate", "--root", self.root, "--base", "HEAD"]), 1)
 
 
+def clone_source(package, seed, tail):
+    """A function whose body is unique to `seed`, so only same-seed files are clones; `tail` is the one place copies can differ."""
+    body = "".join(f"\t{seed}{i} := compute(alpha, beta, gamma, delta, {i})\n\tuse({seed}{i})\n" for i in range(6))
+    return f"package {package}\n\nfunc {seed.upper()}() {{\n{body}\tfinish({tail})\n}}\n"
+
+
+class CloneHistory(RepoFixture):
+    def setUp(self):
+        super().setUp()
+        for seed, packages in {"live": "dl", "late": "fg", "open": "hi"}.items():
+            for package in packages:
+                self.write(f"{package}/{seed}.go", clone_source(package, seed, 0))
+        self.commit("three: six copies, three pairs")
+        for package in "dl":
+            self.write(f"{package}/live.go", clone_source(package, "live", 1))
+        self.commit("four: the live pair changes together")
+        self.write("f/late.go", clone_source("f", "late", 1))
+        self.commit("five: late pair diverges")
+        self.write("g/late.go", clone_source("g", "late", 1))
+        self.commit("six: late pair reconciled, f untouched")
+        self.write("h/open.go", clone_source("h", "open", 1))
+        self.commit("seven: open pair diverges")
+
+    def pairs(self):
+        return {(p["a"], p["b"]): p for p in measure.measure(self.root, "HEAD", None)["clone_pairs"]}
+
+    def test_pair_that_co_changed_while_similar_is_live_with_support_and_confidence(self):
+        live = self.pairs()["d/live.go", "l/live.go"]
+        self.assertEqual((live["live"], live["support"], live["confidence"], live["divergence"], live["route"]),
+                         (True, 2, 1.0, "none", None))
+
+    def test_divergence_never_reconciled_is_routed_to_review(self):
+        found = self.pairs()["h/open.go", "i/open.go"]
+        self.assertEqual((found["divergence"], found["route"], found["live"]), ("unreconciled", "review", False))
+
+    def test_divergence_reconciled_by_one_copy_alone_is_late_propagation_routed_to_a_bug_card(self):
+        found = self.pairs()["f/late.go", "g/late.go"]
+        self.assertEqual((found["divergence"], found["route"]), ("late_propagation", "bug_card"))
+
+    def test_late_propagation_ranks_before_unreconciled_before_live(self):
+        ranked = [(p["a"], p["divergence"]) for p in measure.measure(self.root, "HEAD", None)["clone_pairs"]]
+        self.assertEqual(ranked, [("f/late.go", "late_propagation"), ("h/open.go", "unreconciled"), ("d/live.go", "none")])
+
+    def test_young_pair_is_not_a_refactor_candidate_and_no_route_unifies(self):
+        found = measure.measure(self.root, "HEAD", None)["clone_pairs"]
+        self.assertFalse(any(p["refactor_candidate"] for p in found))
+        self.assertEqual({p["route"] for p in found}, {"bug_card", "review", None})
+
+
+class JudgePair(unittest.TestCase):
+    def test_pair_is_a_refactor_candidate_only_after_the_minimum_age_in_commits(self):
+        born_at = clone_signals.MIN_CLONE_AGE_COMMITS
+        for newer, expected in [(born_at - 1, False), (born_at, True)]:
+            verdict = clone_signals.judge_pair(0, [PairRevision(True, True, 5, newer)], 20)
+            self.assertEqual((verdict.age_commits, verdict.refactor_candidate), (newer, expected))
+
+    def test_pair_already_similar_before_the_history_is_as_old_as_the_history(self):
+        verdict = clone_signals.judge_pair(5, [PairRevision(True, False, 5, 0)], 30)
+        self.assertEqual((verdict.age_commits, verdict.refactor_candidate), (30, True))
+
+    def test_reconciling_both_copies_at_once_is_not_late_propagation(self):
+        revisions = [PairRevision(True, False, 3, 2), PairRevision(True, True, 5, 1)]
+        self.assertEqual(clone_signals.judge_pair(5, revisions, 9).divergence, "none")
+
+    def test_change_to_one_copy_that_keeps_similarity_is_not_a_divergence(self):
+        self.assertEqual(clone_signals.judge_pair(5, [PairRevision(True, False, 5, 0)], 9).divergence, "none")
+
+    def test_confidence_is_support_over_the_busier_files_commits(self):
+        revisions = [PairRevision(True, True, 5, 3), PairRevision(True, True, 5, 2), PairRevision(True, False, 5, 1), PairRevision(True, False, 5, 0)]
+        verdict = clone_signals.judge_pair(0, revisions, 9)
+        self.assertEqual((verdict.support, verdict.confidence), (2, 0.5))
+
+
 class ModuleFacts(unittest.TestCase):
     def test_purpose_is_the_first_doc_line_in_each_language(self):
         self.assertEqual(parse(lang_go.GO, "// Package a does things.\n// More.\npackage a\n").purpose, "Package a does things.")
@@ -721,7 +796,7 @@ class Rendering(unittest.TestCase):
         pkg = {s: 0 for s in render.PACKAGE_SIGNALS} | {"hotspot": hotspot, "hotspot_rank": 1, "symbol_edges": []}
         repo = {s: 0 for s in render.REPO_SIGNALS} | {"hotspot": hotspot, "ci_median_ms": None}
         return {"commit": commit, "measured_at": "t", "window_days": 90, "tools": dict(tools),
-                "packages": {"p/q": pkg}, "repo": repo, "module_edges": [], "modularity_violations": {}}
+                "packages": {"p/q": pkg}, "repo": repo, "module_edges": [], "modularity_violations": {}, "clone_pairs": []}
 
     def test_report_shows_trend_against_previous_run_and_after_values(self):
         page = render.render_report(
@@ -732,6 +807,15 @@ class Rendering(unittest.TestCase):
         self.assertIn('4 <span class="better">(-6)</span>', page)
         self.assertIn("&lt;script&gt;", page)
         self.assertNotIn("<script>", page)
+
+    def test_report_lists_clone_pairs_with_their_route(self):
+        current = self.signals("a" * 40, 1)
+        current["clone_pairs"] = [{
+            "a": "x/a.go", "b": "y/b.go", "shared_windows": 9, "live": False, "support": 1, "confidence": 0.5,
+            "divergence": "late_propagation", "route": "bug_card", "age_commits": 3, "refactor_candidate": False,
+        }]
+        page = render.render_report(current, None, None, None)
+        self.assertIn("<td>late_propagation</td><td>bug_card</td><td>3</td><td>no</td>", page)
 
     def test_delta_exits_nonzero_unless_the_signal_dropped(self):
         with tempfile.TemporaryDirectory() as d:

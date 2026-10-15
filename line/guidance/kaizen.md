@@ -164,6 +164,22 @@ plus the import graph:
   construction and is not a score; the ranked list is. A language whose
   imports resolve to nothing reports `unavailable` ("not measured"), never an
   empty list.
+- **Clone pairs** (`clone_pairs` in signals.json, ranked): file pairs that
+  share at least one 50-token window now, listed only when their history says
+  something, because many clones are deliberate (Kapser and Godfrey 2008).
+  `live` is true for a pair that co-changed in at least 2 commits while
+  staying similar (`support`; `confidence` is support over the commits of the
+  busier file; Mondal et al. 2014). `divergence` is `unreconciled` when a
+  commit to one file alone lowered their shared windows and nothing restored
+  them (Juergens et al. 2009: only inconsistent clones carry fault risk), and
+  `late_propagation` when a later change to one file alone restored them while
+  the other was left untouched (Barbour et al. 2013: the riskiest). `route` is
+  `bug_card` for the latter and `review` for the former, never a unification: a
+  difference may be deliberate. `age_commits` counts the history's commits
+  since the pair first shared code (the whole window if it already did); only
+  `refactor_candidate` pairs, at least 8 commits old (Kim et al. 2005), are
+  worth unifying. History is the 90-day window, so a pair that diverged
+  earlier shows no divergence.
 - **Cards per hotspot** (`cards`): distinct `Bead:` trailers among the commits
   touching the file. **Rework rate**: share of those commits that delete or
   replace lines (lines the file already had). Many cards with a high rework

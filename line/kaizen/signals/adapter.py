@@ -26,6 +26,7 @@ class Commit:
     deleted_lines: dict[str, int]  # every file touched -> lines it removed or replaced
     changed_lines: dict[str, int]  # every file touched -> lines it added plus lines it removed
     age_years: float  # how long before the measured revision's clock the commit was made
+    sha: str
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,9 @@ class AdapterResult:
     cochange_pairs: list[Signals]  # file pairs that change together, most frequent first
     hotspot_functions: list[Signals]  # riskiest functions, highest hotspot first
     module_edges: list[Signals]  # package pairs linked by an import or by co-change
+    # file pairs sharing code whose history is worth reading: live clones and
+    # diverged ones, with the route a finding takes (see clone_signals.py)
+    clone_pairs: list[Signals]
     # file pairs co-changing with no import, most supported first; Unavailable
     # when the language's imports do not resolve, so absence is not read as health
     modularity_violations: list[Signals] | Unavailable

@@ -11,13 +11,14 @@ import statistics
 import subprocess
 from datetime import datetime, timedelta
 
+import clone_signals
 from adapter import Adapter, AdapterResult, Commit, History, Signals, Unavailable
 from lang_go import GO
 from lang_python import PYTHON
 from lang_typescript import TYPESCRIPT
 from source_adapter import SourceAdapter
 
-SCHEMA = 6
+SCHEMA = 7
 WINDOW_DAYS = 90
 CI_RUNS_CONSIDERED = 50
 SECONDS_PER_YEAR = 365.25 * 24 * 3600
@@ -38,14 +39,15 @@ def history(root: str, rev: str) -> History:
     since = (head - timedelta(days=WINDOW_DAYS)).isoformat()
     out = git(
         root, "log", rev, f"--since={since}", "--numstat", "--no-renames",
-        "--format=@@%cI @%(trailers:key=Bead,valueonly,separator=%x2C)",
+        "--format=@@%H %cI @%(trailers:key=Bead,valueonly,separator=%x2C)",
     )
     commits: list[Commit] = []
     for line in out.splitlines():
         if line.startswith("@@"):
-            date, card = line[2:].split(" @", 1)
+            sha, rest = line[2:].split(" ", 1)
+            date, card = rest.split(" @", 1)
             age_years = (head - datetime.fromisoformat(date)).total_seconds() / SECONDS_PER_YEAR
-            commits.append(Commit(card.strip() or None, {}, {}, age_years))
+            commits.append(Commit(card.strip() or None, {}, {}, age_years, sha))
         elif line:
             added, deleted, path = line.split("\t", 2)
             # "-" is a binary file
@@ -94,6 +96,7 @@ def measure(root: str, rev: str, runs: dict | None, adapters: tuple[Adapter, ...
     files: dict[str, Signals] = {}
     cochange_pairs: list[Signals] = []
     hotspot_functions: list[Signals] = []
+    clone_pairs: list[Signals] = []
     module_edges: list[Signals] = []
     modularity_violations: dict[str, list[Signals] | Unavailable] = {}
     for adapter in adapters:
@@ -107,6 +110,7 @@ def measure(root: str, rev: str, runs: dict | None, adapters: tuple[Adapter, ...
         files.update(result.files)
         cochange_pairs += result.cochange_pairs
         hotspot_functions += result.hotspot_functions
+        clone_pairs += result.clone_pairs
         module_edges += result.module_edges
         modularity_violations[adapter.language] = result.modularity_violations
     repo.update(ci_runtime(runs))
@@ -120,6 +124,7 @@ def measure(root: str, rev: str, runs: dict | None, adapters: tuple[Adapter, ...
         "packages": packages,
         "files": files,
         "cochange_pairs": sorted(cochange_pairs, key=lambda p: (-p["count"], p["a"], p["b"])),
+        "clone_pairs": sorted(clone_pairs, key=clone_signals.rank_key),
         "module_edges": sorted(module_edges, key=lambda e: (e["a"], e["b"])),
         "modularity_violations": modularity_violations,
         "hotspot_functions": sorted(hotspot_functions, key=lambda f: (-f["hotspot"], f["file"], f["name"])),
