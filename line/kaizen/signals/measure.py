@@ -11,13 +11,13 @@ import statistics
 import subprocess
 from datetime import datetime, timedelta
 
-from adapter import Adapter, AdapterResult, History, Signals, Unavailable
+from adapter import Adapter, AdapterResult, Commit, History, Signals, Unavailable
 from lang_go import GO
 from lang_python import PYTHON
 from lang_typescript import TYPESCRIPT
 from source_adapter import SourceAdapter
 
-SCHEMA = 2
+SCHEMA = 3
 WINDOW_DAYS = 90
 CI_RUNS_CONSIDERED = 50
 # Every language adapter, run in this order. A literal table so search finds
@@ -34,13 +34,17 @@ def git(root: str, *args: str) -> str:
 def history(root: str, rev: str) -> History:
     head_date = git(root, "log", "-1", "--format=%cI", rev).strip()
     since = (datetime.fromisoformat(head_date) - timedelta(days=WINDOW_DAYS)).isoformat()
-    out = git(root, "log", rev, f"--since={since}", "--name-only", "--format=@@%H")
-    commits: list[list[str]] = []
+    out = git(
+        root, "log", rev, f"--since={since}", "--numstat", "--no-renames",
+        "--format=@@%(trailers:key=Bead,valueonly,separator=%x2C)",
+    )
+    commits: list[Commit] = []
     for line in out.splitlines():
         if line.startswith("@@"):
-            commits.append([])
+            commits.append(Commit(line[2:].strip() or None, {}))
         elif line:
-            commits[-1].append(line)
+            _, deleted, path = line.split("\t", 2)
+            commits[-1].deleted_lines[path] = 0 if deleted == "-" else int(deleted)  # "-" is a binary file
     return History(head_date, commits)
 
 
@@ -81,6 +85,9 @@ def measure(root: str, rev: str, runs: dict | None, adapters: tuple[Adapter, ...
     hist = history(root, rev)
     packages: dict[str, Signals] = {}
     repo: Signals = {}
+    files: dict[str, Signals] = {}
+    cochange_pairs: list[Signals] = []
+    hotspot_functions: list[Signals] = []
     for adapter in adapters:
         result = adapter.measure(root, hist)
         check_declared(adapter, result)
@@ -89,6 +96,9 @@ def measure(root: str, rev: str, runs: dict | None, adapters: tuple[Adapter, ...
             raise ValueError(f"{adapter.language} adapter and an earlier one both claim packages {sorted(shared)}")
         packages.update(result.packages)
         repo.update(result.repo)
+        files.update(result.files)
+        cochange_pairs += result.cochange_pairs
+        hotspot_functions += result.hotspot_functions
     repo.update(ci_runtime(runs))
     return {
         "schema": SCHEMA,
@@ -98,6 +108,9 @@ def measure(root: str, rev: str, runs: dict | None, adapters: tuple[Adapter, ...
         "tools": tool_versions(adapters),
         "repo": repo,
         "packages": packages,
+        "files": files,
+        "cochange_pairs": sorted(cochange_pairs, key=lambda p: (-p["count"], p["a"], p["b"])),
+        "hotspot_functions": sorted(hotspot_functions, key=lambda f: (-f["hotspot"], f["file"], f["name"])),
     }
 
 

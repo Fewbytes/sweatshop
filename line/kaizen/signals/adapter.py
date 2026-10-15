@@ -21,17 +21,26 @@ Signals = dict[str, SignalValue]
 
 
 @dataclass(frozen=True)
+class Commit:
+    card: str | None  # the Bead trailer, None when the commit names no card
+    deleted_lines: dict[str, int]  # every file touched -> lines it removed or replaced
+
+
+@dataclass(frozen=True)
 class History:
-    """Files touched by each commit in the window ending at the measured revision."""
+    """Commits in the window ending at the measured revision."""
 
     measured_at: str  # committer date of the revision: the clock of the run
-    commits: list[list[str]]
+    commits: list[Commit]
 
 
 @dataclass
 class AdapterResult:
     packages: dict[str, Signals]  # package directory -> its signals
     repo: Signals
+    files: dict[str, Signals]  # repo-relative path -> its signals
+    cochange_pairs: list[Signals]  # file pairs that change together, most frequent first
+    hotspot_functions: list[Signals]  # riskiest functions, highest hotspot first
 
 
 class Adapter(Protocol):

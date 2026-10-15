@@ -89,6 +89,8 @@ testing where available.
 | Signal | Direction | How |
 |---|---|---|
 | Hidden-coupling ratio | ↓ | co-change pairs without static edge ÷ co-change pairs |
+| Cohesion (LCOM4 components per package) | ↓ to 1 | `lcom4` in signals.json, defined below |
+| Cards per hotspot, rework rate | ↓ | `files` in signals.json, defined below |
 | Clone count (knowledge clones) | ↓ | clone detector, manually triaged |
 | Pattern entropy per concern | ↓ | ast-grep count of distinct idioms |
 | Dynamic-dispatch / reflection sites | ↓ | ast-grep |
@@ -107,6 +109,31 @@ Kaizen stations compute hidden-coupling ratio, clone count, pattern entropy,
 import cycles, cognitive complexity, dead symbols and test runtime with
 `line/kaizen/signals/` (`kaizen_signals.py`; see `design-docs/kaizen-agent.md`,
 "Station v1"); the rest are measured by hand.
+
+File-level and function-level signals (`files`, `cochange_pairs`,
+`hotspot_functions` in signals.json) work for every language, from git history
+plus the import graph:
+
+- **Hotspot** = commits touching the file in the window × its cognitive
+  complexity; ranked per file (`hotspot_rank`). A function's hotspot is its
+  complexity × the churn of its file, because git records changes per file.
+- **Co-change pair**: two files changed together in at least 2 non-bulk commits
+  (a commit touching over 20 packages or 50 files is bulk and ignored). A pair
+  is **hidden** when the files are in different directories and neither
+  directory imports the other; same-directory pairs are never hidden.
+- **Cards per hotspot** (`cards`): distinct `Bead:` trailers among the commits
+  touching the file. **Rework rate**: share of those commits that delete or
+  replace lines (lines the file already had). Many cards with a high rework
+  rate means many separate changes edit one place with no owner of its design.
+  Authors are not measured: with agents writing the code an author is a
+  station name.
+- **Cohesion** (`lcom4`, per package, lower is better, 1 is ideal): the number
+  of connected components when the package's non-test files are linked
+  whenever one uses a name the other declares at top level. Example: package
+  `g` has `x.go` (`func X() { Y() }`), `y.go` (`func Y() {}`) and `z.go`
+  (`func Z() {}`). x and y are linked, z references nothing and nothing
+  references it, so `lcom4` = 2: z does not belong with the rest; move it or
+  find what should use it. A package of one file is 1.
 
 LOC is **not** a target. Fewer lines is good only when it comes from deletion
 or deduplicating knowledge, not from clever compression.
