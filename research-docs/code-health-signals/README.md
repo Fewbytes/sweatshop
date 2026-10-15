@@ -39,6 +39,18 @@ vendor material or self-description, **[run]** we ran it on this repo.
    binaries, two versions each, 20 to 26 MB apiece (a 44 MB `.git` after
    compression; section 6). They broke codelore's ingest and need a guard.
 
+Literature check ([`literature.md`](literature.md), 2026-10-15) changes some of
+this: (a) our "hidden-coupling ratio" (pairs with no import edge over all
+co-change pairs) is high by construction, since most co-change is non-structural;
+use Mo et al.'s modularity violation (no dependency either way and co-change
+above 2) as a ranked, trended list instead; (b) no source defines
+"churn x complexity over 90 days": the best-supported score is Graves' decayed
+change count, so state ours as our own choice; (c) size confounds nearly every
+signal, so report per LOC or against size bands; (d) cohesion and cognitive
+complexity are weaker predictors than `kaizen.md` implies, so rank and report,
+do not gate; (e) Fisher-exact gating is codelore's idea, not from the
+literature; (f) no study measures rework or churn of agent-written code.
+
 Recommendation (detail in section 7): replace the hand-written Go lexer with
 codemetrics' tree-sitter backend behind our adapter interface (`sweatshop-8t5.1`,
 `.2`); keep our own git-derived signals but redefine them from the literature;
@@ -333,8 +345,11 @@ Not yet done; each becomes a card or a note when picked up.
   example in `kaizen.md`. No open-source tool found reports cohesion.
 - **The literature behind the behavioral signals,** to cite correctly in
   `kaizen.md`: Tornhill (*Your Code as a Crime Scene*, *Software Design X-Rays*);
-  Mo, Cai and Kazman 2015 (hotspot patterns, DV8); Gall et al. 2003
-  (HistoryFinder) and Adams et al. 2006 (function-level coupling); Bird et al.
+  Mo, Cai and Kazman 2015 (hotspot patterns, DV8); Gall et al. 1998/2003
+  (logical coupling) and Zimmermann et al. 2005 (entity- and function-level
+  coupling; support and confidence; the codelore README attributes function
+  coupling to "Adams et al. 2006", which a reader could not confirm: the
+  nearest verified work is Adams, Jiang and Hassan, ICSE 2010, co-added calls); Bird et al.
   2011 (ownership); Kamei et al. (just-in-time defect features); Baldwin and
   MacCormack (propagation cost); El Emam et al. 2001 (size confounds metrics).
   Verify each against the paper, not the codelore README.
@@ -346,8 +361,18 @@ Not yet done; each becomes a card or a note when picked up.
   problems; costs may compound over edit chains),
   [SANER 2025](https://conf.researchr.org/details/saner-2025/saner-2025-papers/33/Evaluating-the-Effectiveness-of-LLMs-in-Fixing-Maintainability-Issues-in-Real-World-P)
   (LLM fixes of SonarQube findings often introduced new problems),
-  [agent-generated code and technical debt](https://arxiv.org/pdf/2609.04208),
-  [ICML 2026 maintainability experiment](https://icml.cc/virtual/2026/82761).
+  [agent-generated code and technical debt](https://arxiv.org/pdf/2609.04208)
+  (per the literature reader: a registered report accepted at ESEM 2026, no
+  results yet, so it is a protocol, not evidence),
+  [ICML 2026 maintainability experiment](https://icml.cc/virtual/2026/82761)
+  (a workshop poster, not the main conference; the same work as CodeThread above: the arXiv version is titled "Is Agent
+  Code Less Maintainable Than Human Code?"). A secondary reader reported, for
+  CodeThread, SANER 2025 and the 2603.25146 review, that none of them measures
+  churn, survival, reverts or rework of agent code, and that changes to input
+  validation, fallbacks and error handling (not complexity deltas) predicted
+  later failures; details go to `literature.md`. Unread leads for rework
+  evidence: arXiv 2601.20109, 2603.28592, 2601.21276, and GitClear's 2025
+  report (vendor).
   Read the full texts; check whether any measures change-frequency or rework of
   agent-written code, which the searches did not show.
 - **Do the signals predict anything here?** codelore's `calibrate-defects`
