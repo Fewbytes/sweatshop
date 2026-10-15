@@ -20,6 +20,11 @@ code measurably better on a stated signal and provably unchanged in behavior.
    tests would not notice most behavior changes, so write characterization
    tests first. An unavailable score (tool missing, wall-time cap hit) is not
    a low score: check coverage by hand.
+   Changes to input validation, defaults, fallbacks, and error handling or
+   exception contracts count as behavior changes and are not allowed in a
+   refactor, even when tests stay green. In CodeThread (arXiv 2606.21804)
+   such changes predicted later failures (OR 1.83, p=.011); complexity,
+   Halstead and LOC deltas did not. Complexity deltas are for ranking only.
 2. **One refactoring per change.** A rename, an extraction, an inlining, a
    dedup. Never mix refactoring with behavior changes or bug fixes. If you find
    a bug, file an issue; do not fix it in the refactor.
@@ -37,10 +42,18 @@ code measurably better on a stated signal and provably unchanged in behavior.
 ## 2. What to look for (priority order)
 
 Prioritize by **hotspot score = churn × complexity**, using git history over
-the last ~90 days. Within a hotspot, fix in this order:
+the last ~90 days. No source defines this product or this window; the window
+is our choice. The literature supports churn as the predictor: cite Graves et
+al. 2000 (decayed change count) and relative churn (Nagappan and Ball 2005).
+Static complexity barely changes between releases, so churn does most of the
+work. Size confounds most signals: report them per LOC or within size bands
+(`research-docs/code-health-signals/literature.md`). Within a hotspot, fix in
+this order:
 
 **P1. Hidden coupling.** Files that co-change frequently with no static
-dependency between them. Fix: make the link explicit (shared constant / type /
+dependency between them (the Modularity Violation of Mo et al.). Work from a
+ranked list of such pairs, not a ratio: most co-change has no static link, so
+the ratio is high by construction. Fix: make the link explicit (shared constant / type /
 function), or co-locate them, or add a test that fails on divergence.
 
 **P2. Duplicated knowledge.** Clones that encode the same rule, constant,
@@ -93,8 +106,8 @@ testing where available.
 
 | Signal | Direction | How |
 |---|---|---|
-| Hidden-coupling ratio | ↓ | co-change pairs without static edge ÷ co-change pairs |
-| Cohesion (LCOM4 components per package) | ↓ to 1 | `lcom4` in signals.json, defined below |
+| Hidden-coupling pairs (ranked list, not a ratio) | fewer, top of list first | co-change pairs without static edge, ranked by shared commits |
+| Cohesion (LCOM4 components per package); rank and report, never gate | ↓ to 1 | `lcom4` in signals.json, defined below |
 | Cards per hotspot, rework rate | ↓ | `files` in signals.json, defined below |
 | Clone count (knowledge clones) | ↓ | clone detector, manually triaged |
 | Pattern entropy per concern | ↓ | ast-grep count of distinct idioms |
@@ -103,7 +116,7 @@ testing where available.
 | Context closure of touched functions | ↓ | tokens in body + direct deps |
 | Call depth entry→work | ↓ | call graph |
 | Import cycles | ↓ to 0 | dependency graph |
-| Cognitive Complexity | ↓ | linter |
+| Cognitive Complexity; rank and report, never gate | ↓ | linter |
 | Dead symbols | ↓ | symbol index + reference search |
 | Typed boundary ratio | ↑ | type checker / ast-grep |
 | Mutation score | ↑ | `kaizen_signals.py mutation` on the target scope: gremlins (Go), mutmut (Python), Stryker (TypeScript); killed, survived, timed-out; unavailable when the wall-time cap is hit |
@@ -170,6 +183,11 @@ plus the import graph:
   `hotspot:PATH`) accepted as existing debt, so only new findings fail. Run it after
   the change (Section 5, step 6); Makers may run it before committing.
 
+Cohesion and cognitive complexity have weak evidence as predictors (LCOM3 and
+LCOM4 were not fault predictors; cognitive complexity correlates with
+comprehension time, not correctness). Use them to rank candidates and report
+them; never treat a change in them as passing or failing a refactor.
+
 LOC is **not** a target. Fewer lines is good only when it comes from deletion
 or deduplicating knowledge, not from clever compression.
 
@@ -197,8 +215,14 @@ or deduplicating knowledge, not from clever compression.
 3. **Record baseline** for the chosen signal(s).
 4. **Apply one refactoring.** Use mechanical, tool-supported transformations
    (LSP rename, ast-grep rewrite) over hand edits where possible.
-5. **Verify.** Type checker, linters, full relevant test suite. Behavior and
-   public API unchanged.
+5. **Verify** with the refactor gate, checked in this order, stopping at the
+   first failure: it compiles; tests pass; the target issue is gone; no new
+   analyzer issues; mutation score on the touched code does not drop. Public
+   API and behavior (ground rule 1) unchanged. Unaided single-shot LLM
+   refactors broke the build or tests in 32-48% of attempts (SANER 2025,
+   arXiv 2502.02368), so run this feedback loop on every change. Renames and
+   signature changes go only through LSP rename or ast-grep, never by hand:
+   hand-made unused-parameter fixes broke callers in 9 of 10 cases.
 6. **Re-measure** (`gate` for the touched files) and confirm the signal moved in the right direction with no
    regression in others (especially call depth, context closure, test
    runtime).
