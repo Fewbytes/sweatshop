@@ -114,6 +114,9 @@ type Runner struct {
 	Commit     string
 
 	attempts map[string]int
+	// lastLanded is whether the card Once last worked landed; Loop retries a
+	// card that did not only after its idle wait.
+	lastLanded bool
 }
 
 // DefaultTimeout bounds a Maker run so a stuck agent cannot hold a card (and
@@ -303,6 +306,7 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("read andon state: %w", err)
 	}
 	b, found := Pick(ready, stopped)
+	r.lastLanded = false
 	if !found {
 		return false, nil
 	}
@@ -419,6 +423,7 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 	}
 	if landed {
 		r.logf("%s landed", b.ID)
+		r.lastLanded = true
 		return true, errors.Join(runErr, r.Beads.Close(settle, b.ID, "landed via line"))
 	}
 	if counts {
@@ -497,7 +502,10 @@ func (r *Runner) Loop(ctx context.Context, idle time.Duration) error {
 			r.logf("exiting on %v", context.Cause(ctx))
 			return nil
 		}
-		if worked && err == nil {
+		// A run that did not land waits out idle before the next try: a failure
+		// that happens at once (a clone that cannot start) would otherwise burn
+		// every attempt within seconds, before its cause can change.
+		if worked && err == nil && r.lastLanded {
 			continue
 		}
 		select {

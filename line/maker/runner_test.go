@@ -716,6 +716,22 @@ func TestLoopLogsSignalWhenIdle(t *testing.T) {
 	}
 }
 
+func TestLoopWaitsBeforeRetryingCardThatDidNotLand(t *testing.T) {
+	bare, _ := remote(t)
+	fb := &fakeBeads{ready: []Bead{{ID: "b-1", Priority: 1}}}
+	fe := &fakeEngine{run: func(ContainerSpec) (int, error) { return 128, nil }}
+	r := newRunner(t, bare, fb, fe)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	time.AfterFunc(200*time.Millisecond, cancel)
+	if err := r.Loop(ctx, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if len(fe.specs) != 1 {
+		t.Fatalf("engine ran %d times, want 1: the retry must wait out the idle interval", len(fe.specs))
+	}
+}
+
 func TestOnceReleaseNoteCarriesOutputTailWhenAgentLeftNoReport(t *testing.T) {
 	bare, _ := remote(t)
 	fb := &fakeBeads{ready: []Bead{{ID: "b-1", Priority: 1}}}
