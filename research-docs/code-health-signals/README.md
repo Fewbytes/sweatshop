@@ -118,9 +118,16 @@ tools are not totals and are left out.) **[weak]** for its own claims; what we r
   corruption; `git fsck` was clean.
 - Runtime is not a concern (sub-second on 2,500 objects).
 
-**Licence note.** GPL-3.0-only. Running it as an external program is fine;
-linking or copying its code into our MIT-style code base is not. Ideas and
-published formulas (which cite papers) are free to reuse.
+**Licence note.** GPL-3.0-only. Running it as an external program is fine.
+Ideas, algorithms and published formulas are not copyrightable, so we may
+re-implement any of its analyses, including with an LLM, as the owner
+confirmed. The one thing to avoid is deriving our code from its source text:
+a model that reads GPL code and reproduces it can yield a derivative work. So
+the rule for any card that re-implements a codelore idea is: implement from
+the cited papers and from the behaviour described in this note and its README
+(the analysis catalogue, formulas and output columns), do not put codelore's
+source in the implementing agent's context, and keep our own tests as the
+specification. Cards `sweatshop-8t5.3` and `.10` carry this rule.
 
 **Ideas to take**
 
@@ -283,12 +290,32 @@ Maps onto the cards in `sweatshop-8t5`.
 | Agent-era replacement for authors | Cards per hotspot and rework rate | `8t5.3` |
 | Binary-blob guard | Merge-guard size rule | new card needed |
 
-Do not adopt: codelore as a dependency (language gap, GPL), code-inspector
+Do not adopt: codelore as a dependency (language gap; GPL means run, never link), code-inspector
 (cgo, weak Go graph), arborist (redundant, Rust).
 
 ---
 
-## 8. Open questions and future research
+## 8. Cards opened from this note
+
+Filed 2026-10-15 on the sweatshop beads. Cards marked (owner) await approval or
+a decision before the line will work on them.
+
+| Card | What |
+|---|---|
+| `sweatshop-wd3` (owner) | Merge guard rejects large and executable blobs (P1) |
+| `sweatshop-mnn` (owner) | Decision: rewrite history to drop the binaries, or leave it |
+| `sweatshop-8t5.7` (owner) | Pre-submit gate: measure the working tree against HEAD |
+| `sweatshop-8t5.8` (owner) | Validate that the signals predict anything on this repo |
+| `sweatshop-8t5.9` (owner) | Architecture trend and cycle origins |
+| `sweatshop-8t5.10` (owner) | Research follow-ups (other tools, cohesion, literature) |
+| `sweatshop-8t5.1`, `.2`, `.3`, `sweatshop-xjk` | Existing cards, annotated with the findings above |
+
+Papers behind the behavioral signals are summarized in
+[`literature.md`](literature.md).
+
+---
+
+## 9. Open questions and future research
 
 Not yet done; each becomes a card or a note when picked up.
 
