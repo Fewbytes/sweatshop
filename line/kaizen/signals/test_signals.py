@@ -5,12 +5,14 @@ import os
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 
 import kaizen_signals
 import lang_go
 import lang_python
 import lang_typescript
 import measure
+import mutation
 import render
 import source_adapter
 import syntax
@@ -442,3 +444,65 @@ class Rendering(unittest.TestCase):
         current = self.signals("a" * 40, 10)
         current["repo"]["ci_median_ms"] = {"unavailable": "no CI runs file given"}
         self.assertIn("<td>–</td>", render.render_report(current, None, None, None))
+
+
+class MutationScore(unittest.TestCase):
+    GREMLINS = {"files": [{"file_name": "a.go", "mutations": [
+        {"status": "KILLED"}, {"status": "KILLED"}, {"status": "LIVED"}, {"status": "NOT COVERED"},
+        {"status": "TIMED OUT"}, {"status": "NOT VIABLE"}]}]}
+
+    def fake_run(self, report_name=None, report=None, stdout="", timeout_on=None):
+        def run(argv, cwd, timeout):
+            if argv[1:2] == ["version"] or argv[-1] == "--version":
+                return "v0.5.1\n"
+            if timeout_on:
+                raise subprocess.TimeoutExpired(argv, timeout)
+            if report_name:
+                out = argv[argv.index("--output") + 1] if "--output" in argv else argv[argv.index("--jsonReporter.fileName") + 1]
+                with open(out, "w") as f:
+                    json.dump(report, f)
+            return stdout
+        return run
+
+    def test_score_counts_survivors_and_uncovered_mutants_against_the_tests(self):
+        got = mutation.mutation_signals(".", "go", ("pkg",), run=self.fake_run("g", self.GREMLINS))
+        self.assertEqual((got["killed"], got["survived"], got["timed_out"]), (2, 2, 1))
+        self.assertEqual(got["mutation_score"], 3 / 5)
+        self.assertEqual(got["tool_version"], "v0.5.1")
+
+    def test_hitting_the_cap_makes_the_score_unavailable_not_zero(self):
+        got = mutation.mutation_signals(".", "go", ("pkg",), cap_seconds=30, run=self.fake_run(timeout_on=True))
+        self.assertEqual(got["mutation_score"], Unavailable("gremlins hit the 30s cap"))
+        self.assertEqual(got["killed"], Unavailable("gremlins hit the 30s cap"))
+
+    def test_a_missing_tool_makes_the_score_unavailable(self):
+        def run(argv, cwd, timeout):
+            raise FileNotFoundError(argv[0])
+        got = mutation.mutation_signals(".", "python", ("a.py",), run=run)
+        self.assertEqual(got["mutation_score"], Unavailable("mutmut is not installed"))
+
+    def test_a_scope_without_mutants_is_unavailable_not_perfect(self):
+        got = mutation.mutation_signals(".", "go", ("pkg",), run=self.fake_run("g", {"files": []}))
+        self.assertEqual(got["mutation_score"], Unavailable("the tool found no mutants in the scope"))
+
+    def test_mutmut_progress_line_gives_the_counts(self):
+        out = "running\n⠏ 12/12  🎉 9 ⏰ 1  🤔 1  🙁 1  🔇 0\n"
+        got = mutation.mutation_signals(".", "python", ("a.py",), run=self.fake_run(stdout=out))
+        self.assertEqual((got["killed"], got["survived"], got["timed_out"]), (9, 2, 1))
+
+    def test_stryker_report_gives_the_counts(self):
+        report = {"files": {"a.ts": {"mutants": [
+            {"status": "Killed"}, {"status": "Survived"}, {"status": "NoCoverage"}, {"status": "Timeout"},
+            {"status": "CompileError"}]}}}
+        got = mutation.mutation_signals(".", "typescript", ("a.ts",), run=self.fake_run("s", report))
+        self.assertEqual((got["killed"], got["survived"], got["timed_out"]), (1, 2, 1))
+
+    def test_cli_writes_unavailable_signals_as_reasons(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "m.json")
+            env = {**os.environ, "PATH": d}  # no gremlins on PATH
+            with unittest.mock.patch.dict(os.environ, env, clear=True):
+                kaizen_signals.main(["mutation", "--root", d, "--language", "go", "--out", out, "pkg"])
+            with open(out) as f:
+                written = json.load(f)
+        self.assertEqual(written["mutation_score"], {"unavailable": "gremlins is not installed"})

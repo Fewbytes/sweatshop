@@ -7,6 +7,7 @@
   measure --root DIR --rev REV --out signals.json [--runs runs.json]
   report  --signals signals.json --out report.html [--previous p.json] [--after a.json]
           [--target PKG --category P2 --signal clones --why TEXT]
+  mutation --root DIR --language go|python|typescript --out mutation.json [--cap-seconds N] SCOPE...
   delta   --before b.json --after a.json --package PKG --signal NAME
 
 Run with: uv run --no-project --with-requirements line/kaizen/signals/requirements.txt \
@@ -19,6 +20,7 @@ import json
 import sys
 
 import measure
+import mutation
 import render
 
 
@@ -31,6 +33,13 @@ def load(path: str | None) -> dict | None:
 
 def cmd_measure(args: argparse.Namespace) -> int:
     signals = measure.measure(args.root, args.rev, load(args.runs))
+    with open(args.out, "w", encoding="utf-8") as f:
+        f.write(measure.dumps(signals))
+    return 0
+
+
+def cmd_mutation(args: argparse.Namespace) -> int:
+    signals = mutation.mutation_signals(args.root, args.language, tuple(args.scope), args.cap_seconds)
     with open(args.out, "w", encoding="utf-8") as f:
         f.write(measure.dumps(signals))
     return 0
@@ -78,6 +87,14 @@ def main(argv: list[str]) -> int:
     m.add_argument("--out", required=True)
     m.add_argument("--runs", help="GET /v1/runs saved as JSON, for CI runtime")
     m.set_defaults(func=cmd_measure)
+
+    mu = sub.add_parser("mutation", help="mutation score of the files or package a change will touch")
+    mu.add_argument("--root", required=True)
+    mu.add_argument("--language", required=True, choices=sorted(mutation.TOOLS))
+    mu.add_argument("--out", required=True)
+    mu.add_argument("--cap-seconds", type=float, default=mutation.DEFAULT_CAP_SECONDS)
+    mu.add_argument("scope", nargs="+", help="Go package directory, or Python/TypeScript files, relative to root")
+    mu.set_defaults(func=cmd_mutation)
 
     r = sub.add_parser("report")
     r.add_argument("--signals", required=True)

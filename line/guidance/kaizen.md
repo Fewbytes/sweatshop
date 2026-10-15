@@ -14,7 +14,12 @@ code measurably better on a stated signal and provably unchanged in behavior.
 
 1. **Behavior preservation is non-negotiable.** Refactor only code covered by
    tests that would catch a behavior change. No coverage → write
-   characterization tests first, as their own commit, then refactor.
+   characterization tests first, as their own commit, then refactor. "Covered"
+   is measured, not guessed: `kaizen_signals.py mutation` gives the mutation
+   score of the target's package or files (Section 3). A low score means the
+   tests would not notice most behavior changes, so write characterization
+   tests first. An unavailable score (tool missing, wall-time cap hit) is not
+   a low score: check coverage by hand.
 2. **One refactoring per change.** A rename, an extraction, an inlining, a
    dedup. Never mix refactoring with behavior changes or bug fixes. If you find
    a bug, file an issue; do not fix it in the refactor.
@@ -101,7 +106,7 @@ testing where available.
 | Cognitive Complexity | ↓ | linter |
 | Dead symbols | ↓ | symbol index + reference search |
 | Typed boundary ratio | ↑ | type checker / ast-grep |
-| Mutation score | ↑ | mutation testing |
+| Mutation score | ↑ | `kaizen_signals.py mutation` on the target scope: gremlins (Go), mutmut (Python), Stryker (TypeScript); killed, survived, timed-out; unavailable when the wall-time cap is hit |
 | Stale / unverifiable comments | ↓ | review, test-execution checks |
 | Test runtime | ↓ or = | test runner |
 
