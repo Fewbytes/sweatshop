@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/guidance"
 	"github.com/Fewbytes/sweatshop/line/linedir"
@@ -79,7 +80,7 @@ func seededRemote(t *testing.T) (bare, work gitx.Repo) {
 	ctx := context.Background()
 	run := func(r gitx.Repo, args ...string) {
 		t.Helper()
-		if _, err := r.Git(ctx, args...); err != nil {
+		if _, err := gittest.Git(ctx, r.Dir, args...); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -98,13 +99,13 @@ func seededRemote(t *testing.T) (bare, work gitx.Repo) {
 func TestCheckCommitReportReadsHeadMessage(t *testing.T) {
 	_, work := seededRemote(t)
 	ctx := context.Background()
-	if _, err := work.Git(ctx, "commit", "--quiet", "--allow-empty", "-m", "no report"); err != nil {
+	if _, err := gittest.Git(ctx, work.Dir, "commit", "--quiet", "--allow-empty", "-m", "no report"); err != nil {
 		t.Fatal(err)
 	}
 	if CheckCommitReport(ctx, work, "HEAD") == nil {
 		t.Fatal("accepted a commit without a report")
 	}
-	if _, err := work.Git(ctx, "commit", "--quiet", "--allow-empty", "-m", goodReport); err != nil {
+	if _, err := gittest.Git(ctx, work.Dir, "commit", "--quiet", "--allow-empty", "-m", goodReport); err != nil {
 		t.Fatal(err)
 	}
 	if err := CheckCommitReport(ctx, work, "HEAD"); err != nil {
@@ -139,10 +140,10 @@ func newRunner(t *testing.T, bare gitx.Repo, e *fakeEngine, now *time.Time) *Run
 func moveMaster(t *testing.T, work gitx.Repo, msg string) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := work.Git(ctx, "commit", "--quiet", "--allow-empty", "-m", msg); err != nil {
+	if _, err := gittest.Git(ctx, work.Dir, "commit", "--quiet", "--allow-empty", "-m", msg); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := work.Git(ctx, "push", "--quiet", "origin", "master"); err != nil {
+	if _, err := gittest.Git(ctx, work.Dir, "push", "--quiet", "origin", "master"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -188,7 +189,7 @@ func TestOnceSleepsWhileAndonIsPulled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := bare.Git(ctx, "update-ref", guard.StopRef, master); err != nil {
+	if _, err := gittest.Git(ctx, bare.Dir, "update-ref", guard.StopRef, master); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()
@@ -320,7 +321,7 @@ func TestOnceDeclinesARequestWhileAndonIsPulled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := bare.Git(ctx, "update-ref", guard.StopRef, master); err != nil {
+	if _, err := gittest.Git(ctx, bare.Dir, "update-ref", guard.StopRef, master); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()

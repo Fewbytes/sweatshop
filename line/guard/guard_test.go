@@ -12,6 +12,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/Fewbytes/sweatshop/line/constitution"
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 )
 
 const digest = "sha256:test"
@@ -25,7 +26,7 @@ type fixture struct {
 	guard  Guard
 }
 
-// ok checks a git call: ok(t)(repo.Git(...)). Go only lets a multi-value call
+// ok checks a git call: ok(t)(gittest.Git(...)). Go only lets a multi-value call
 // fill an argument list on its own, hence the curried form.
 func ok(t *testing.T) func(string, error) {
 	return func(_ string, err error) {
@@ -43,18 +44,18 @@ func newFixture(t *testing.T) *fixture {
 	remote := gitx.Repo{Dir: filepath.Join(dir, "remote.git")}
 	work := gitx.Repo{Dir: filepath.Join(dir, "work")}
 	root := gitx.Repo{Dir: dir}
-	ok(t)(root.Git(ctx, "init", "--quiet", "--bare", "--initial-branch=master", remote.Dir))
-	ok(t)(root.Git(ctx, "clone", "--quiet", remote.Dir, work.Dir))
-	ok(t)(work.Git(ctx, "symbolic-ref", "HEAD", "refs/heads/master"))
-	ok(t)(work.Git(ctx, "config", "user.name", "test"))
-	ok(t)(work.Git(ctx, "config", "user.email", "test@example.com"))
+	ok(t)(gittest.Git(ctx, root.Dir, "init", "--quiet", "--bare", "--initial-branch=master", remote.Dir))
+	ok(t)(gittest.Git(ctx, root.Dir, "clone", "--quiet", remote.Dir, work.Dir))
+	ok(t)(gittest.Git(ctx, work.Dir, "symbolic-ref", "HEAD", "refs/heads/master"))
+	ok(t)(gittest.Git(ctx, work.Dir, "config", "user.name", "test"))
+	ok(t)(gittest.Git(ctx, work.Dir, "config", "user.email", "test@example.com"))
 	pub, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
 	f := &fixture{t: t, ctx: ctx, remote: remote, work: work, key: key}
 	seed := f.commit("README", "seed")
-	ok(t)(work.Git(ctx, "push", "--quiet", "origin", seed+":refs/heads/master"))
+	ok(t)(gittest.Git(ctx, work.Dir, "push", "--quiet", "origin", seed+":refs/heads/master"))
 	f.guard = Guard{
 		Repo: remote, Ref: "refs/heads/master", ConstitutionDigest: digest,
 		Constitution: constitution.Constitution{
@@ -76,8 +77,8 @@ func (f *fixture) commit(name, content string) string {
 	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
 		f.t.Fatal(err)
 	}
-	ok(f.t)(f.work.Git(f.ctx, "add", "-A"))
-	ok(f.t)(f.work.Git(f.ctx, "commit", "--quiet", "-m", "change "+name))
+	ok(f.t)(gittest.Git(f.ctx, f.work.Dir, "add", "-A"))
+	ok(f.t)(gittest.Git(f.ctx, f.work.Dir, "commit", "--quiet", "-m", "change "+name))
 	sha, err := f.work.Commit(f.ctx, "HEAD")
 	if err != nil {
 		f.t.Fatal(err)
@@ -87,7 +88,7 @@ func (f *fixture) commit(name, content string) string {
 
 func (f *fixture) candidate(commit string) {
 	f.t.Helper()
-	ok(f.t)(f.work.Git(f.ctx, "push", "--quiet", "origin", commit+":"+CandidatePrefix+commit))
+	ok(f.t)(gittest.Git(f.ctx, f.work.Dir, "push", "--quiet", "origin", commit+":"+CandidatePrefix+commit))
 }
 
 func (f *fixture) envelope(commit string, key ed25519.PrivateKey, mutate func(*attest.ChecksPredicate)) attest.Envelope {
@@ -233,7 +234,7 @@ func TestRejectsFailedCheckEvenWhenSigned(t *testing.T) {
 
 func TestRejectsWhenLineStopped(t *testing.T) {
 	f := newFixture(t)
-	ok(t)(f.remote.Git(f.ctx, "update-ref", StopRef, f.master()))
+	ok(t)(gittest.Git(f.ctx, f.remote.Dir, "update-ref", StopRef, f.master()))
 	commit := f.commit("src/a.go", "package a")
 	f.candidate(commit)
 	f.expectRejected(commit, f.envelope(commit, f.key, nil), ReasonLineStopped)
@@ -247,7 +248,7 @@ func TestRejectsStaleBase(t *testing.T) {
 	if r, err := f.guard.Merge(f.ctx, first, f.envelope(first, f.key, nil)); err != nil || r.Status != Merged {
 		t.Fatalf("first merge: %+v %v", r, err)
 	}
-	ok(t)(f.work.Git(f.ctx, "reset", "--quiet", "--hard", seed))
+	ok(t)(gittest.Git(f.ctx, f.work.Dir, "reset", "--quiet", "--hard", seed))
 	stale := f.commit("src/b.go", "package b")
 	f.candidate(stale)
 	result, err := f.guard.Merge(f.ctx, stale, f.envelope(stale, f.key, nil))

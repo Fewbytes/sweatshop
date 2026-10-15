@@ -3,8 +3,6 @@ package station
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -136,31 +134,24 @@ func bundle(ctx context.Context, repoDir, rev string) (commit, path string, clea
 	if commit, err = repo.Commit(ctx, rev); err != nil {
 		return "", "", nil, fmt.Errorf("resolve %s: %w", rev, err)
 	}
-	raw := make([]byte, 8)
-	if _, err := rand.Read(raw); err != nil {
-		return "", "", nil, err
-	}
-	ref := "refs/sweatshop/bundle-" + hex.EncodeToString(raw)
-	if _, err := repo.Git(ctx, "update-ref", "--end-of-options", ref, commit); err != nil {
-		return "", "", nil, err
-	}
-	defer func() { _ = repo.DeleteRef(context.WithoutCancel(ctx), ref) }()
-
 	dir, err := os.MkdirTemp("", "sweatshop-bundle-")
 	if err != nil {
 		return "", "", nil, err
 	}
 	cleanup = func() { _ = os.RemoveAll(dir) }
 	path = filepath.Join(dir, "candidate.bundle")
-	args := []string{"bundle", "create", "--quiet", path, ref}
 	const base = "refs/remotes/origin/master"
+	baseCommit := ""
 	if exists, err := repo.RefExists(ctx, base); err != nil {
 		cleanup()
 		return "", "", nil, err
 	} else if exists {
-		args = append(args, "^"+base)
+		if baseCommit, err = repo.Commit(ctx, base); err != nil {
+			cleanup()
+			return "", "", nil, err
+		}
 	}
-	if _, err := repo.Git(ctx, args...); err != nil {
+	if err := repo.CreateBundle(ctx, path, "refs/sweatshop/candidate", commit, baseCommit); err != nil {
 		cleanup()
 		return "", "", nil, fmt.Errorf("bundle %s (is it already on origin/master?): %w", rev, err)
 	}

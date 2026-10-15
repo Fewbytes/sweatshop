@@ -13,6 +13,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/Fewbytes/sweatshop/line/constitution"
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/linedir"
 	"github.com/Fewbytes/sweatshop/line/station"
@@ -43,12 +44,12 @@ func TestAndonStopFixClear(t *testing.T) {
 
 	// A seed repo whose only check fails exactly when BROKEN exists.
 	src := gitx.Repo{Dir: t.TempDir()}
-	ok(t)(src.Git(ctx, "init", "--quiet", "--initial-branch=master"))
-	ok(t)(src.Git(ctx, "config", "user.name", "t"))
-	ok(t)(src.Git(ctx, "config", "user.email", "t@example.com"))
+	ok(t)(gittest.Git(ctx, src.Dir, "init", "--quiet", "--initial-branch=master"))
+	ok(t)(gittest.Git(ctx, src.Dir, "config", "user.name", "t"))
+	ok(t)(gittest.Git(ctx, src.Dir, "config", "user.email", "t@example.com"))
 	writeFile(t, src.Dir, "check.sh", "test ! -e BROKEN\n")
-	ok(t)(src.Git(ctx, "add", "check.sh"))
-	ok(t)(src.Git(ctx, "commit", "--quiet", "-m", "seed"))
+	ok(t)(gittest.Git(ctx, src.Dir, "add", "check.sh"))
+	ok(t)(gittest.Git(ctx, src.Dir, "commit", "--quiet", "-m", "seed"))
 
 	l, err := linedir.Init(ctx, linedir.InitOptions{Dir: filepath.Join(t.TempDir(), "line"), Source: src.Dir, Check: "sh check.sh"})
 	if err != nil {
@@ -92,14 +93,14 @@ func TestAndonStopFixClear(t *testing.T) {
 	andonAPI := station.Client{URL: ts.URL, Token: tokens["andon-1"]}
 
 	clone := gitx.Repo{Dir: filepath.Join(t.TempDir(), "maker")}
-	ok(t)(src.Git(ctx, "clone", "--quiet", l.Remote, clone.Dir))
-	ok(t)(clone.Git(ctx, "config", "user.name", "t"))
-	ok(t)(clone.Git(ctx, "config", "user.email", "t@example.com"))
+	ok(t)(gittest.Git(ctx, src.Dir, "clone", "--quiet", l.Remote, clone.Dir))
+	ok(t)(gittest.Git(ctx, clone.Dir, "config", "user.name", "t"))
+	ok(t)(gittest.Git(ctx, clone.Dir, "config", "user.email", "t@example.com"))
 	commit := func(name, content, msg string) string {
 		t.Helper()
 		writeFile(t, clone.Dir, name, content)
-		ok(t)(clone.Git(ctx, "add", "-A"))
-		ok(t)(clone.Git(ctx, "commit", "--quiet", "-m", msg))
+		ok(t)(gittest.Git(ctx, clone.Dir, "add", "-A"))
+		ok(t)(gittest.Git(ctx, clone.Dir, "commit", "--quiet", "-m", msg))
 		sha, err := clone.Commit(ctx, "HEAD")
 		if err != nil {
 			t.Fatal(err)
@@ -139,7 +140,7 @@ func TestAndonStopFixClear(t *testing.T) {
 	// by the maker key, pushed as a candidate first. This models a check that
 	// passed pre-merge but fails on master (flakiness, environment drift).
 	broken := commit("BROKEN", "x", "break")
-	ok(t)(clone.Git(ctx, "push", "--quiet", "origin", broken+":"+guard.CandidatePrefix+broken))
+	ok(t)(gittest.Git(ctx, clone.Dir, "push", "--quiet", "origin", broken+":"+guard.CandidatePrefix+broken))
 	key, err := attest.LoadPrivateKey(maker.KeyFile)
 	if err != nil {
 		t.Fatal(err)
@@ -177,8 +178,8 @@ func TestAndonStopFixClear(t *testing.T) {
 	event := st.Event
 
 	// Normal work is refused while the line is stopped.
-	ok(t)(clone.Git(ctx, "rm", "--quiet", "BROKEN"))
-	ok(t)(clone.Git(ctx, "commit", "--quiet", "-m", "untagged fix"))
+	ok(t)(gittest.Git(ctx, clone.Dir, "rm", "--quiet", "BROKEN"))
+	ok(t)(gittest.Git(ctx, clone.Dir, "commit", "--quiet", "-m", "untagged fix"))
 	res, err := makerAPI.Merge(ctx, clone.Dir, "HEAD")
 	if err != nil {
 		t.Fatal(err)
@@ -188,7 +189,7 @@ func TestAndonStopFixClear(t *testing.T) {
 	}
 
 	// The same fix tagged with the event merges.
-	ok(t)(clone.Git(ctx, "commit", "--quiet", "--amend", "-m", "fix\n\n"+guard.FixTrailer+": "+event))
+	ok(t)(gittest.Git(ctx, clone.Dir, "commit", "--quiet", "--amend", "-m", "fix\n\n"+guard.FixTrailer+": "+event))
 	fix, err := clone.Commit(ctx, "HEAD")
 	if err != nil {
 		t.Fatal(err)

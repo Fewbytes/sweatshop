@@ -216,7 +216,7 @@ func Init(ctx context.Context, opts InitOptions) (Line, error) {
 		return Line{}, fmt.Errorf("line init: generated constitution is invalid: %w", err)
 	}
 
-	if _, err := (gitx.Repo{Dir: dir}).Git(ctx, "clone", "--quiet", "--bare", "--single-branch", "--branch", "master", "--", source, l.Remote); err != nil {
+	if err := (gitx.Repo{Dir: l.Remote}).CloneBranchBare(ctx, gitx.Repo{Dir: source}, "refs/heads/master"); err != nil {
 		return Line{}, err
 	}
 	if err := guard.InstallHooks(l.Remote); err != nil {

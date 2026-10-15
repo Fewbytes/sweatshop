@@ -294,7 +294,7 @@ func (v *Supervisor) currentMasterIfSuperseded(ctx context.Context, commit strin
 	if err != nil {
 		return "", fmt.Errorf("read %s: %w", g.Ref, err)
 	}
-	if _, err := g.Repo.Git(ctx, "merge-base", "--is-ancestor", commit, master); err != nil {
+	if ok, err := g.Repo.IsAncestor(ctx, commit, master); err != nil || !ok {
 		return commit, nil
 	}
 	return master, nil
@@ -321,7 +321,7 @@ func (v *Supervisor) checkMaster(ctx context.Context, commit string) error {
 
 // checkout materialises commit (which is master) in a fresh directory.
 func (v *Supervisor) checkout(ctx context.Context, commit string) (string, func(), error) {
-	return checkoutCommit(ctx, v.Server.Guard.Repo, v.Server.Guard.Ref, commit)
+	return checkoutCommit(ctx, v.Server.Guard.Repo, commit)
 }
 
 func (v *Supervisor) spec(st *Station, g Generation) (ContainerSpec, error) {

@@ -21,14 +21,13 @@ const LineDockerfile = "station/Dockerfile.line"
 // returns its stdout.
 type EngineReleaseBuilder struct {
 	Repo       gitx.Repo // the line remote
-	Ref        string    // refs/heads/master
 	Image      string    // repository, e.g. registry.example/sweatshop-line
 	Dockerfile string    // default LineDockerfile
 	Run        func(ctx context.Context, args ...string) (string, error)
 }
 
 func (b EngineReleaseBuilder) Build(ctx context.Context, commit string) (deploy.Release, error) {
-	dir, cleanup, err := checkoutCommit(ctx, b.Repo, b.Ref, commit)
+	dir, cleanup, err := checkoutCommit(ctx, b.Repo, commit)
 	if err != nil {
 		return deploy.Release{}, fmt.Errorf("checkout %s: %w", commit, err)
 	}
@@ -60,23 +59,16 @@ func (b EngineReleaseBuilder) Build(ctx context.Context, commit string) (deploy.
 	return deploy.Release{}, fmt.Errorf("%s has no registry digest for %s after push", tag, b.Image)
 }
 
-// checkoutCommit materialises commit (which is on ref) in a fresh directory.
-func checkoutCommit(ctx context.Context, repo gitx.Repo, ref, commit string) (string, func(), error) {
+// checkoutCommit materialises commit in a fresh directory.
+func checkoutCommit(ctx context.Context, repo gitx.Repo, commit string) (string, func(), error) {
 	dir, err := os.MkdirTemp("", "viceroy-checkout-")
 	if err != nil {
 		return "", nil, err
 	}
 	cleanup := func() { _ = os.RemoveAll(dir) }
-	work := gitx.Repo{Dir: dir}
-	for _, args := range [][]string{
-		{"init", "--quiet"},
-		{"fetch", "--quiet", "--no-tags", repo.Dir, ref},
-		{"checkout", "--quiet", "--detach", commit},
-	} {
-		if _, err := work.Git(ctx, args...); err != nil {
-			cleanup()
-			return "", nil, err
-		}
+	if err := (gitx.Repo{Dir: dir}).CheckoutDetached(ctx, repo, commit); err != nil {
+		cleanup()
+		return "", nil, err
 	}
 	return dir, cleanup, nil
 }

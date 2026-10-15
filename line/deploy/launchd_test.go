@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Fewbytes/sweatshop/line/gitx"
 )
 
 type recExec struct {
@@ -42,10 +44,8 @@ func TestLaunchdNeverRunsOutsideAllowlist(t *testing.T) {
 		{"launchctl", "load", "/Library/LaunchDaemons/x.plist"},
 		{"sh", "-c", "id"},
 		{"rm", "-rf", "/"},
-		{"git", "fetch", "--quiet", "--no-tags", "https://evil.example/x.git", "refs/heads/master"},
-		{"git", "checkout", "--quiet", "--detach", "--force", c1},
-		{"git", "checkout", "--quiet", "--detach", "master"},
-		{"git", "-c", "core.sshCommand=x", "init", "--quiet"},
+		{"git", "init", "--quiet"},
+		{"git", "checkout", "--quiet", "--detach", c1},
 		{"go", "build", "-o", "/usr/local/bin/sweatshop", "./cmd/sweatshop"},
 		{"go", "build", "-o", l.Dir + "/x", "./cmd/evil"},
 		{"go", "run", "./cmd/sweatshop"},
@@ -60,8 +60,6 @@ func TestLaunchdNeverRunsOutsideAllowlist(t *testing.T) {
 	}
 	for _, argv := range [][]string{
 		{"launchctl", "kickstart", "-k", "gui/501/com.example.line.serve"},
-		{"git", "init", "--quiet"},
-		{"git", "checkout", "--quiet", "--detach", c1},
 		{"go", "build", "-o", l.Dir + "/" + c1 + "/sweatshop.tmp", "./cmd/sweatshop"},
 	} {
 		if !l.Allowed(argv) {
@@ -70,9 +68,36 @@ func TestLaunchdNeverRunsOutsideAllowlist(t *testing.T) {
 	}
 }
 
+// seedSource makes a repository with two commits, oldest first, as the line
+// remote the backend builds from.
+func seedSource(t *testing.T, ctx context.Context) (source gitx.Repo, first, second string) {
+	t.Helper()
+	source = gitx.Repo{Dir: t.TempDir()}
+	if err := source.Init(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	blob, err := source.WriteBlob(ctx, []byte("hello"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := source.WriteTreeWithBlob(ctx, "README", blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first, err = source.CommitTree(ctx, tree, "", "first", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if second, err = source.CommitTree(ctx, tree, first, "second", "test"); err != nil {
+		t.Fatal(err)
+	}
+	return source, first, second
+}
+
 func TestLaunchdApplyAndRollback(t *testing.T) {
 	l, ex := newLaunchd(t)
 	ctx := context.Background()
+	source, c1, c2 := seedSource(t, ctx)
+	l.Source = source.Dir
 	ex.build = func(argv []string) {
 		if argv[0] == "go" {
 			_ = os.WriteFile(argv[3], []byte("bin"), 0o755)

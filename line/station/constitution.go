@@ -101,7 +101,7 @@ func (s *Server) routeConstitution(w http.ResponseWriter, r *http.Request, st *S
 		_, _ = w.Write(body)
 		return "constitution get " + head, nil
 	case "/v1/constitution/log":
-		out, err := repo.Git(ctx, "log", "--format=%H%x09%s", "--end-of-options", head)
+		history, err := repo.History(ctx, head)
 		if err != nil {
 			return "", err
 		}
@@ -110,10 +110,8 @@ func (s *Server) routeConstitution(w http.ResponseWriter, r *http.Request, st *S
 			Message string `json:"message"`
 		}
 		entries := []entry{}
-		for _, l := range strings.Split(out, "\n") {
-			if c, m, ok := strings.Cut(l, "\t"); ok {
-				entries = append(entries, entry{c, m})
-			}
+		for _, c := range history {
+			entries = append(entries, entry{c.Commit, c.Subject})
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
 		return fmt.Sprintf("constitution log %d", len(entries)), nil
@@ -176,12 +174,12 @@ func (s *Server) routeConstitution(w http.ResponseWriter, r *http.Request, st *S
 
 // nextProposal is one more than the highest proposal number in the remote.
 func nextProposal(ctx context.Context, repo gitx.Repo) (int, error) {
-	out, err := repo.Git(ctx, "for-each-ref", "--format=%(refname)", proposalPrefix)
+	refs, err := repo.RefNames(ctx, proposalPrefix)
 	if err != nil {
 		return 0, err
 	}
 	top := 0
-	for _, ref := range strings.Fields(out) {
+	for _, ref := range refs {
 		if n, err := strconv.Atoi(strings.TrimPrefix(ref, proposalPrefix)); err == nil {
 			top = max(top, n)
 		}

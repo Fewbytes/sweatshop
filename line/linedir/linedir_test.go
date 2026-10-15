@@ -9,9 +9,10 @@ import (
 
 	"github.com/Fewbytes/sweatshop/line/constitution"
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 )
 
-// ok checks a git call: ok(t)(repo.Git(...)).
+// ok checks a git call: ok(t)(gittest.Git(...)).
 func ok(t *testing.T) func(string, error) {
 	return func(_ string, err error) {
 		t.Helper()
@@ -25,14 +26,14 @@ func sourceRepo(t *testing.T) gitx.Repo {
 	t.Helper()
 	ctx := context.Background()
 	src := gitx.Repo{Dir: t.TempDir()}
-	ok(t)(src.Git(ctx, "init", "--quiet", "--initial-branch=master"))
-	ok(t)(src.Git(ctx, "config", "user.name", "test"))
-	ok(t)(src.Git(ctx, "config", "user.email", "test@example.com"))
+	ok(t)(gittest.Git(ctx, src.Dir, "init", "--quiet", "--initial-branch=master"))
+	ok(t)(gittest.Git(ctx, src.Dir, "config", "user.name", "test"))
+	ok(t)(gittest.Git(ctx, src.Dir, "config", "user.email", "test@example.com"))
 	if err := os.WriteFile(filepath.Join(src.Dir, "README"), []byte("seed"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ok(t)(src.Git(ctx, "add", "README"))
-	ok(t)(src.Git(ctx, "commit", "--quiet", "-m", "seed"))
+	ok(t)(gittest.Git(ctx, src.Dir, "add", "README"))
+	ok(t)(gittest.Git(ctx, src.Dir, "commit", "--quiet", "-m", "seed"))
 	return src
 }
 
@@ -103,11 +104,11 @@ func TestInitCreatesLayout(t *testing.T) {
 	if _, covered := c.AllowedRoles("line/maker/runner.go"); covered {
 		t.Error("ordinary source is role-gated")
 	}
-	want, err := src.Git(ctx, "rev-parse", "refs/heads/master")
+	want, err := gittest.Git(ctx, src.Dir, "rev-parse", "refs/heads/master")
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := (gitx.Repo{Dir: l.Remote}).Git(ctx, "rev-parse", "refs/heads/master")
+	got, err := gittest.Git(ctx, l.Remote, "rev-parse", "refs/heads/master")
 	if err != nil || got != want {
 		t.Fatalf("remote master = %q, %v; want %q", got, err, want)
 	}
@@ -237,7 +238,7 @@ func TestAddStationCommitsKeyOntoConstitutionRef(t *testing.T) {
 	if err != nil || string(exported) != string(onRef) {
 		t.Fatalf("constitution.toml is not an export of the ref: %v\n%s", err, exported)
 	}
-	log, err := repo.Git(ctx, "log", "--format=%s", ConstitutionRef)
+	log, err := gittest.Git(ctx, repo.Dir, "log", "--format=%s", ConstitutionRef)
 	if err != nil || !strings.Contains(log, "station add viceroy-1") {
 		t.Fatalf("log = %q, %v", log, err)
 	}

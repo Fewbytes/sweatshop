@@ -7,6 +7,7 @@ import (
 
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 	"github.com/Fewbytes/sweatshop/line/guard"
 )
 
@@ -28,7 +29,7 @@ func (f *fakeMerger) Merge(ctx context.Context, commit string, env attest.Envelo
 func newRemote(t *testing.T) gitx.Repo {
 	t.Helper()
 	remote := gitx.Repo{Dir: filepath.Join(t.TempDir(), "remote.git")}
-	ok(t)((gitx.Repo{Dir: filepath.Dir(remote.Dir)}).Git(context.Background(), "init", "--quiet", "--bare", remote.Dir))
+	ok(t)(gittest.Git(context.Background(), filepath.Dir(remote.Dir), "init", "--quiet", "--bare", remote.Dir))
 	return remote
 }
 

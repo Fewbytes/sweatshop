@@ -12,6 +12,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/Fewbytes/sweatshop/line/constitution"
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 	"github.com/Fewbytes/sweatshop/line/guard"
 )
 
@@ -33,14 +34,14 @@ func newBundleRig(t *testing.T) *bundleRig {
 		upstream: gitx.Repo{Dir: filepath.Join(dir, "upstream.git")},
 		agent:    gitx.Repo{Dir: filepath.Join(dir, "agent")}}
 	root := gitx.Repo{Dir: dir}
-	ok(t)(root.Git(ctx, "init", "--quiet", "--bare", "--initial-branch=master", r.upstream.Dir))
-	ok(t)(root.Git(ctx, "clone", "--quiet", r.upstream.Dir, r.agent.Dir))
-	ok(t)(r.agent.Git(ctx, "symbolic-ref", "HEAD", "refs/heads/master"))
-	ok(t)(r.agent.Git(ctx, "config", "user.name", "t"))
-	ok(t)(r.agent.Git(ctx, "config", "user.email", "t@example.com"))
+	ok(t)(gittest.Git(ctx, root.Dir, "init", "--quiet", "--bare", "--initial-branch=master", r.upstream.Dir))
+	ok(t)(gittest.Git(ctx, root.Dir, "clone", "--quiet", r.upstream.Dir, r.agent.Dir))
+	ok(t)(gittest.Git(ctx, r.agent.Dir, "symbolic-ref", "HEAD", "refs/heads/master"))
+	ok(t)(gittest.Git(ctx, r.agent.Dir, "config", "user.name", "t"))
+	ok(t)(gittest.Git(ctx, r.agent.Dir, "config", "user.email", "t@example.com"))
 	r.commit("check.sh", "test ! -e BROKEN\n")
-	ok(t)(r.agent.Git(ctx, "push", "--quiet", "origin", "HEAD:refs/heads/master"))
-	ok(t)(r.agent.Git(ctx, "fetch", "--quiet", "origin"))
+	ok(t)(gittest.Git(ctx, r.agent.Dir, "push", "--quiet", "origin", "HEAD:refs/heads/master"))
+	ok(t)(gittest.Git(ctx, r.agent.Dir, "fetch", "--quiet", "origin"))
 	r.w, r.pub = newWitness(t)
 	r.w.Upstream = r.upstream.Dir
 	return r
@@ -55,8 +56,8 @@ func (r *bundleRig) commit(name, content string) string {
 	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
 		r.t.Fatal(err)
 	}
-	ok(r.t)(r.agent.Git(r.ctx, "add", "-A"))
-	ok(r.t)(r.agent.Git(r.ctx, "commit", "--quiet", "-m", "change "+name))
+	ok(r.t)(gittest.Git(r.ctx, r.agent.Dir, "add", "-A"))
+	ok(r.t)(gittest.Git(r.ctx, r.agent.Dir, "commit", "--quiet", "-m", "change "+name))
 	sha, err := r.agent.Commit(r.ctx, "HEAD")
 	if err != nil {
 		r.t.Fatal(err)
@@ -68,9 +69,9 @@ func (r *bundleRig) commit(name, content string) string {
 // under refs/sweatshop/, excluding what the line already has.
 func (r *bundleRig) bundle(commit string) string {
 	r.t.Helper()
-	ok(r.t)(r.agent.Git(r.ctx, "update-ref", "refs/sweatshop/b", commit))
+	ok(r.t)(gittest.Git(r.ctx, r.agent.Dir, "update-ref", "refs/sweatshop/b", commit))
 	f := filepath.Join(r.dir, fmt.Sprintf("b-%s.bundle", commit[:8]))
-	ok(r.t)(r.agent.Git(r.ctx, "bundle", "create", "--quiet", f, "refs/sweatshop/b", "^origin/master"))
+	ok(r.t)(gittest.Git(r.ctx, r.agent.Dir, "bundle", "create", "--quiet", f, "refs/sweatshop/b", "^origin/master"))
 	return f
 }
 
@@ -98,8 +99,8 @@ func TestAttestBundleRejectsMissingPrerequisites(t *testing.T) {
 	local := r.commit("local.txt", "only here") // never pushed
 	head := r.commit("src/a.go", "package a")
 	f := filepath.Join(r.dir, "p.bundle")
-	ok(t)(r.agent.Git(r.ctx, "update-ref", "refs/sweatshop/b", head))
-	ok(t)(r.agent.Git(r.ctx, "bundle", "create", "--quiet", f, "refs/sweatshop/b", "^"+local))
+	ok(t)(gittest.Git(r.ctx, r.agent.Dir, "update-ref", "refs/sweatshop/b", head))
+	ok(t)(gittest.Git(r.ctx, r.agent.Dir, "bundle", "create", "--quiet", f, "refs/sweatshop/b", "^"+local))
 	if _, err := r.w.AttestBundle(r.ctx, f, head); err == nil {
 		t.Fatal("accepted a bundle whose prerequisites the line lacks")
 	}
@@ -136,7 +137,7 @@ func TestAttestBundleRejectsCachedCommitOutsideBundleRef(t *testing.T) {
 		t.Fatal(err)
 	}
 	// x is now in the witness cache. Build a sibling branch that excludes it.
-	ok(t)(r.agent.Git(r.ctx, "reset", "--quiet", "--hard", "origin/master"))
+	ok(t)(gittest.Git(r.ctx, r.agent.Dir, "reset", "--quiet", "--hard", "origin/master"))
 	y := r.commit("src/y.go", "package y")
 	if _, err := r.w.AttestBundle(r.ctx, r.bundle(y), x); err == nil {
 		t.Fatal("attested a cached commit that is not reachable from the bundle's ref")
@@ -160,7 +161,7 @@ func TestAttestBundleIgnoresAgentRepoConfig(t *testing.T) {
 	marker := filepath.Join(os.TempDir(), fmt.Sprintf("pwned-%d", time.Now().UnixNano()))
 	t.Cleanup(func() { os.Remove(marker) })
 	// Set the hostile config only after our own git calls in the agent repo.
-	ok(t)(r.agent.Git(r.ctx, "config", "core.fsmonitor", "touch "+marker))
+	ok(t)(gittest.Git(r.ctx, r.agent.Dir, "config", "core.fsmonitor", "touch "+marker))
 	if _, err := r.w.AttestBundle(r.ctx, f, head); err != nil {
 		t.Fatal(err)
 	}

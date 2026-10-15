@@ -213,7 +213,7 @@ func TestEngineReleaseBuilderRecordsDigest(t *testing.T) {
 	r := newDeployRig(t)
 	var calls []string
 	b := EngineReleaseBuilder{
-		Repo: r.srv.Guard.Repo, Ref: "refs/heads/master", Image: "reg.example/sweatshop-line",
+		Repo: r.srv.Guard.Repo, Image: "reg.example/sweatshop-line",
 		Run: func(_ context.Context, args ...string) (string, error) {
 			calls = append(calls, args[0])
 			if args[0] == "image" {

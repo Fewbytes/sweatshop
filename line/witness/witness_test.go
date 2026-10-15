@@ -13,6 +13,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/Fewbytes/sweatshop/line/constitution"
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 	"github.com/Fewbytes/sweatshop/line/report"
 )
 
@@ -22,7 +23,7 @@ type source struct {
 	repo gitx.Repo
 }
 
-// ok checks a git call: ok(t)(repo.Git(...)). Go only lets a multi-value call
+// ok checks a git call: ok(t)(gittest.Git(...)). Go only lets a multi-value call
 // fill an argument list on its own, hence the curried form.
 func ok(t *testing.T) func(string, error) {
 	return func(_ string, err error) {
@@ -36,9 +37,9 @@ func ok(t *testing.T) func(string, error) {
 func newSource(t *testing.T) *source {
 	t.Helper()
 	s := &source{t: t, ctx: context.Background(), repo: gitx.Repo{Dir: t.TempDir()}}
-	ok(t)(s.repo.Git(s.ctx, "init", "--quiet", "--initial-branch=master"))
-	ok(t)(s.repo.Git(s.ctx, "config", "user.name", "test"))
-	ok(t)(s.repo.Git(s.ctx, "config", "user.email", "test@example.com"))
+	ok(t)(gittest.Git(s.ctx, s.repo.Dir, "init", "--quiet", "--initial-branch=master"))
+	ok(t)(gittest.Git(s.ctx, s.repo.Dir, "config", "user.name", "test"))
+	ok(t)(gittest.Git(s.ctx, s.repo.Dir, "config", "user.email", "test@example.com"))
 	s.commit("check.sh", "test ! -e BROKEN\n")
 	return s
 }
@@ -57,8 +58,8 @@ func (s *source) write(name, content string) {
 func (s *source) commit(name, content string) string {
 	s.t.Helper()
 	s.write(name, content)
-	ok(s.t)(s.repo.Git(s.ctx, "add", "-A"))
-	ok(s.t)(s.repo.Git(s.ctx, "commit", "--quiet", "-m", "change "+name))
+	ok(s.t)(gittest.Git(s.ctx, s.repo.Dir, "add", "-A"))
+	ok(s.t)(gittest.Git(s.ctx, s.repo.Dir, "commit", "--quiet", "-m", "change "+name))
 	sha, err := s.repo.Commit(s.ctx, "HEAD")
 	if err != nil {
 		s.t.Fatal(err)
@@ -140,8 +141,8 @@ func (r *modeRecordingRunner) Run(_ context.Context, dir, _ string) (RunResult, 
 func TestCheckoutIsReadableAndWritableByAnyUID(t *testing.T) {
 	s := newSource(t)
 	s.commit("src/a.go", "package a")
-	ok(t)(s.repo.Git(s.ctx, "update-index", "--chmod=+x", "check.sh"))
-	ok(t)(s.repo.Git(s.ctx, "commit", "--quiet", "-m", "make check.sh executable"))
+	ok(t)(gittest.Git(s.ctx, s.repo.Dir, "update-index", "--chmod=+x", "check.sh"))
+	ok(t)(gittest.Git(s.ctx, s.repo.Dir, "commit", "--quiet", "-m", "make check.sh executable"))
 	w, _ := newWitness(t)
 	recorder := &modeRecordingRunner{}
 	w.Runner = recorder
@@ -237,7 +238,7 @@ func TestAttestNeverRunsAgentHooksOrConfig(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	ok(t)(s.repo.Git(s.ctx, "config", "core.fsmonitor", "touch "+marker))
+	ok(t)(gittest.Git(s.ctx, s.repo.Dir, "config", "core.fsmonitor", "touch "+marker))
 	os.Remove(marker)
 	if _, err := w.Attest(s.ctx, s.repo.Dir, "HEAD"); err != nil {
 		t.Fatal(err)
@@ -251,7 +252,7 @@ func TestAttestResolvesBranchesAndRejectsUnknownRevisions(t *testing.T) {
 	s := newSource(t)
 	w, _ := newWitness(t)
 	head := s.commit("src/a.go", "package a")
-	ok(t)(s.repo.Git(s.ctx, "branch", "feature"))
+	ok(t)(gittest.Git(s.ctx, s.repo.Dir, "branch", "feature"))
 	s.commit("src/b.go", "package b")
 	result, err := w.Attest(s.ctx, s.repo.Dir, "feature")
 	if err != nil || result.Commit != head {
@@ -306,7 +307,7 @@ func TestAttestSweepsRefsLeftByEarlierProcess(t *testing.T) {
 	cache := gitx.Repo{Dir: w.CacheDir}
 	stale := []string{"refs/bundle/deadbeef/x", "refs/witness/" + head + "/deadbeef"}
 	for _, ref := range stale {
-		ok(t)(cache.Git(s.ctx, "update-ref", ref, head))
+		ok(t)(gittest.Git(s.ctx, cache.Dir, "update-ref", ref, head))
 	}
 	restarted, _ := newWitness(t)
 	restarted.CacheDir = w.CacheDir

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/Fewbytes/sweatshop/line/gitx"
 )
 
 // Exec runs one argv, without a shell, in dir.
@@ -60,12 +62,6 @@ func (l Launchd) Allowed(argv []string) bool {
 	switch {
 	case len(argv) == 4 && argv[0] == "launchctl" && argv[1] == "kickstart" && argv[2] == "-k":
 		return slices.ContainsFunc(l.Labels, func(label string) bool { return argv[3] == l.Domain+"/"+label })
-	case len(argv) == 3 && slices.Equal(argv[:2], []string{"git", "init"}):
-		return argv[2] == "--quiet"
-	case len(argv) == 6 && slices.Equal(argv[:4], []string{"git", "fetch", "--quiet", "--no-tags"}):
-		return argv[4] == l.Source && argv[5] == "refs/heads/master"
-	case len(argv) == 5 && slices.Equal(argv[:4], []string{"git", "checkout", "--quiet", "--detach"}):
-		return commitRe.MatchString(argv[4])
 	case len(argv) == 5 && slices.Equal([]string{argv[0], argv[1], argv[2]}, []string{"go", "build", "-o"}):
 		return argv[4] == "./cmd/sweatshop" && strings.HasPrefix(argv[3], filepath.Clean(l.Dir)+string(filepath.Separator))
 	}
@@ -119,14 +115,8 @@ func (l Launchd) build(ctx context.Context, commit, bin string) error {
 		return err
 	}
 	defer os.RemoveAll(work)
-	for _, argv := range [][]string{
-		{"git", "init", "--quiet"},
-		{"git", "fetch", "--quiet", "--no-tags", l.Source, "refs/heads/master"},
-		{"git", "checkout", "--quiet", "--detach", commit},
-	} {
-		if err := l.run(ctx, work, argv...); err != nil {
-			return err
-		}
+	if err := (gitx.Repo{Dir: work}).CheckoutDetached(ctx, gitx.Repo{Dir: l.Source}, commit); err != nil {
+		return err
 	}
 	tmp := bin + ".tmp"
 	if err := l.run(ctx, filepath.Join(work, "line"), "go", "build", "-o", tmp, "./cmd/sweatshop"); err != nil {

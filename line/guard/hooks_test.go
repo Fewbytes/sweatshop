@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 )
 
 func TestHookRejectsBranchPushesAndAllowsCandidates(t *testing.T) {
@@ -16,11 +16,11 @@ func TestHookRejectsBranchPushesAndAllowsCandidates(t *testing.T) {
 		t.Fatal(err)
 	}
 	commit := f.commit("src/a.go", "package a")
-	_, err := f.work.Git(f.ctx, "push", "origin", commit+":refs/heads/master")
+	_, err := gittest.Git(f.ctx, f.work.Dir, "push", "origin", commit+":refs/heads/master")
 	if err == nil || !strings.Contains(err.Error(), "submit through the witness") {
 		t.Fatalf("direct push to master: err = %v", err)
 	}
-	if _, err := f.work.Git(f.ctx, "push", "--quiet", "origin", commit+":"+CandidatePrefix+commit); err != nil {
+	if _, err := gittest.Git(f.ctx, f.work.Dir, "push", "--quiet", "origin", commit+":"+CandidatePrefix+commit); err != nil {
 		t.Fatalf("candidate push rejected: %v", err)
 	}
 }
@@ -28,7 +28,7 @@ func TestHookRejectsBranchPushesAndAllowsCandidates(t *testing.T) {
 func TestInstallHooksIsIdempotentAndRefusesForeignHook(t *testing.T) {
 	ctx := context.Background()
 	dir := filepath.Join(t.TempDir(), "remote.git")
-	if _, err := (gitx.Repo{Dir: filepath.Dir(dir)}).Git(ctx, "init", "--quiet", "--bare", dir); err != nil {
+	if _, err := gittest.Git(ctx, filepath.Dir(dir), "init", "--quiet", "--bare", dir); err != nil {
 		t.Fatal(err)
 	}
 	if err := InstallHooks(dir); err != nil {
@@ -52,7 +52,7 @@ func TestHookRejectsConstitutionRefPushes(t *testing.T) {
 	}
 	commit := f.commit("constitution", "x")
 	for _, ref := range []string{"refs/line/constitution", "refs/line/constitution-proposals/1"} {
-		if _, err := f.work.Git(f.ctx, "push", "origin", commit+":"+ref); err == nil {
+		if _, err := gittest.Git(f.ctx, f.work.Dir, "push", "origin", commit+":"+ref); err == nil {
 			t.Errorf("push to %s accepted", ref)
 		}
 	}

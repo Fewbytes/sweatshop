@@ -17,13 +17,14 @@ import (
 	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/witness"
 )
 
 func gitMust(t *testing.T, r gitx.Repo, args ...string) {
 	t.Helper()
-	if _, err := r.Git(context.Background(), args...); err != nil {
+	if _, err := gittest.Git(context.Background(), r.Dir, args...); err != nil {
 		t.Fatal(err)
 	}
 }

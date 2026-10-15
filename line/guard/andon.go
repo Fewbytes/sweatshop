@@ -69,7 +69,7 @@ func (g Guard) Stopped(ctx context.Context) (string, *AndonEvent, error) {
 	}
 	// A hand-written ref may point at any object; only a failing read of a
 	// real blob is an error worth surfacing.
-	kind, err := g.Repo.Git(ctx, "cat-file", "-t", id)
+	kind, err := g.Repo.ObjectType(ctx, id)
 	if err != nil {
 		return "", nil, fmt.Errorf("read %s: %w", StopRef, err)
 	}

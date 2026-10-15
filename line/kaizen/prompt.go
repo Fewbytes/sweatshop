@@ -50,7 +50,7 @@ func CheckReport(message string) error {
 
 // CheckCommitReport applies CheckReport to rev's commit message.
 func CheckCommitReport(ctx context.Context, repo gitx.Repo, rev string) error {
-	msg, err := repo.Git(ctx, "log", "-1", "--format=%B", rev, "--")
+	msg, err := repo.Message(ctx, rev)
 	if err != nil {
 		return err
 	}

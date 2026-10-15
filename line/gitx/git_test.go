@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 )
 
 func newRepo(t *testing.T) (Repo, context.Context) {
@@ -17,7 +19,7 @@ func newRepo(t *testing.T) (Repo, context.Context) {
 		{"config", "user.name", "test"},
 		{"config", "user.email", "test@example.com"},
 	} {
-		if _, err := r.Git(ctx, args...); err != nil {
+		if _, err := gittest.Git(ctx, r.Dir, args...); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -32,10 +34,10 @@ func commitFile(t *testing.T, r Repo, ctx context.Context, name, content string)
 	if err := os.WriteFile(filepath.Join(r.Dir, name), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Git(ctx, "add", "-A"); err != nil {
+	if _, err := gittest.Git(ctx, r.Dir, "add", "-A"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Git(ctx, "commit", "--quiet", "-m", "change "+name); err != nil {
+	if _, err := gittest.Git(ctx, r.Dir, "commit", "--quiet", "-m", "change "+name); err != nil {
 		t.Fatal(err)
 	}
 	sha, err := r.Commit(ctx, "HEAD")
@@ -91,7 +93,7 @@ func TestRefExists(t *testing.T) {
 	if ok, err := r.RefExists(ctx, "refs/line/andon"); err != nil || ok {
 		t.Fatalf("RefExists(missing) = %v, %v", ok, err)
 	}
-	if _, err := r.Git(ctx, "update-ref", "refs/line/andon", head); err != nil {
+	if _, err := gittest.Git(ctx, r.Dir, "update-ref", "refs/line/andon", head); err != nil {
 		t.Fatal(err)
 	}
 	if ok, err := r.RefExists(ctx, "refs/line/andon"); err != nil || !ok {
@@ -181,10 +183,10 @@ func TestTrailer(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(r.Dir, "a.txt"), []byte("1"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Git(ctx, "add", "-A"); err != nil {
+	if _, err := gittest.Git(ctx, r.Dir, "add", "-A"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Git(ctx, "commit", "--quiet", "-m", "fix\n\nAndon-Event: abc123\nBead: sweatshop-1\n"); err != nil {
+	if _, err := gittest.Git(ctx, r.Dir, "commit", "--quiet", "-m", "fix\n\nAndon-Event: abc123\nBead: sweatshop-1\n"); err != nil {
 		t.Fatal(err)
 	}
 	head, err := r.Commit(ctx, "HEAD")
@@ -267,53 +269,11 @@ func TestGitDirIsolation(t *testing.T) {
 	}
 }
 
-func TestOptionInjectionRef(t *testing.T) {
-	r, ctx := newRepo(t)
-	head := commitFile(t, r, ctx, "a.txt", "1")
-	if err := r.UpdateRef(ctx, "refs/line/x", head, ""); err != nil {
-		t.Fatal(err)
-	}
-
-	// Try to inject an option in Ref
-	_, err := r.Ref(ctx, "-x")
-	if err == nil {
-		t.Fatal("Ref accepted option-like argument")
-	}
-
-	// Try to inject an option in RefExists
-	_, err = r.RefExists(ctx, "-x")
-	if err == nil {
-		t.Fatal("RefExists accepted option-like argument")
-	}
-}
-
-func TestOptionInjectionChangedPaths(t *testing.T) {
-	r, ctx := newRepo(t)
-	first := commitFile(t, r, ctx, "a.txt", "1")
-
-	// Try to inject an option in ChangedPaths
-	_, err := r.ChangedPaths(ctx, "--output=/tmp/should-not-exist", "HEAD")
-	if err == nil {
-		t.Fatal("ChangedPaths accepted option-like argument")
-	}
-
-	// Verify no file was created by the injection attempt
-	if _, err := os.Stat("/tmp/should-not-exist"); err == nil {
-		t.Fatal("injection created file")
-	}
-
-	// Try injection in second argument
-	_, err = r.ChangedPaths(ctx, first, "--bad")
-	if err == nil {
-		t.Fatal("ChangedPaths accepted option-like argument in second position")
-	}
-}
-
 func TestTreeAndCommitTree(t *testing.T) {
 	dir := t.TempDir()
 	r := Repo{Dir: dir}
 	ctx := context.Background()
-	if _, err := r.Git(ctx, "init", "--quiet", "--bare"); err != nil {
+	if _, err := gittest.Git(ctx, r.Dir, "init", "--quiet", "--bare"); err != nil {
 		t.Fatal(err)
 	}
 	blob, err := r.WriteBlob(ctx, []byte("notes"))

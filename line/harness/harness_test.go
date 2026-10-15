@@ -15,6 +15,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/Fewbytes/sweatshop/line/constitution"
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/witness"
 )
@@ -36,7 +37,7 @@ type agent struct {
 	witness *witness.Witness
 }
 
-// ok checks a git call: ok(t)(repo.Git(...)). Go only lets a multi-value call
+// ok checks a git call: ok(t)(gittest.Git(...)). Go only lets a multi-value call
 // fill an argument list on its own, hence the curried form.
 func ok(t *testing.T) func(string, error) {
 	return func(_ string, err error) {
@@ -53,16 +54,16 @@ func newLine(t *testing.T) *line {
 	dir := t.TempDir()
 	l := &line{t: t, ctx: ctx, dir: dir, remote: gitx.Repo{Dir: filepath.Join(dir, "remote.git")}}
 	root := gitx.Repo{Dir: dir}
-	ok(t)(root.Git(ctx, "init", "--quiet", "--bare", "--initial-branch=master", l.remote.Dir))
+	ok(t)(gittest.Git(ctx, root.Dir, "init", "--quiet", "--bare", "--initial-branch=master", l.remote.Dir))
 
 	seed := gitx.Repo{Dir: filepath.Join(dir, "seed")}
-	ok(t)(root.Git(ctx, "clone", "--quiet", l.remote.Dir, seed.Dir))
-	ok(t)(seed.Git(ctx, "symbolic-ref", "HEAD", "refs/heads/master"))
-	ok(t)(seed.Git(ctx, "-c", "user.name=seed", "-c", "user.email=seed@example.com", "commit", "--quiet", "--allow-empty", "-m", "seed"))
+	ok(t)(gittest.Git(ctx, root.Dir, "clone", "--quiet", l.remote.Dir, seed.Dir))
+	ok(t)(gittest.Git(ctx, seed.Dir, "symbolic-ref", "HEAD", "refs/heads/master"))
+	ok(t)(gittest.Git(ctx, seed.Dir, "-c", "user.name=seed", "-c", "user.email=seed@example.com", "commit", "--quiet", "--allow-empty", "-m", "seed"))
 	writeFile(t, seed.Dir, "check.sh", "test ! -e BROKEN\n")
-	ok(t)(seed.Git(ctx, "add", "-A"))
-	ok(t)(seed.Git(ctx, "-c", "user.name=seed", "-c", "user.email=seed@example.com", "commit", "--quiet", "-m", "add check"))
-	ok(t)(seed.Git(ctx, "push", "--quiet", "origin", "HEAD:refs/heads/master"))
+	ok(t)(gittest.Git(ctx, seed.Dir, "add", "-A"))
+	ok(t)(gittest.Git(ctx, seed.Dir, "-c", "user.name=seed", "-c", "user.email=seed@example.com", "commit", "--quiet", "-m", "add check"))
+	ok(t)(gittest.Git(ctx, seed.Dir, "push", "--quiet", "origin", "HEAD:refs/heads/master"))
 	if err := guard.InstallHooks(l.remote.Dir); err != nil {
 		t.Fatal(err)
 	}
@@ -117,9 +118,9 @@ func (l *line) agent(name, role string) *agent {
 func (l *line) agentWithKey(name, role string, key ed25519.PrivateKey) *agent {
 	l.t.Helper()
 	repo := gitx.Repo{Dir: filepath.Join(l.dir, "agents", name)}
-	ok(l.t)((gitx.Repo{Dir: l.dir}).Git(l.ctx, "clone", "--quiet", l.remote.Dir, repo.Dir))
-	ok(l.t)(repo.Git(l.ctx, "config", "user.name", name))
-	ok(l.t)(repo.Git(l.ctx, "config", "user.email", name+"@example.com"))
+	ok(l.t)(gittest.Git(l.ctx, l.dir, "clone", "--quiet", l.remote.Dir, repo.Dir))
+	ok(l.t)(gittest.Git(l.ctx, repo.Dir, "config", "user.name", name))
+	ok(l.t)(gittest.Git(l.ctx, repo.Dir, "config", "user.email", name+"@example.com"))
 	return &agent{line: l, repo: repo, witness: &witness.Witness{
 		Key: key, Role: role, AgentID: name,
 		Constitution: l.constitution, ConstitutionDigest: l.digest,
@@ -139,8 +140,8 @@ func (l *line) master() string {
 func (a *agent) change(name, content string) string {
 	a.line.t.Helper()
 	writeFile(a.line.t, a.repo.Dir, name, content)
-	ok(a.line.t)(a.repo.Git(a.line.ctx, "add", "-A"))
-	ok(a.line.t)(a.repo.Git(a.line.ctx, "commit", "--quiet", "-m", "change "+name))
+	ok(a.line.t)(gittest.Git(a.line.ctx, a.repo.Dir, "add", "-A"))
+	ok(a.line.t)(gittest.Git(a.line.ctx, a.repo.Dir, "commit", "--quiet", "-m", "change "+name))
 	sha, err := a.repo.Commit(a.line.ctx, "HEAD")
 	if err != nil {
 		a.line.t.Fatal(err)
@@ -159,8 +160,8 @@ func (a *agent) merge() witness.MergeResult {
 
 func (a *agent) rebase() {
 	a.line.t.Helper()
-	ok(a.line.t)(a.repo.Git(a.line.ctx, "fetch", "--quiet", "origin"))
-	ok(a.line.t)(a.repo.Git(a.line.ctx, "rebase", "--quiet", "origin/master"))
+	ok(a.line.t)(gittest.Git(a.line.ctx, a.repo.Dir, "fetch", "--quiet", "origin"))
+	ok(a.line.t)(gittest.Git(a.line.ctx, a.repo.Dir, "rebase", "--quiet", "origin/master"))
 }
 
 func expect(t *testing.T, result witness.MergeResult, status guard.Status, reason guard.Reason) {
@@ -237,7 +238,7 @@ func TestAttestationReplayedOnAnotherCommitIsRejected(t *testing.T) {
 		t.Fatalf("attest: %+v %v", attested, err)
 	}
 	sneaky := maker.change("src/sneaky.go", "package src // never attested")
-	ok(t)(maker.repo.Git(l.ctx, "push", "--quiet", "origin", sneaky+":"+guard.CandidatePrefix+sneaky))
+	ok(t)(gittest.Git(l.ctx, maker.repo.Dir, "push", "--quiet", "origin", sneaky+":"+guard.CandidatePrefix+sneaky))
 	result, err := l.guard.Merge(l.ctx, sneaky, *attested.Envelope)
 	if err != nil {
 		t.Fatal(err)
@@ -251,7 +252,7 @@ func TestDirectPushToMasterIsRejected(t *testing.T) {
 	l := newLine(t)
 	maker := l.agent("maker-1", "maker")
 	maker.change("src/a.go", "package src")
-	_, err := maker.repo.Git(l.ctx, "push", "origin", "HEAD:master")
+	_, err := gittest.Git(l.ctx, maker.repo.Dir, "push", "origin", "HEAD:master")
 	if err == nil || !strings.Contains(err.Error(), "submit through the witness") {
 		t.Fatalf("direct push: err = %v", err)
 	}
@@ -259,7 +260,7 @@ func TestDirectPushToMasterIsRejected(t *testing.T) {
 
 func TestStoppedLineRejectsUntilCleared(t *testing.T) {
 	l := newLine(t)
-	ok(t)(l.remote.Git(l.ctx, "update-ref", guard.StopRef, l.master()))
+	ok(t)(gittest.Git(l.ctx, l.remote.Dir, "update-ref", guard.StopRef, l.master()))
 	maker := l.agent("maker-1", "maker")
 	commit := maker.change("src/a.go", "package src")
 	expect(t, maker.merge(), guard.Rejected, guard.ReasonLineStopped)

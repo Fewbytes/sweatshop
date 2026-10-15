@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/report"
 )
@@ -24,8 +25,8 @@ func newKaizenRig(t *testing.T) *kaizenRig {
 	t.Helper()
 	ctx := context.Background()
 	repo := gitx.Repo{Dir: t.TempDir()}
-	ok(t)(repo.Git(ctx, "init", "--quiet", "--initial-branch=master"))
-	ok(t)(repo.Git(ctx, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "--quiet", "--allow-empty", "-m", "seed"))
+	ok(t)(gittest.Git(ctx, repo.Dir, "init", "--quiet", "--initial-branch=master"))
+	ok(t)(gittest.Git(ctx, repo.Dir, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "--quiet", "--allow-empty", "-m", "seed"))
 	reportsDir := t.TempDir()
 	srv := &Server{
 		Guard:   guard.Guard{Repo: repo, Ref: "refs/heads/master"},
@@ -82,7 +83,7 @@ func TestKaizenRequestRefusedWhilePendingOrCordPulled(t *testing.T) {
 		t.Fatal(err)
 	}
 	master, _ := r.repo.Ref(ctx, "refs/heads/master")
-	ok(t)(r.repo.Git(ctx, "update-ref", guard.StopRef, master))
+	ok(t)(gittest.Git(ctx, r.repo.Dir, "update-ref", guard.StopRef, master))
 	if err := r.heijunka.RequestKaizen(ctx); err == nil || !strings.Contains(err.Error(), "andon cord is pulled") {
 		t.Fatalf("request while stopped: %v", err)
 	}

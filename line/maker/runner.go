@@ -173,18 +173,17 @@ func Landed(ctx context.Context, remote gitx.Repo, beadID, pre string) (bool, er
 	if !fullHex.MatchString(pre) {
 		return false, fmt.Errorf("bad pre-run master %q", pre)
 	}
-	// Records end in \x1e and fields in \x00 so multi-line trailers parse.
-	out, err := remote.Git(ctx, "log", "--format=%H%x00%(trailers:key=Bead,valueonly,separator=%x00)%x1e",
-		pre+"..refs/heads/master", "--")
+	added, err := remote.CommitsSince(ctx, pre, "refs/heads/master")
 	if err != nil {
 		return false, err
 	}
-	for _, rec := range strings.Split(out, "\x1e") {
-		fields := strings.Split(strings.TrimSpace(rec), "\x00")
-		for _, v := range fields[1:] {
-			if strings.TrimSpace(v) == beadID {
-				return true, nil
-			}
+	for _, commit := range added {
+		beads, err := remote.Trailer(ctx, commit, "Bead")
+		if err != nil {
+			return false, err
+		}
+		if slices.Contains(beads, beadID) {
+			return true, nil
 		}
 	}
 	return false, nil

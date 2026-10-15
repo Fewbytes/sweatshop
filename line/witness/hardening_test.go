@@ -6,34 +6,8 @@ import (
 	"testing"
 
 	"github.com/Fewbytes/sweatshop/line/constitution"
+	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 )
-
-func TestParseGitVersion(t *testing.T) {
-	cases := []struct {
-		out string
-		ok  bool
-	}{
-		{"git version 2.54.0", true},
-		{"git version 2.45.1", true},
-		{"git version 2.45.1.windows.1", true},
-		{"git version 3.0.0", true},
-		{"git version 2.45.0", false},
-		{"git version 2.39.5 (Apple Git-154)", false},
-		{"git version 1.9.9", false},
-	}
-	for _, c := range cases {
-		v, err := parseGitVersion(c.out)
-		if err != nil {
-			t.Fatalf("%q: %v", c.out, err)
-		}
-		if got := gitAtLeastMin(v); got != c.ok {
-			t.Errorf("%q: at least min = %v, want %v", c.out, got, c.ok)
-		}
-	}
-	if _, err := parseGitVersion("not git"); err == nil {
-		t.Error("accepted garbage version output")
-	}
-}
 
 func TestAttestDoesNotRunPromisorUploadpackFromAgentConfig(t *testing.T) {
 	s := newSource(t)
@@ -46,7 +20,7 @@ func TestAttestDoesNotRunPromisorUploadpackFromAgentConfig(t *testing.T) {
 		{"remote.evil.uploadpack", "touch " + marker},
 		{"remote.evil.promisor", "true"},
 	} {
-		ok(t)(s.repo.Git(s.ctx, "config", kv[0], kv[1]))
+		ok(t)(gittest.Git(s.ctx, s.repo.Dir, "config", kv[0], kv[1]))
 	}
 	s.commit("src/a.go", "package a")
 	if _, err := w.Attest(s.ctx, s.repo.Dir, "HEAD"); err != nil {
@@ -64,7 +38,7 @@ func TestAttestRejectsCommitNoLongerReachable(t *testing.T) {
 	if _, err := w.Attest(s.ctx, s.repo.Dir, sha); err != nil {
 		t.Fatal(err)
 	}
-	ok(t)(s.repo.Git(s.ctx, "reset", "--quiet", "--hard", "HEAD~1"))
+	ok(t)(gittest.Git(s.ctx, s.repo.Dir, "reset", "--quiet", "--hard", "HEAD~1"))
 	if _, err := w.Attest(s.ctx, s.repo.Dir, sha); err == nil {
 		t.Fatal("attested a commit no agent branch contains, served from the cache")
 	}

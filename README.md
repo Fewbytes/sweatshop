@@ -75,7 +75,7 @@ Design: [`design-docs/m1-line-live.md`](design-docs/m1-line-live.md). The M1 lin
 
 After the podman machine sleeps or is paused its clock can fall behind (the station's clock-skew alert reports this). `chronyc makestep` does not help then: chrony marks its sources unusable (`^~`/`^?`) and the step is a no-op. Set the clock from the host instead: `podman machine ssh "sudo date -u -s @$(date +%s)"`. Adding `/etc/chrony.d/sweatshop-makestep.conf` in the VM containing `makestep 1.0 -1` (step whenever the offset exceeds 1s, not only during the first 3 updates) does not prevent it: chrony can keep a stale pre-sleep source selected and never step. A host that does not sleep avoids the problem.
 
-Host prerequisites: `bd` from the external [beads](https://github.com/gastownhall/beads) project on `PATH`, a container engine CLI (`docker`, or a docker-compatible CLI such as `podman`), `just` and Go to build, and host git ≥ 2.45.1 (the witness runs git on the host and refuses older versions).
+Host prerequisites: `bd` from the external [beads](https://github.com/gastownhall/beads) project on `PATH`, a container engine CLI (`docker`, or a docker-compatible CLI such as `podman`), `just` and Go to build. The line itself needs no git program: it reads and writes git repositories in process (go-git).
 
 ```bash
 just station-image                       # sweatshop-station:dev; agent container and check-runner image

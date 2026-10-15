@@ -17,6 +17,7 @@ import (
 
 	"github.com/Fewbytes/sweatshop/line/constitution"
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/linedir"
 )
@@ -122,9 +123,9 @@ func newSuccRig(t *testing.T, succession bool) *succRig {
 	t.Helper()
 	ctx := context.Background()
 	src := gitx.Repo{Dir: t.TempDir()}
-	ok(t)(src.Git(ctx, "init", "--quiet", "--initial-branch=master"))
-	ok(t)(src.Git(ctx, "config", "user.name", "t"))
-	ok(t)(src.Git(ctx, "config", "user.email", "t@example.com"))
+	ok(t)(gittest.Git(ctx, src.Dir, "init", "--quiet", "--initial-branch=master"))
+	ok(t)(gittest.Git(ctx, src.Dir, "config", "user.name", "t"))
+	ok(t)(gittest.Git(ctx, src.Dir, "config", "user.email", "t@example.com"))
 	if err := os.WriteFile(filepath.Join(src.Dir, "check.sh"), []byte(checkScript), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -134,8 +135,8 @@ func newSuccRig(t *testing.T, succession bool) *succRig {
 	if err := os.WriteFile(filepath.Join(src.Dir, "station", "Dockerfile"), []byte("FROM scratch\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ok(t)(src.Git(ctx, "add", "-A"))
-	ok(t)(src.Git(ctx, "commit", "--quiet", "-m", "seed"))
+	ok(t)(gittest.Git(ctx, src.Dir, "add", "-A"))
+	ok(t)(gittest.Git(ctx, src.Dir, "commit", "--quiet", "-m", "seed"))
 	l, err := linedir.Init(ctx, linedir.InitOptions{
 		Dir: filepath.Join(t.TempDir(), "line"), Source: src.Dir, Check: "sh check.sh",
 		Stations: []linedir.StationSpec{{Name: "maker-1", Role: "maker"}, {Name: "viceroy-1", Role: "viceroy"}},
@@ -174,9 +175,9 @@ func newSuccRig(t *testing.T, succession bool) *succRig {
 	t.Cleanup(r.ts.Close)
 	t.Cleanup(func() { r.sup.watchers.Wait() })
 	r.agent = gitx.Repo{Dir: filepath.Join(t.TempDir(), "agent")}
-	ok(t)(src.Git(ctx, "clone", "--quiet", l.Remote, r.agent.Dir))
-	ok(t)(r.agent.Git(ctx, "config", "user.name", "t"))
-	ok(t)(r.agent.Git(ctx, "config", "user.email", "t@example.com"))
+	ok(t)(gittest.Git(ctx, src.Dir, "clone", "--quiet", l.Remote, r.agent.Dir))
+	ok(t)(gittest.Git(ctx, r.agent.Dir, "config", "user.name", "t"))
+	ok(t)(gittest.Git(ctx, r.agent.Dir, "config", "user.email", "t@example.com"))
 	r.c1 = r.master()
 	return r
 }
@@ -196,9 +197,9 @@ func (r *succRig) land(name, content string) string {
 	if err := os.WriteFile(filepath.Join(r.agent.Dir, name), []byte(content), 0o644); err != nil {
 		r.t.Fatal(err)
 	}
-	ok(r.t)(r.agent.Git(r.ctx, "add", "-A"))
-	ok(r.t)(r.agent.Git(r.ctx, "commit", "--quiet", "-m", "change "+name))
-	ok(r.t)(r.remote.Git(r.ctx, "fetch", "--quiet", r.agent.Dir, "+HEAD:refs/heads/master"))
+	ok(r.t)(gittest.Git(r.ctx, r.agent.Dir, "add", "-A"))
+	ok(r.t)(gittest.Git(r.ctx, r.agent.Dir, "commit", "--quiet", "-m", "change "+name))
+	ok(r.t)(gittest.Git(r.ctx, r.remote.Dir, "fetch", "--quiet", r.agent.Dir, "+HEAD:refs/heads/master"))
 	return r.master()
 }
 
@@ -288,10 +289,10 @@ func TestBootstrapRefusals(t *testing.T) {
 	r := newSuccRig(t, true)
 	_, err := r.sup.Bootstrap(r.ctx, r.station("viceroy-1"), strings.Repeat("a", 40))
 	wantErr(t, err, "not the line's master")
-	ok(t)(r.remote.Git(r.ctx, "update-ref", guard.StopRef, r.c1))
+	ok(t)(gittest.Git(r.ctx, r.remote.Dir, "update-ref", guard.StopRef, r.c1))
 	_, err = r.sup.Bootstrap(r.ctx, r.station("viceroy-1"), r.c1)
 	wantErr(t, err, "stopped")
-	ok(t)(r.remote.Git(r.ctx, "update-ref", "-d", guard.StopRef))
+	ok(t)(gittest.Git(r.ctx, r.remote.Dir, "update-ref", "-d", guard.StopRef))
 	if err := os.Remove(filepath.Join(r.line.Dir, "model.cred")); err != nil {
 		t.Fatal(err)
 	}
@@ -385,10 +386,10 @@ func TestSucceedRefusals(t *testing.T) {
 	wantErr(t, err, "not the line's master")
 	_, err = v.ViceroySucceed(r.ctx, r.c1) // the current generation's commit
 	wantErr(t, err, "409")
-	ok(t)(r.remote.Git(r.ctx, "update-ref", guard.StopRef, c2))
+	ok(t)(gittest.Git(r.ctx, r.remote.Dir, "update-ref", guard.StopRef, c2))
 	_, err = v.ViceroySucceed(r.ctx, c2)
 	wantErr(t, err, "stopped")
-	ok(t)(r.remote.Git(r.ctx, "update-ref", "-d", guard.StopRef))
+	ok(t)(gittest.Git(r.ctx, r.remote.Dir, "update-ref", "-d", guard.StopRef))
 	// A stale generation may not ask.
 	stale := v
 	stale.Gen = "7"

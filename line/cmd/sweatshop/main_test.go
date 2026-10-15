@@ -20,6 +20,7 @@ import (
 
 	"github.com/Fewbytes/sweatshop/line/constitution"
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 	"github.com/Fewbytes/sweatshop/line/linedir"
 	"github.com/Fewbytes/sweatshop/line/station"
 )
@@ -41,7 +42,7 @@ func TestKeygenPrintsKeyIDAndPublicKey(t *testing.T) {
 
 func TestGuardInstallHooks(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "remote.git")
-	if _, err := (gitx.Repo{Dir: filepath.Dir(dir)}).Git(context.Background(), "init", "--quiet", "--bare", dir); err != nil {
+	if _, err := gittest.Git(context.Background(), filepath.Dir(dir), "init", "--quiet", "--bare", dir); err != nil {
 		t.Fatal(err)
 	}
 	if err := run([]string{"guard", "install-hooks", dir}, &bytes.Buffer{}); err != nil {
@@ -76,7 +77,7 @@ func initLine(t *testing.T) (string, gitx.Repo) {
 		{"config", "user.name", "t"}, {"config", "user.email", "t@example.com"},
 		{"add", "check.sh"}, {"commit", "--quiet", "-m", "seed"},
 	} {
-		if _, err := src.Git(ctx, args...); err != nil {
+		if _, err := gittest.Git(ctx, src.Dir, args...); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -102,7 +103,7 @@ func initLine(t *testing.T) (string, gitx.Repo) {
 		{"clone", "--quiet", l.Remote, agent.Dir},
 		{"-C", agent.Dir, "config", "user.name", "t"}, {"-C", agent.Dir, "config", "user.email", "t@example.com"},
 	} {
-		if _, err := src.Git(ctx, args...); err != nil {
+		if _, err := gittest.Git(ctx, src.Dir, args...); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -190,7 +191,7 @@ func TestLineMergeAndStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{{"add", "a.txt"}, {"commit", "--quiet", "-m", "a"}} {
-		if _, err := agent.Git(ctx, args...); err != nil {
+		if _, err := gittest.Git(ctx, agent.Dir, args...); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -206,7 +207,7 @@ func TestLineMergeAndStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{{"add", "BROKEN"}, {"commit", "--quiet", "-m", "break"}} {
-		if _, err := agent.Git(ctx, args...); err != nil {
+		if _, err := gittest.Git(ctx, agent.Dir, args...); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -239,7 +240,7 @@ func TestLineMergeRefusesMissingTrailer(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{{"add", "a.txt"}, {"commit", "--quiet", "-m", "a"}} {
-		if _, err := agent.Git(ctx, args...); err != nil {
+		if _, err := gittest.Git(ctx, agent.Dir, args...); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -260,7 +261,7 @@ func TestLineInit(t *testing.T) {
 		{"config", "user.name", "t"}, {"config", "user.email", "t@example.com"},
 		{"commit", "--quiet", "--allow-empty", "-m", "seed"},
 	} {
-		if _, err := src.Git(ctx, args...); err != nil {
+		if _, err := gittest.Git(ctx, src.Dir, args...); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -690,7 +691,7 @@ func TestLineInitGovernanceFlags(t *testing.T) {
 		{"config", "user.name", "t"}, {"config", "user.email", "t@example.com"},
 		{"commit", "--quiet", "--allow-empty", "-m", "seed"},
 	} {
-		if _, err := src.Git(context.Background(), args...); err != nil {
+		if _, err := gittest.Git(context.Background(), src.Dir, args...); err != nil {
 			t.Fatal(err)
 		}
 	}

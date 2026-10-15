@@ -161,7 +161,7 @@ func lineInit(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("line init", flag.ContinueOnError)
 	var opts linedir.InitOptions
 	fs.StringVar(&opts.Dir, "dir", "", "line directory (must not exist or be empty)")
-	fs.StringVar(&opts.Source, "source", "", "git repository whose master seeds the line")
+	fs.StringVar(&opts.Source, "source", "", "local git repository whose master seeds the line")
 	fs.StringVar(&opts.Engine, "engine", "", "container engine (default docker)")
 	fs.StringVar(&opts.Image, "image", "", "station image (default sweatshop-station:dev)")
 	fs.IntVar(&opts.Port, "port", 0, "station API port (default 7468)")
@@ -266,7 +266,7 @@ func lineServe(args []string, stdout io.Writer) error {
 	}
 	if l.Deploy.Image != "" {
 		srv.Releases = station.EngineReleaseBuilder{
-			Repo: srv.Guard.Repo, Ref: srv.Guard.Ref, Image: l.Deploy.Image, Dockerfile: l.Deploy.Dockerfile,
+			Repo: srv.Guard.Repo, Image: l.Deploy.Image, Dockerfile: l.Deploy.Dockerfile,
 			Run: station.CLIEngine{Bin: l.Engine}.Output,
 		}
 	}

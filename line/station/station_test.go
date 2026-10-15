@@ -17,13 +17,14 @@ import (
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/Fewbytes/sweatshop/line/constitution"
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/linedir"
 	"github.com/Fewbytes/sweatshop/line/report"
 	"github.com/Fewbytes/sweatshop/line/witness"
 )
 
-// ok checks a git call: ok(t)(repo.Git(...)).
+// ok checks a git call: ok(t)(gittest.Git(...)).
 func ok(t *testing.T) func(string, error) {
 	return func(_ string, err error) {
 		t.Helper()
@@ -50,14 +51,14 @@ func newRig(t *testing.T) *rig {
 	t.Helper()
 	ctx := context.Background()
 	src := gitx.Repo{Dir: t.TempDir()}
-	ok(t)(src.Git(ctx, "init", "--quiet", "--initial-branch=master"))
-	ok(t)(src.Git(ctx, "config", "user.name", "t"))
-	ok(t)(src.Git(ctx, "config", "user.email", "t@example.com"))
+	ok(t)(gittest.Git(ctx, src.Dir, "init", "--quiet", "--initial-branch=master"))
+	ok(t)(gittest.Git(ctx, src.Dir, "config", "user.name", "t"))
+	ok(t)(gittest.Git(ctx, src.Dir, "config", "user.email", "t@example.com"))
 	if err := os.WriteFile(filepath.Join(src.Dir, "check.sh"), []byte(checkScript), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ok(t)(src.Git(ctx, "add", "check.sh"))
-	ok(t)(src.Git(ctx, "commit", "--quiet", "-m", "seed"))
+	ok(t)(gittest.Git(ctx, src.Dir, "add", "check.sh"))
+	ok(t)(gittest.Git(ctx, src.Dir, "commit", "--quiet", "-m", "seed"))
 
 	l, err := linedir.Init(ctx, linedir.InitOptions{Dir: filepath.Join(t.TempDir(), "line"), Source: src.Dir, Check: "sh check.sh"})
 	if err != nil {
@@ -86,9 +87,9 @@ func newRig(t *testing.T) *rig {
 	t.Cleanup(ts.Close)
 
 	agent := gitx.Repo{Dir: filepath.Join(t.TempDir(), "agent")}
-	ok(t)(src.Git(ctx, "clone", "--quiet", l.Remote, agent.Dir))
-	ok(t)(agent.Git(ctx, "config", "user.name", "t"))
-	ok(t)(agent.Git(ctx, "config", "user.email", "t@example.com"))
+	ok(t)(gittest.Git(ctx, src.Dir, "clone", "--quiet", l.Remote, agent.Dir))
+	ok(t)(gittest.Git(ctx, agent.Dir, "config", "user.name", "t"))
+	ok(t)(gittest.Git(ctx, agent.Dir, "config", "user.email", "t@example.com"))
 
 	r := &rig{t: t, ctx: ctx, line: l, srv: srv, ts: ts, agent: agent}
 	r.maker = Client{URL: ts.URL, Token: r.token("maker-1")}
@@ -127,8 +128,8 @@ func (r *rig) commit(name, content, msg string) string {
 			r.t.Fatal(err)
 		}
 	}
-	ok(r.t)(r.agent.Git(r.ctx, "add", "-A"))
-	ok(r.t)(r.agent.Git(r.ctx, "commit", "--quiet", "-m", msg))
+	ok(r.t)(gittest.Git(r.ctx, r.agent.Dir, "add", "-A"))
+	ok(r.t)(gittest.Git(r.ctx, r.agent.Dir, "commit", "--quiet", "-m", msg))
 	sha, err := r.agent.Commit(r.ctx, "HEAD")
 	if err != nil {
 		r.t.Fatal(err)
@@ -403,7 +404,7 @@ func TestWrongMethodAndUnknownRoute(t *testing.T) {
 func (r *rig) landBroken() string {
 	r.t.Helper()
 	broken := r.commit("BROKEN", "x", "break")
-	ok(r.t)(r.agent.Git(r.ctx, "push", "--quiet", "origin", broken+":"+guard.CandidatePrefix+broken))
+	ok(r.t)(gittest.Git(r.ctx, r.agent.Dir, "push", "--quiet", "origin", broken+":"+guard.CandidatePrefix+broken))
 	var maker linedir.Station
 	for _, s := range r.line.Stations {
 		if s.Name == "maker-1" {
@@ -430,7 +431,7 @@ func (r *rig) landBroken() string {
 	if err != nil || res.Status != guard.Merged {
 		r.t.Fatalf("forged merge = %+v, %v", res, err)
 	}
-	ok(r.t)(r.agent.Git(r.ctx, "fetch", "--quiet", "origin"))
+	ok(r.t)(gittest.Git(r.ctx, r.agent.Dir, "fetch", "--quiet", "origin"))
 	return broken
 }
 
@@ -461,8 +462,8 @@ func TestAndonFlow(t *testing.T) {
 	}
 
 	// An untagged change cannot merge while stopped.
-	ok(t)(r.agent.Git(r.ctx, "rm", "--quiet", "BROKEN"))
-	ok(t)(r.agent.Git(r.ctx, "commit", "--quiet", "-m", "untagged fix"))
+	ok(t)(gittest.Git(r.ctx, r.agent.Dir, "rm", "--quiet", "BROKEN"))
+	ok(t)(gittest.Git(r.ctx, r.agent.Dir, "commit", "--quiet", "-m", "untagged fix"))
 	res, err := r.maker.Merge(r.ctx, r.agent.Dir, "HEAD")
 	if err != nil {
 		t.Fatal(err)
@@ -470,7 +471,7 @@ func TestAndonFlow(t *testing.T) {
 	if res.Guard.Reason != guard.ReasonLineStopped {
 		t.Fatalf("untagged merge while stopped = %+v", res)
 	}
-	ok(t)(r.agent.Git(r.ctx, "commit", "--quiet", "--amend", "-m", "fix\n\n"+guard.FixTrailer+": "+pulled.Event))
+	ok(t)(gittest.Git(r.ctx, r.agent.Dir, "commit", "--quiet", "--amend", "-m", "fix\n\n"+guard.FixTrailer+": "+pulled.Event))
 	fix, err := r.agent.Commit(r.ctx, "HEAD")
 	if err != nil {
 		t.Fatal(err)
@@ -567,9 +568,9 @@ func TestMergeFromShallowCloneAfterRebase(t *testing.T) {
 	}
 
 	shallow := gitx.Repo{Dir: filepath.Join(t.TempDir(), "shallow")}
-	ok(t)(r.agent.Git(r.ctx, "clone", "--quiet", "--depth", "1", "file://"+r.line.Remote, shallow.Dir))
-	ok(t)(shallow.Git(r.ctx, "config", "user.name", "t"))
-	ok(t)(shallow.Git(r.ctx, "config", "user.email", "t@example.com"))
+	ok(t)(gittest.Git(r.ctx, r.agent.Dir, "clone", "--quiet", "--depth", "1", "file://"+r.line.Remote, shallow.Dir))
+	ok(t)(gittest.Git(r.ctx, shallow.Dir, "config", "user.name", "t"))
+	ok(t)(gittest.Git(r.ctx, shallow.Dir, "config", "user.email", "t@example.com"))
 
 	// master moves on while the shallow clone works.
 	r.commit("src/b.txt", "b", "add b")
@@ -577,12 +578,12 @@ func TestMergeFromShallowCloneAfterRebase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ok(t)(shallow.Git(r.ctx, "checkout", "--quiet", "-b", "work"))
+	ok(t)(gittest.Git(r.ctx, shallow.Dir, "checkout", "--quiet", "-b", "work"))
 	if err := os.WriteFile(filepath.Join(shallow.Dir, "src", "c.txt"), []byte("c"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ok(t)(shallow.Git(r.ctx, "add", "-A"))
-	ok(t)(shallow.Git(r.ctx, "commit", "--quiet", "-m", "add c"))
+	ok(t)(gittest.Git(r.ctx, shallow.Dir, "add", "-A"))
+	ok(t)(gittest.Git(r.ctx, shallow.Dir, "commit", "--quiet", "-m", "add c"))
 	res, err := r.maker.Merge(r.ctx, shallow.Dir, "HEAD")
 	if err != nil {
 		t.Fatal(err)
@@ -591,8 +592,8 @@ func TestMergeFromShallowCloneAfterRebase(t *testing.T) {
 		t.Fatalf("result = %+v, want reason %s", res.Guard, guard.ReasonBaseMoved)
 	}
 
-	ok(t)(shallow.Git(r.ctx, "fetch", "--quiet", "origin"))
-	ok(t)(shallow.Git(r.ctx, "rebase", "--quiet", "origin/master"))
+	ok(t)(gittest.Git(r.ctx, shallow.Dir, "fetch", "--quiet", "origin"))
+	ok(t)(gittest.Git(r.ctx, shallow.Dir, "rebase", "--quiet", "origin/master"))
 	head, err := shallow.Commit(r.ctx, "HEAD")
 	if err != nil {
 		t.Fatal(err)

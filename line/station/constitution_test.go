@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 	"github.com/Fewbytes/sweatshop/line/linedir"
 )
 
@@ -20,7 +21,7 @@ func consRig(t *testing.T) (*Server, Client, Client, *Channel, *fakeDiscordServe
 	t.Helper()
 	ctx := context.Background()
 	repo := gitx.Repo{Dir: t.TempDir()}
-	if _, err := repo.Git(ctx, "init", "--quiet", "--bare"); err != nil {
+	if _, err := gittest.Git(ctx, repo.Dir, "init", "--quiet", "--bare"); err != nil {
 		t.Fatal(err)
 	}
 	file := filepath.Join(t.TempDir(), "constitution.toml")
@@ -42,7 +43,7 @@ func consRig(t *testing.T) (*Server, Client, Client, *Channel, *fakeDiscordServe
 func TestLoadConstitutionWarnsWhenFileDiffersFromRef(t *testing.T) {
 	ctx := context.Background()
 	repo := gitx.Repo{Dir: t.TempDir()}
-	if _, err := repo.Git(ctx, "init", "--quiet", "--bare"); err != nil {
+	if _, err := gittest.Git(ctx, repo.Dir, "init", "--quiet", "--bare"); err != nil {
 		t.Fatal(err)
 	}
 	file := filepath.Join(t.TempDir(), "c.toml")
@@ -65,7 +66,7 @@ func TestLoadConstitutionWarnsWhenFileDiffersFromRef(t *testing.T) {
 func TestLoadConstitutionImportsOnceThenReadsRef(t *testing.T) {
 	ctx := context.Background()
 	repo := gitx.Repo{Dir: t.TempDir()}
-	if _, err := repo.Git(ctx, "init", "--quiet", "--bare"); err != nil {
+	if _, err := gittest.Git(ctx, repo.Dir, "init", "--quiet", "--bare"); err != nil {
 		t.Fatal(err)
 	}
 	file := filepath.Join(t.TempDir(), "c.toml")

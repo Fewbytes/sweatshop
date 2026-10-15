@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/Fewbytes/sweatshop/line/attest"
+	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 )
 
 func (f *fixture) failing(commit string) attest.Envelope {
@@ -31,8 +32,8 @@ func (f *fixture) commitMsg(name, content, msg string) string {
 	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
 		f.t.Fatal(err)
 	}
-	ok(f.t)(f.work.Git(f.ctx, "add", "-A"))
-	ok(f.t)(f.work.Git(f.ctx, "commit", "--quiet", "-m", msg))
+	ok(f.t)(gittest.Git(f.ctx, f.work.Dir, "add", "-A"))
+	ok(f.t)(gittest.Git(f.ctx, f.work.Dir, "commit", "--quiet", "-m", msg))
 	sha, err := f.work.Commit(f.ctx, "HEAD")
 	if err != nil {
 		f.t.Fatal(err)
@@ -156,7 +157,7 @@ func TestFixWithTrailerMergesWhileStopped(t *testing.T) {
 	if r := f.merge(wrong, f.passing(wrong)); r.Reason != ReasonLineStopped {
 		t.Fatalf("wrong trailer: %+v", r)
 	}
-	ok(t)(f.work.Git(f.ctx, "reset", "--quiet", "--hard", f.master()))
+	ok(t)(gittest.Git(f.ctx, f.work.Dir, "reset", "--quiet", "--hard", f.master()))
 
 	fix := f.commitMsg("src/a.go", "package a", "fix\n\nAndon-Event: "+id)
 	if r := f.merge(fix, f.passing(fix)); r.Status != Merged {
@@ -270,7 +271,7 @@ func TestPullHonoursKeyRoles(t *testing.T) {
 // A hand-written stop ref (no event blob) still stops the line.
 func TestUndecodableStopRefStillStops(t *testing.T) {
 	f := newFixture(t)
-	ok(t)(f.remote.Git(f.ctx, "update-ref", StopRef, f.master()))
+	ok(t)(gittest.Git(f.ctx, f.remote.Dir, "update-ref", StopRef, f.master()))
 	id, event, err := f.guard.Stopped(f.ctx)
 	if err != nil || id != f.master() || event != nil {
 		t.Fatalf("stopped = %s %+v %v", id, event, err)

@@ -24,7 +24,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -43,10 +42,8 @@ type Witness struct {
 	ConstitutionDigest string
 	Runner             Runner
 	// CacheDir is a witness-owned bare repository. The agent's repository is
-	// only ever read through git fetch, and git-upload-pack does run against
-	// it and reads its config. Safety relies on upload-pack being hardened
-	// for untrusted repositories (git >= 2.45.1, enforced before the first
-	// fetch) and on nothing else running there.
+	// only ever read in process, for its refs and objects: no git program
+	// runs against it and its config and hooks are never consulted.
 	CacheDir string
 	// Upstream is the path of the line's bare remote. It is trusted and the
 	// witness only reads it, except to push candidates in MergeBundle.
@@ -57,63 +54,8 @@ type Witness struct {
 	// never change the verdict.
 	Reporter *report.Reporter
 
-	mu         sync.Mutex
-	gitChecked bool
-	swept      bool
-}
-
-const minGit = "2.45.1"
-
-// parseGitVersion extracts major.minor.patch from `git version` output.
-func parseGitVersion(out string) ([3]int, error) {
-	var v [3]int
-	fields := strings.Fields(out)
-	if len(fields) < 3 || fields[0] != "git" || fields[1] != "version" {
-		return v, fmt.Errorf("unrecognized git version output %q", out)
-	}
-	parts := strings.Split(fields[2], ".")
-	for i := 0; i < 3 && i < len(parts); i++ {
-		n, err := strconv.Atoi(parts[i])
-		if err != nil {
-			if i < 2 {
-				return v, fmt.Errorf("unrecognized git version output %q", out)
-			}
-			break
-		}
-		v[i] = n
-	}
-	return v, nil
-}
-
-func gitAtLeastMin(v [3]int) bool {
-	want := [3]int{2, 45, 1}
-	for i := range v {
-		if v[i] != want[i] {
-			return v[i] > want[i]
-		}
-	}
-	return true
-}
-
-// checkGit verifies once per Witness that git is hardened for fetching from
-// untrusted repositories. Callers hold w.mu.
-func (w *Witness) checkGit(ctx context.Context, cache gitx.Repo) error {
-	if w.gitChecked {
-		return nil
-	}
-	out, err := cache.Git(ctx, "version")
-	if err != nil {
-		return err
-	}
-	v, err := parseGitVersion(out)
-	if err != nil {
-		return err
-	}
-	if !gitAtLeastMin(v) {
-		return fmt.Errorf("witness requires git >= %s, have %s", minGit, strings.TrimSpace(out))
-	}
-	w.gitChecked = true
-	return nil
+	mu    sync.Mutex
+	swept bool
 }
 
 type AttestResult struct {
@@ -146,20 +88,10 @@ func (w *Witness) seed(ctx context.Context, cache gitx.Repo) error {
 	if w.Upstream == "" {
 		return errors.New("witness has no upstream")
 	}
-	if _, err := cache.Git(ctx, "fetch", "--quiet", "--no-tags", "--force", "--prune", "--end-of-options",
-		w.Upstream, "+refs/heads/*:refs/line/heads/*"); err != nil {
+	if err := cache.Fetch(ctx, gitx.Repo{Dir: w.Upstream}, true, "+refs/heads/*:"+lineHeadsPrefix+"*"); err != nil {
 		return fmt.Errorf("seed from upstream: %w", err)
 	}
 	return nil
-}
-
-// contained reports whether commit is reachable from a ref under prefix.
-func contained(ctx context.Context, cache gitx.Repo, commit, prefix string) (bool, error) {
-	out, err := cache.Git(ctx, "for-each-ref", "--count=1", "--format=%(refname)", "--contains", commit, prefix)
-	if err != nil {
-		return false, err
-	}
-	return strings.TrimSpace(out) != "", nil
 }
 
 // AttestBundle attests commit, which must arrive in the git bundle at
@@ -173,24 +105,20 @@ func (w *Witness) AttestBundle(ctx context.Context, bundlePath, commit string) (
 		if err := w.seed(ctx, cache); err != nil {
 			return "", err
 		}
-		if _, err := cache.Git(ctx, "bundle", "verify", "--quiet", "--end-of-options", bundlePath); err != nil {
-			return "", fmt.Errorf("bundle does not apply to the line: %w", err)
-		}
 		raw := make([]byte, 8)
 		if _, err := rand.Read(raw); err != nil {
 			return "", err
 		}
 		prefix := "refs/bundle/" + hex.EncodeToString(raw) + "/"
 		defer w.deleteRefs(ctx, cache, prefix)
-		if _, err := cache.Git(ctx, "fetch", "--quiet", "--no-tags", "--force", "--end-of-options",
-			bundlePath, "+refs/sweatshop/*:"+prefix+"*"); err != nil {
+		if err := cache.FetchBundle(ctx, bundlePath, lineHeadsPrefix, false, "+refs/sweatshop/*:"+prefix+"*"); err != nil {
 			return "", fmt.Errorf("fetch bundle: %w", err)
 		}
 		got, err := cache.Commit(ctx, commit)
 		if err != nil || got != commit {
 			return "", fmt.Errorf("%s is not in the bundle", commit)
 		}
-		in, err := contained(ctx, cache, commit, prefix)
+		in, err := cache.ReachableFromRefs(ctx, commit, prefix)
 		if err != nil {
 			return "", err
 		}
@@ -215,7 +143,7 @@ func (w *Witness) AttestLine(ctx context.Context, commit string) (AttestResult, 
 		if err != nil || got != commit {
 			return "", fmt.Errorf("%s is not on the line", commit)
 		}
-		in, err := contained(ctx, cache, commit, "refs/line/heads/")
+		in, err := cache.ReachableFromRefs(ctx, commit, lineHeadsPrefix)
 		if err != nil {
 			return "", err
 		}
@@ -240,11 +168,11 @@ func (w *Witness) sweepStaleRefs(ctx context.Context, cache gitx.Repo) {
 
 func (w *Witness) deleteRefs(ctx context.Context, cache gitx.Repo, prefix string) {
 	ctx = context.WithoutCancel(ctx)
-	out, err := cache.Git(ctx, "for-each-ref", "--format=%(refname)", prefix)
+	refs, err := cache.RefNames(ctx, prefix)
 	if err != nil {
 		return
 	}
-	for _, ref := range strings.Fields(out) {
+	for _, ref := range refs {
 		_ = cache.DeleteRef(ctx, ref)
 	}
 }
@@ -262,6 +190,13 @@ func (w *Witness) attest(ctx context.Context, fetch func(context.Context, gitx.R
 	defer cleanup()
 	return w.run(ctx, commit, tree, checkout)
 }
+
+// unreferencedGrace is how long an object no ref reaches stays in the cache,
+// so an attestation in flight never loses objects it has just stored.
+const unreferencedGrace = 14 * 24 * time.Hour
+
+// lineHeadsPrefix is where seed mirrors the upstream's branches in the cache.
+const lineHeadsPrefix = "refs/line/heads/"
 
 var errCheckTimeout = errors.New("check timed out")
 
@@ -340,13 +275,10 @@ func (w *Witness) prepare(ctx context.Context, fetch func(context.Context, gitx.
 	if err != nil {
 		return "", "", "", nil, err
 	}
-	if err = w.checkGit(ctx, cache); err != nil {
-		return "", "", "", nil, err
-	}
 	w.sweepStaleRefs(ctx, cache)
 	// Rejected candidates and finished attestations leave unreferenced
-	// objects; gc --auto prunes them once they pass git's grace period.
-	if _, err = cache.Git(ctx, "gc", "--auto", "--quiet"); err != nil {
+	// objects; prune them once they pass the grace period.
+	if err = cache.PruneUnreachable(ctx, unreferencedGrace); err != nil {
 		return "", "", "", nil, err
 	}
 	if commit, err = fetch(ctx, cache); err != nil {
@@ -376,13 +308,11 @@ func (w *Witness) cache(ctx context.Context) (gitx.Repo, error) {
 	if err := os.MkdirAll(w.CacheDir, 0o700); err != nil {
 		return repo, err
 	}
-	_, err := repo.Git(ctx, "init", "--quiet", "--bare")
-	return repo, err
+	return repo, repo.Init(ctx, true)
 }
 
 func (w *Witness) fetch(ctx context.Context, cache gitx.Repo, sourceDir, rev string) (string, error) {
-	_, err := cache.Git(ctx, "-c", "safe.directory="+sourceDir, "fetch", "--quiet", "--no-tags", "--force", "--prune", "--end-of-options",
-		sourceDir, "+HEAD:refs/source/HEAD", "+refs/heads/*:refs/source/heads/*")
+	err := cache.Fetch(ctx, gitx.Repo{Dir: sourceDir}, true, "+HEAD:refs/source/HEAD", "+refs/heads/*:refs/source/heads/*")
 	if err != nil {
 		return "", fmt.Errorf("fetch from %s: %w", sourceDir, err)
 	}
@@ -391,11 +321,11 @@ func (w *Witness) fetch(ctx context.Context, cache gitx.Repo, sourceDir, rev str
 		if err != nil {
 			continue
 		}
-		out, err := cache.Git(ctx, "for-each-ref", "--count=1", "--format=%(refname)", "--contains", commit, "refs/source/")
+		in, err := cache.ReachableFromRefs(ctx, commit, "refs/source/")
 		if err != nil {
 			return "", err
 		}
-		if strings.TrimSpace(out) != "" {
+		if in {
 			return commit, nil
 		}
 	}
@@ -410,7 +340,7 @@ func (w *Witness) checkout(ctx context.Context, cache gitx.Repo, commit string) 
 		return "", nil, err
 	}
 	ref := "refs/witness/" + commit + "/" + hex.EncodeToString(nonce)
-	if _, err := cache.Git(ctx, "update-ref", ref, commit); err != nil {
+	if err := cache.SetRef(ctx, ref, commit); err != nil {
 		return "", nil, err
 	}
 	dir, err := os.MkdirTemp("", "witness-checkout-")
@@ -421,16 +351,9 @@ func (w *Witness) checkout(ctx context.Context, cache gitx.Repo, commit string) 
 		_ = os.RemoveAll(dir)
 		_ = cache.DeleteRef(context.WithoutCancel(ctx), ref)
 	}
-	work := gitx.Repo{Dir: dir}
-	for _, args := range [][]string{
-		{"init", "--quiet"},
-		{"fetch", "--quiet", "--no-tags", cache.Dir, ref},
-		{"checkout", "--quiet", "--detach", "FETCH_HEAD"},
-	} {
-		if _, err := work.Git(ctx, args...); err != nil {
-			cleanup()
-			return "", nil, err
-		}
+	if err := (gitx.Repo{Dir: dir}).CheckoutDetached(ctx, cache, commit); err != nil {
+		cleanup()
+		return "", nil, err
 	}
 	if err := makeCheckoutWorldWritable(dir); err != nil {
 		cleanup()

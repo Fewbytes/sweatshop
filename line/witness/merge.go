@@ -49,7 +49,7 @@ func (w *Witness) pushAndMerge(ctx context.Context, attestation AttestResult, re
 		return result, nil
 	}
 	cache := gitx.Repo{Dir: w.CacheDir}
-	if _, err := cache.Git(ctx, "push", "--quiet", remote, attestation.Commit+":"+guard.CandidatePrefix+attestation.Commit); err != nil {
+	if err := cache.PushCommit(ctx, gitx.Repo{Dir: remote}, attestation.Commit, guard.CandidatePrefix+attestation.Commit); err != nil {
 		return result, fmt.Errorf("push candidate: %w", err)
 	}
 	var err error

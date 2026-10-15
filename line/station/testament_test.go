@@ -8,12 +8,13 @@ import (
 	"testing"
 
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 )
 
 func testamentRig(t *testing.T) (*Server, Client, Client) {
 	t.Helper()
 	repo := gitx.Repo{Dir: t.TempDir()}
-	if _, err := repo.Git(context.Background(), "init", "--quiet", "--bare"); err != nil {
+	if _, err := gittest.Git(context.Background(), repo.Dir, "init", "--quiet", "--bare"); err != nil {
 		t.Fatal(err)
 	}
 	srv := &Server{Stations: []*Station{{Name: "v", Role: "viceroy", Token: "vt"}, {Name: "m", Role: "maker", Token: "mt"}}}

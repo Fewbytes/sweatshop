@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 	"github.com/Fewbytes/sweatshop/line/guidance"
 	"github.com/Fewbytes/sweatshop/line/linedir"
 	"github.com/Fewbytes/sweatshop/line/station"
@@ -35,12 +36,12 @@ func remote(t *testing.T) (bare, work gitx.Repo) {
 	t.Helper()
 	ctx := context.Background()
 	bare = gitx.Repo{Dir: filepath.Join(t.TempDir(), "remote.git")}
-	ok(t)(gitx.Repo{Dir: t.TempDir()}.Git(ctx, "init", "--quiet", "--bare", "--initial-branch=master", bare.Dir))
+	ok(t)(gittest.Git(ctx, t.TempDir(), "init", "--quiet", "--bare", "--initial-branch=master", bare.Dir))
 	work = gitx.Repo{Dir: t.TempDir()}
-	ok(t)(work.Git(ctx, "init", "--quiet", "--initial-branch=master"))
-	ok(t)(work.Git(ctx, "config", "user.name", "test"))
-	ok(t)(work.Git(ctx, "config", "user.email", "test@example.com"))
-	ok(t)(work.Git(ctx, "remote", "add", "origin", bare.Dir))
+	ok(t)(gittest.Git(ctx, work.Dir, "init", "--quiet", "--initial-branch=master"))
+	ok(t)(gittest.Git(ctx, work.Dir, "config", "user.name", "test"))
+	ok(t)(gittest.Git(ctx, work.Dir, "config", "user.email", "test@example.com"))
+	ok(t)(gittest.Git(ctx, work.Dir, "remote", "add", "origin", bare.Dir))
 	commit(t, work, "seed")
 	return bare, work
 }
@@ -49,8 +50,8 @@ func remote(t *testing.T) (bare, work gitx.Repo) {
 func commit(t *testing.T, work gitx.Repo, msg string) {
 	t.Helper()
 	ctx := context.Background()
-	ok(t)(work.Git(ctx, "commit", "--quiet", "--allow-empty", "-m", msg))
-	ok(t)(work.Git(ctx, "push", "--quiet", "origin", "master"))
+	ok(t)(gittest.Git(ctx, work.Dir, "commit", "--quiet", "--allow-empty", "-m", msg))
+	ok(t)(gittest.Git(ctx, work.Dir, "push", "--quiet", "origin", "master"))
 }
 
 func TestPickOrdering(t *testing.T) {
@@ -202,7 +203,7 @@ func TestOnceMaxAttemptsConfigurable(t *testing.T) {
 // I3: while refs/line/andon exists only andon cards are worked.
 func TestOnceWhileStoppedWorksOnlyAndonCards(t *testing.T) {
 	bare, _ := remote(t)
-	ok(t)(bare.Git(context.Background(), "update-ref", "refs/line/andon", head(t, bare)))
+	ok(t)(gittest.Git(context.Background(), bare.Dir, "update-ref", "refs/line/andon", head(t, bare)))
 	fb := &fakeBeads{ready: []Bead{{ID: "b-1", Priority: 0, Labels: []string{"line"}}}}
 	fe := &fakeEngine{}
 	r := newRunner(t, bare, fb, fe)
@@ -364,7 +365,7 @@ func TestOnceStopsRunAndReleasesWithoutAttemptWhenCordPulled(t *testing.T) {
 	r.StopPoll = 10 * time.Millisecond
 	go func() {
 		<-fe.started
-		ok(t)(bare.Git(context.Background(), "update-ref", "refs/line/andon", head(t, bare)))
+		ok(t)(gittest.Git(context.Background(), bare.Dir, "update-ref", "refs/line/andon", head(t, bare)))
 	}()
 	worked, err := r.Once(context.Background())
 	if err != nil || !worked {
@@ -381,7 +382,7 @@ func TestOnceStopsRunAndReleasesWithoutAttemptWhenCordPulled(t *testing.T) {
 
 func TestOnceLetsAndonCardRunWhileCordPulled(t *testing.T) {
 	bare, _ := remote(t)
-	ok(t)(bare.Git(context.Background(), "update-ref", "refs/line/andon", head(t, bare)))
+	ok(t)(gittest.Git(context.Background(), bare.Dir, "update-ref", "refs/line/andon", head(t, bare)))
 	fb := &fakeBeads{ready: []Bead{{ID: "b-9", Priority: 0, Labels: []string{"line", "andon"}, Description: "event: e1"}}}
 	r := newRunner(t, bare, fb, &fakeEngine{block: true})
 	r.StopPoll = 10 * time.Millisecond

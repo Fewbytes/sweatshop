@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/Fewbytes/sweatshop/line/gitx"
+	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 	"github.com/Fewbytes/sweatshop/line/guidance"
 	"github.com/Fewbytes/sweatshop/line/linedir"
 	"github.com/Fewbytes/sweatshop/line/maker"
@@ -72,7 +73,7 @@ func gembaRunner(t *testing.T, cards *labelledBeads, engine maker.Engine) *maker
 		{"init", "--quiet", "--bare", "--initial-branch=master", bare.Dir},
 		{"init", "--quiet", "--initial-branch=master", work.Dir},
 	} {
-		if _, err := (gitx.Repo{Dir: dir}).Git(ctx, step...); err != nil {
+		if _, err := gittest.Git(ctx, dir, step...); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -83,7 +84,7 @@ func gembaRunner(t *testing.T, cards *labelledBeads, engine maker.Engine) *maker
 		{"commit", "--quiet", "--allow-empty", "-m", "seed"},
 		{"push", "--quiet", "origin", "master"},
 	} {
-		if _, err := work.Git(ctx, step...); err != nil {
+		if _, err := gittest.Git(ctx, work.Dir, step...); err != nil {
 			t.Fatal(err)
 		}
 	}
