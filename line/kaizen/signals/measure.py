@@ -1,33 +1,28 @@
-"""Compute the code-health signals of kaizen.md section 3 per Go package.
+"""Compute the code-health signals of kaizen.md section 3 by running the
+language adapters and recording the tools behind the numbers.
 
 Deterministic: the clock is the history revision's commit date, never the wall
-clock, and every collection is sorted before it is written. History (churn and
-co-change) is read from a fixed revision while the tree is read from disk, so
-a before and an after measurement of an edited tree differ only by the edit.
+clock, and every collection is sorted before it is written.
 """
 
-import hashlib
 import json
-import math
-import os
+import platform
 import statistics
 import subprocess
-from collections import Counter, defaultdict
 from datetime import datetime, timedelta
-from itertools import combinations
 
-import golang
+from adapter import Adapter, AdapterResult, History, Signals, Unavailable
+from lang_go import GO
+from lang_python import PYTHON
+from lang_typescript import TYPESCRIPT
+from source_adapter import SourceAdapter
 
-SCHEMA = 1
+SCHEMA = 2
 WINDOW_DAYS = 90
-# A commit touching more packages than this is a bulk change (rename, format),
-# not evidence that the packages depend on each other.
-MAX_PACKAGES_PER_COMMIT = 20
-MIN_COCHANGES = 2
-CLONE_WINDOW_LINES = 6
-CLONE_MIN_CHARS = 120
 CI_RUNS_CONSIDERED = 50
-SKIP_DIRS = {".git", "vendor", "testdata", "node_modules"}
+# Every language adapter, run in this order. A literal table so search finds
+# each one; adding a language is adding a line here.
+ADAPTERS: tuple[Adapter, ...] = (SourceAdapter(GO), SourceAdapter(PYTHON), SourceAdapter(TYPESCRIPT))
 
 
 def git(root: str, *args: str) -> str:
@@ -36,102 +31,7 @@ def git(root: str, *args: str) -> str:
     ).stdout
 
 
-def go_files(root: str) -> dict[str, golang.GoFile]:
-    files: dict[str, golang.GoFile] = {}
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
-        for name in sorted(filenames):
-            if not name.endswith(".go"):
-                continue
-            path = os.path.relpath(os.path.join(dirpath, name), root)
-            with open(os.path.join(root, path), encoding="utf-8") as f:
-                files[path] = golang.parse(path, f.read())
-    return files
-
-
-def module_paths(root: str) -> dict[str, str]:
-    """Module directory (repo-relative, '' for the root) -> module path."""
-    modules = {}
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
-        if "go.mod" in filenames:
-            with open(os.path.join(dirpath, "go.mod"), encoding="utf-8") as f:
-                for line in f:
-                    if line.startswith("module "):
-                        rel = os.path.relpath(dirpath, root)
-                        modules["" if rel == "." else rel] = line.split()[1]
-                        break
-    return modules
-
-
-def module_dir(modules: dict[str, str], path: str) -> str:
-    """The directory of the innermost module containing repo-relative path."""
-    return max((m for m in modules if m == "" or path.startswith(m + "/")), key=len, default="")
-
-
-def package_of(path: str) -> str:
-    return os.path.dirname(path) or "."
-
-
-def import_graph(files: dict[str, golang.GoFile], modules: dict[str, str]) -> dict[str, set[str]]:
-    """Package directory -> package directories of the same repo it imports."""
-    by_import_path = {}
-    for pkg in {package_of(p) for p in files}:
-        mod_dir = module_dir(modules, pkg + "/")
-        rel = pkg[len(mod_dir):].lstrip("/") if mod_dir else pkg
-        rel = "" if rel == "." else rel
-        by_import_path[modules[mod_dir] + ("/" + rel if rel else "")] = pkg
-    graph: dict[str, set[str]] = defaultdict(set)
-    for path, f in files.items():
-        pkg = package_of(path)
-        graph[pkg]
-        for imp in f.imports:
-            target = by_import_path.get(imp)
-            if target and target != pkg:
-                graph[pkg].add(target)
-    return graph
-
-
-def cyclic_packages(graph: dict[str, set[str]]) -> tuple[int, set[str]]:
-    """Tarjan's strongly connected components: (cycle count, packages in one)."""
-    index: dict[str, int] = {}
-    low: dict[str, int] = {}
-    on_stack: set[str] = set()
-    stack: list[str] = []
-    cycles = 0
-    members: set[str] = set()
-
-    def visit(v: str) -> None:
-        nonlocal cycles
-        index[v] = low[v] = len(index)
-        stack.append(v)
-        on_stack.add(v)
-        for w in sorted(graph[v]):
-            if w not in index:
-                visit(w)
-                low[v] = min(low[v], low[w])
-            elif w in on_stack:
-                low[v] = min(low[v], index[w])
-        if low[v] == index[v]:
-            component = []
-            while True:
-                w = stack.pop()
-                on_stack.discard(w)
-                component.append(w)
-                if w == v:
-                    break
-            if len(component) > 1:
-                cycles += 1
-                members.update(component)
-
-    for v in sorted(graph):
-        if v not in index:
-            visit(v)
-    return cycles, members
-
-
-def history(root: str, rev: str) -> tuple[str, list[list[str]]]:
-    """(committer date of rev, files touched by each commit in the window)."""
+def history(root: str, rev: str) -> History:
     head_date = git(root, "log", "-1", "--format=%cI", rev).strip()
     since = (datetime.fromisoformat(head_date) - timedelta(days=WINDOW_DAYS)).isoformat()
     out = git(root, "log", rev, f"--since={since}", "--name-only", "--format=@@%H")
@@ -141,147 +41,71 @@ def history(root: str, rev: str) -> tuple[str, list[list[str]]]:
             commits.append([])
         elif line:
             commits[-1].append(line)
-    return head_date, commits
+    return History(head_date, commits)
 
 
-def clone_fragments(files: dict[str, golang.GoFile]) -> Counter[str]:
-    """Duplicated code per package: runs of consecutive CLONE_WINDOW_LINES-line
-    windows (blank and bracket-only lines ignored) that occur in 2+ places."""
-    windows: dict[str, list[tuple[str, int]]] = defaultdict(list)
-    for path, f in files.items():
-        if f.is_test:
-            continue
-        lines = f.normalized_lines
-        for i in range(len(lines) - CLONE_WINDOW_LINES + 1):
-            text = "\n".join(lines[i:i + CLONE_WINDOW_LINES])
-            if len(text) >= CLONE_MIN_CHARS:
-                windows[hashlib.sha1(text.encode()).hexdigest()].append((path, i))
-    duplicated: dict[str, set[int]] = defaultdict(set)
-    for places in windows.values():
-        if len(places) > 1:
-            for path, i in places:
-                duplicated[path].add(i)
-    fragments: Counter[str] = Counter()
-    for path, starts in duplicated.items():
-        for i in starts:
-            if i - 1 not in starts:
-                fragments[package_of(path)] += 1
-    return fragments
-
-
-def entropy(counts: list[int]) -> float:
-    total = sum(counts)
-    return -sum(c / total * math.log2(c / total) for c in counts if c) if total else 0.0
-
-
-CONCERNS = sorted({i.concern for i in golang.IDIOMS})
-
-
-def concern_entropies(idioms: Counter[tuple[str, str]]) -> dict[str, float]:
-    return {c: round(entropy([n for (cc, _), n in idioms.items() if cc == c]), 3) for c in CONCERNS}
-
-
-def ci_runtime(runs: dict | None) -> dict:
+def ci_runtime(runs: dict | None) -> Signals:
     """Test runtime from the CI metrics store: GET /v1/runs saved as JSON."""
     if runs is None:
-        return {"ci_runs": 0, "ci_median_ms": None}
+        return {"ci_runs": 0, "ci_median_ms": Unavailable("no CI runs file given")}
     durations = [r["duration_ms"] for r in runs["runs"] if r["passed"]][:CI_RUNS_CONSIDERED]
     return {
         "ci_runs": len(durations),
-        "ci_median_ms": int(statistics.median(durations)) if durations else None,
+        "ci_median_ms": int(statistics.median(durations)) if durations else Unavailable("no passing CI run"),
     }
 
 
-def measure(root: str, rev: str, runs: dict | None) -> dict:
-    files = go_files(root)
-    source = {p: f for p, f in files.items() if not f.is_test}
-    packages = sorted({package_of(p) for p in files})
-    modules = module_paths(root)
-    graph = import_graph(files, modules)
-    cycles, cyclic = cyclic_packages(graph)
-    head_date, commits = history(root, rev)
+def tool_versions(adapters: tuple[Adapter, ...]) -> dict[str, str]:
+    """Versions of everything the numbers depend on. A difference between two
+    runs makes them different baselines (see render.baseline_mismatch)."""
+    tools = {
+        "git": git(".", "--version").split()[-1],
+        "python": platform.python_version(),
+    }
+    for adapter in adapters:
+        tools.update(adapter.tool_versions())
+    return dict(sorted(tools.items()))
 
-    churn: Counter[str] = Counter()
-    cochange: Counter[tuple[str, str]] = Counter()
-    for touched in commits:
-        for p in touched:
-            if p in source:
-                churn[package_of(p)] += 1
-        pkgs = sorted({package_of(p) for p in touched if p in files})
-        if 1 < len(pkgs) <= MAX_PACKAGES_PER_COMMIT:
-            cochange.update(combinations(pkgs, 2))
-    pairs = {pair for pair, n in cochange.items() if n >= MIN_COCHANGES}
-    hidden = {(a, b) for a, b in pairs if b not in graph[a] and a not in graph[b]}
 
-    fragments = clone_fragments(files)
-    identifiers: dict[str, Counter[str]] = defaultdict(Counter)  # module dir -> name -> uses
+def check_declared(adapter: Adapter, result: AdapterResult) -> None:
+    for pkg, signals in result.packages.items():
+        missing = set(adapter.package_signals) - signals.keys()
+        if missing:
+            raise ValueError(f"{adapter.language} adapter omitted {sorted(missing)} for package {pkg}")
+    missing = set(adapter.repo_signals) - result.repo.keys()
+    if missing:
+        raise ValueError(f"{adapter.language} adapter omitted repo signals {sorted(missing)}")
 
-    for path, f in files.items():
-        identifiers[module_dir(modules, path)].update(f.identifiers)
-    dead: dict[str, list[str]] = defaultdict(list)
-    for path, f in source.items():
-        for name in f.symbols:
-            if identifiers[module_dir(modules, path)][name] == 1:
-                dead[package_of(path)].append(name)
 
-    pkg_idioms: dict[str, Counter[tuple[str, str]]] = defaultdict(Counter)
-    for path, f in source.items():
-        pkg_idioms[package_of(path)].update(f.idioms)
-
-    out_packages = {}
-    for pkg in packages:
-        funcs = sorted(
-            (fc for p, f in source.items() if package_of(p) == pkg for fc in f.functions),
-            key=lambda fc: (-fc.complexity, fc.name),
-        )
-        complexity = sum(fc.complexity for fc in funcs)
-        mine = {pair for pair in pairs if pkg in pair}
-        out_packages[pkg] = {
-            "files": sum(1 for p in source if package_of(p) == pkg),
-            "churn": churn[pkg],
-            "complexity": complexity,
-            "hotspot": churn[pkg] * complexity,
-            "cochange_pairs": len(mine),
-            "hidden_pairs": len(mine & hidden),
-            "hidden_coupling_ratio": round(len(mine & hidden) / len(mine), 3) if mine else 0.0,
-            "clones": fragments[pkg],
-            "import_cycles": int(pkg in cyclic),
-            "dead_symbols": len(dead[pkg]),
-            "dead_symbol_names": sorted(dead[pkg])[:10],
-            "pattern_entropy": round(sum(concern_entropies(pkg_idioms[pkg]).values()), 3),
-            "top_functions": [{"name": fc.name, "complexity": fc.complexity} for fc in funcs[:3]],
-        }
-    ranked = sorted(out_packages, key=lambda p: (-out_packages[p]["hotspot"], p))
-    for rank, pkg in enumerate(ranked, 1):
-        out_packages[pkg]["hotspot_rank"] = rank
-
-    repo_idioms: Counter[tuple[str, str]] = Counter()
-    for c in pkg_idioms.values():
-        repo_idioms.update(c)
-    by_concern = concern_entropies(repo_idioms)
+def measure(root: str, rev: str, runs: dict | None, adapters: tuple[Adapter, ...] = ADAPTERS) -> dict:
+    hist = history(root, rev)
+    packages: dict[str, Signals] = {}
+    repo: Signals = {}
+    for adapter in adapters:
+        result = adapter.measure(root, hist)
+        check_declared(adapter, result)
+        shared = packages.keys() & result.packages.keys()
+        if shared:
+            raise ValueError(f"{adapter.language} adapter and an earlier one both claim packages {sorted(shared)}")
+        packages.update(result.packages)
+        repo.update(result.repo)
+    repo.update(ci_runtime(runs))
     return {
         "schema": SCHEMA,
         "commit": git(root, "rev-parse", rev).strip(),
-        "measured_at": head_date,
+        "measured_at": hist.measured_at,
         "window_days": WINDOW_DAYS,
-        "repo": {
-            "packages": len(packages),
-            "hotspot": sum(p["hotspot"] for p in out_packages.values()),
-            "churn": sum(churn.values()),
-            "complexity": sum(p["complexity"] for p in out_packages.values()),
-            "cochange_pairs": len(pairs),
-            "hidden_pairs": len(hidden),
-            "hidden_coupling_ratio": round(len(hidden) / len(pairs), 3) if pairs else 0.0,
-            "clones": sum(fragments.values()),
-            "import_cycles": cycles,
-            "dead_symbols": sum(len(v) for v in dead.values()),
-            "pattern_entropy": round(sum(by_concern.values()), 3),
-            "pattern_entropy_by_concern": by_concern,
-            **ci_runtime(runs),
-        },
-        "packages": out_packages,
+        "tools": tool_versions(adapters),
+        "repo": repo,
+        "packages": packages,
     }
 
 
+def _encode(value: object) -> dict:
+    if isinstance(value, Unavailable):
+        return {"unavailable": value.reason}
+    raise TypeError(f"cannot serialize {type(value).__name__}")
+
+
 def dumps(signals: dict) -> str:
-    return json.dumps(signals, indent=2, sort_keys=True) + "\n"
+    return json.dumps(signals, indent=2, sort_keys=True, default=_encode) + "\n"

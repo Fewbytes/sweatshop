@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/Fewbytes/sweatshop/line/constitution"
+	"github.com/Fewbytes/sweatshop/line/internal/testwait"
 )
 
 type recordingRunner struct {
@@ -100,7 +102,7 @@ func TestContainerRunnerRemovesContainerWhenRunFails(t *testing.T) {
 	inner := &failingRunner{}
 	var removed []string
 	cr := ContainerRunner{Inner: inner, Engine: "docker", Image: "ci:1", Remove: func(name string) { removed = append(removed, name) }}
-	if _, err := cr.Run(context.Background(), "/x", "sleep 1000"); err == nil {
+	if _, err := cr.Run(context.Background(), "/x", "make build"); err == nil {
 		t.Fatal("inner error swallowed")
 	}
 	m := checkName.FindStringSubmatch(inner.command)
@@ -110,15 +112,24 @@ func TestContainerRunnerRemovesContainerWhenRunFails(t *testing.T) {
 }
 
 func TestLogRunnerCancelIsAnErrorNotAResult(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	start := time.Now()
-	res, err := LogRunner{Dir: t.TempDir()}.Run(ctx, t.TempDir(), "sleep 30")
+	dir := t.TempDir()
+	never := filepath.Join(dir, "never-written")
+	if err := syscall.Mkfifo(never, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	started := filepath.Join(dir, "started")
+	go func() {
+		testwait.Until(t, 5*time.Second, "command to start", func() bool {
+			_, err := os.Stat(started)
+			return err == nil
+		})
+		cancel()
+	}()
+	res, err := LogRunner{Dir: t.TempDir()}.Run(ctx, t.TempDir(), "touch '"+started+"'; cat '"+never+"'")
 	if err == nil {
 		t.Fatalf("cancelled run reported a result: %+v", res)
-	}
-	if time.Since(start) > 15*time.Second {
-		t.Fatalf("cancel took %s", time.Since(start))
 	}
 }
 

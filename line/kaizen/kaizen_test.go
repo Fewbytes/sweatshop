@@ -85,16 +85,20 @@ func TestCheckReportAcceptsThePackageQualifiedLineTheScriptsPrint(t *testing.T) 
 	}
 }
 
-// The prompt tells the agent to run the scripts at signalsScript; the Python
+// The prompt tells the agent to run the scripts at signalsScript with the pinned
+// signalsRequirements; the Python
 // unit tests are part of `just test` through this test.
 func TestSignalsScriptExistsAndItsTestsPass(t *testing.T) {
-	if _, err := os.Stat(filepath.Join("..", "..", signalsScript)); err != nil {
-		t.Fatal(err)
+	for _, path := range []string{signalsScript, signalsRequirements} {
+		if _, err := os.Stat(filepath.Join("..", "..", path)); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(Prompt("x"), path) {
+			t.Errorf("prompt does not name %s", path)
+		}
 	}
-	if !strings.Contains(Prompt("x"), signalsScript) {
-		t.Errorf("prompt does not name %s", signalsScript)
-	}
-	out, err := exec.Command("python3", "-m", "unittest", "discover", "-s", "signals", "-t", "signals").CombinedOutput()
+	out, err := exec.Command("uv", "run", "--no-project", "--with-requirements", filepath.Join("..", "..", signalsRequirements),
+		"python", "-m", "unittest", "discover", "-s", "signals", "-t", "signals").CombinedOutput()
 	if err != nil {
 		t.Fatalf("signal script tests failed: %v\n%s", err, out)
 	}

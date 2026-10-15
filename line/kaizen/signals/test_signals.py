@@ -6,10 +6,15 @@ import subprocess
 import tempfile
 import unittest
 
-import golang
 import kaizen_signals
+import lang_go
+import lang_python
+import lang_typescript
 import measure
 import render
+import source_adapter
+import syntax
+from adapter import Unavailable
 
 BRANCHY = """package a
 
@@ -36,32 +41,184 @@ def git(root, *args, date="2026-10-01T12:00:00+00:00"):
     subprocess.run(["git", "-C", root, *args], check=True, capture_output=True, env=env)
 
 
-class GoSourceFacts(unittest.TestCase):
-    def test_scan_drops_comments_and_empties_string_contents(self):
-        code, blanked = golang.scan('x := "if {" // if\n/* for */ y := `a\nb`\n')
-        self.assertNotIn("//", code)
-        self.assertNotIn("for", code)
-        self.assertIn('"if {"', code)
-        self.assertNotIn("if", blanked)
-        self.assertEqual(code.count("\n"), blanked.count("\n"))
+def parse(spec, text, path="x"):
+    return syntax.parse_source(spec, path, text.encode())
 
+
+def complexities(spec, text):
+    return [(f.name, f.complexity) for f in parse(spec, text).functions]
+
+
+class GoSourceFacts(unittest.TestCase):
     def test_cognitive_complexity_counts_branches_nesting_else_and_operators(self):
-        _, blanked = golang.scan(BRANCHY)
-        self.assertEqual(
-            [(f.name, f.complexity) for f in golang.function_complexities(blanked)],
-            [("Branchy", 8)],
-        )
+        self.assertEqual(complexities(lang_go.GO, BRANCHY), [("Branchy", 8)])
+
+    def test_strings_and_comments_hold_no_structure(self):
+        src = 'package a\nfunc F() string {\n\t// if for\n\treturn "if { for"\n}\n'
+        parsed = parse(lang_go.GO, src)
+        self.assertEqual([(f.name, f.complexity) for f in parsed.functions], [("F", 0)])
+        self.assertNotIn("for", parsed.identifiers)
+
+    def test_each_case_clause_scores_its_own_operator_run(self):
+        src = "package a\nfunc F(a, b bool) int {\n\tswitch {\n\tcase a || b:\n\t\treturn 1\n\tcase a || b:\n\t\treturn 2\n\t}\n\treturn 0\n}\n"
+        self.assertEqual(complexities(lang_go.GO, src), [("F", 3)])
+
+    def test_function_literals_nest_without_scoring(self):
+        src = "package a\nfunc F(a bool) {\n\tg := func() {\n\t\tif a {\n\t\t}\n\t}\n\tg()\n}\n"
+        self.assertEqual(complexities(lang_go.GO, src), [("F", 2)])
+
+    def test_package_level_function_literals_are_reported_as_anonymous(self):
+        self.assertEqual(complexities(lang_go.GO, "package a\nvar f = func(a bool) {\n\tif a {\n\t}\n}\n"),
+                         [(syntax.ANONYMOUS_FUNCTION, 1)])
 
     def test_imports_read_single_and_block_forms(self):
-        code, _ = golang.scan('package a\nimport "os"\nimport (\n\t"fmt"\n\tx "m/b"\n)\n')
-        self.assertEqual(sorted(golang.imports(code)), ["fmt", "m/b", "os"])
+        parsed = parse(lang_go.GO, 'package a\nimport "os"\nimport (\n\t"fmt"\n\tx "m/b"\n)\n')
+        self.assertEqual(sorted(parsed.imports), ["fmt", "m/b", "os"])
 
     def test_declared_symbols_skip_methods_and_entry_points(self):
-        _, blanked = golang.scan(
+        parsed = parse(
+            lang_go.GO,
             "package a\nfunc Used() {}\nfunc (t T) Method() {}\nfunc main() {}\n"
-            "type T struct{}\nconst (\n\tOne = 1\n\ttwo = 2\n)\nvar v int\nfunc TestX(t *testing.T) {}\n"
+            "type T struct{}\nconst (\n\tOne = 1\n\ttwo = 2\n)\nvar v int\nfunc TestX(t *testing.T) {}\n",
         )
-        self.assertEqual(sorted(golang.declared_symbols(blanked)), ["One", "T", "Used", "two", "v"])
+        self.assertEqual(sorted(parsed.symbols), ["One", "T", "Used", "two", "v"])
+
+    def test_idioms_are_counted_per_call_not_per_text(self):
+        src = (
+            'package a\nimport ("errors"; "fmt")\n'
+            'func F(e error) error {\n\t_ = "errors.New(x)"\n\tfmt.Println("a")\n\tpanic(e)\n'
+            '\t_ = errors.New("x")\n\treturn fmt.Errorf("w: %w", e)\n}\n'
+        )
+        counts = {k: n for k, n in parse(lang_go.GO, src).idioms.items() if n}
+        self.assertEqual(counts, {
+            ("error-creation", "errorf-wrap"): 1, ("error-creation", "errors-new"): 1,
+            ("error-creation", "panic"): 1, ("logging", "stdout-print"): 1,
+        })
+
+    def test_tokens_ignore_comments_and_layout(self):
+        a = parse(lang_go.GO, "package a\nfunc F() { x := 1 } // one\n").tokens
+        b = parse(lang_go.GO, "package a\n\nfunc F() {\n\t/* two */\n\tx := 1\n}\n").tokens
+        self.assertEqual(a, b)
+
+
+PYTHON_BRANCHY = """import os
+from . import sibling
+from ..up.mod import thing
+
+
+def branchy(a, b):
+    if a and b:
+        for i in range(3):
+            if a:
+                return i
+    elif b or a:
+        return 1
+    else:
+        return 0
+
+
+class C:
+    def method(self, x):
+        return [y for y in x if y] if x else None
+
+
+X = 1
+"""
+
+
+class PythonSourceFacts(unittest.TestCase):
+    def test_cognitive_complexity_counts_branches_nesting_else_and_operators(self):
+        # if +1, and +1, for +2, nested if +3, elif +1, or +1, else +1
+        self.assertEqual(complexities(lang_python.PYTHON, PYTHON_BRANCHY), [("branchy", 10), ("method", 1)])
+
+    def test_imports_keep_relative_prefixes(self):
+        self.assertEqual(parse(lang_python.PYTHON, PYTHON_BRANCHY).imports, ["os", ".", "..up.mod"])
+
+    def test_declared_symbols_are_top_level_functions_classes_and_assignments(self):
+        parsed = parse(lang_python.PYTHON, PYTHON_BRANCHY + "\ndef main():\n    pass\n\n\n@deco\ndef decorated():\n    pass\n")
+        self.assertEqual(sorted(parsed.symbols), ["C", "X", "branchy", "decorated"])
+
+    def test_idioms(self):
+        src = "import logging, sys\nlogging.info('a')\nprint('b')\nsys.exit(1)\nraise ValueError('c')\n"
+        counts = {k: n for k, n in parse(lang_python.PYTHON, src).idioms.items() if n}
+        self.assertEqual(counts, {
+            ("logging", "logging-module"): 1, ("logging", "print"): 1,
+            ("error-creation", "sys-exit"): 1, ("error-creation", "raise"): 1,
+        })
+
+    def test_test_files_are_recognised_by_name(self):
+        self.assertEqual(
+            [lang_python.PYTHON.is_test(p) for p in ("a/test_x.py", "a/x_test.py", "a/conftest.py", "a/x.py")],
+            [True, True, True, False],
+        )
+
+    def test_relative_and_absolute_imports_resolve_to_package_directories(self):
+        resolve = lang_python.python_import_resolver("", {"pkg/a.py", "pkg/sub/mod.py", "app.py"})
+        self.assertEqual(
+            [resolve("pkg/a.py", i) for i in (".sub", "..", ".sub.mod", "pkg.sub", "os", "app")],
+            ["pkg/sub", ".", "pkg/sub", "pkg/sub", None, "."],
+        )
+
+
+TS_BRANCHY = """import { a } from "./lib/a";
+export * from "../up";
+
+export function branchy(x: number, y: boolean): number {
+  if (x > 1 && y) {
+    for (const i of [1, 2]) {
+      if (y) {
+        return i;
+      }
+    }
+  } else if (y || x) {
+    return 1;
+  } else {
+    return 0;
+  }
+  return x ?? 0;
+}
+
+export const arrow = (v: boolean) => (v ? 1 : 2);
+
+class K {
+  method(v: boolean) {
+    return v;
+  }
+}
+"""
+
+
+class TypeScriptSourceFacts(unittest.TestCase):
+    def test_cognitive_complexity_counts_branches_nesting_else_and_operators(self):
+        # if +1, && +1, for +2, nested if +3, else-if +1 (else) +1 (||), else +1, ?? +1
+        self.assertEqual(
+            complexities(lang_typescript.TYPESCRIPT, TS_BRANCHY),
+            [("branchy", 11), ("arrow", 1), ("method", 0)],
+        )
+
+    def test_imports_and_reexports_are_read_without_quotes(self):
+        self.assertEqual(parse(lang_typescript.TYPESCRIPT, TS_BRANCHY).imports, ["./lib/a", "../up"])
+
+    def test_declared_symbols_include_exported_and_plain_declarations(self):
+        self.assertEqual(
+            sorted(parse(lang_typescript.TYPESCRIPT, TS_BRANCHY + "type T = 1;\ninterface I {}\n").symbols),
+            ["I", "K", "T", "arrow", "branchy"],
+        )
+
+    def test_idioms(self):
+        src = "console.log('a');\nlogger.info('b');\nthrow new TypeError('c');\nPromise.reject(1);\nprocess.stderr.write('d');\n"
+        counts = {k: n for k, n in parse(lang_typescript.TYPESCRIPT, src).idioms.items() if n}
+        self.assertEqual(counts, {
+            ("logging", "console"): 1, ("logging", "logger-method"): 1, ("logging", "process-stream"): 1,
+            ("error-creation", "throw-new-error"): 1, ("error-creation", "promise-reject"): 1,
+        })
+
+    def test_relative_imports_resolve_to_the_directory_of_the_file_or_folder(self):
+        resolve = lang_typescript.typescript_import_resolver("", {"src/x.ts", "src/y.ts", "src/lib/a.ts", "main.ts"})
+        self.assertEqual(
+            [resolve("src/x.ts", i) for i in ("./lib", "./lib/a", "../other", "./y.js", "react", "../main")],
+            ["src/lib", "src/lib", None, "src", None, "."],
+        )
 
 
 class MeasureRepo(unittest.TestCase):
@@ -121,6 +278,19 @@ class MeasureRepo(unittest.TestCase):
         self.write("c/dup2.go", "package c\n\nfunc Two() {\n" + CLONE_BODY + "}\n")
         self.assertEqual(self.measure()["packages"]["c"]["clones"], 2)
 
+    def test_python_and_typescript_packages_are_measured_beside_go_with_prefixed_repo_signals(self):
+        self.write("py/mod.py", "def f(a, b):\n    if a and b:\n        return 1\n")
+        self.write("web/app.ts", "export function g(a: boolean) {\n  if (a) {\n    return 1;\n  }\n}\n")
+        self.commit("three")
+        s = self.measure()
+        self.assertEqual((s["packages"]["py"]["complexity"], s["packages"]["web"]["complexity"]), (2, 1))
+        self.assertEqual((s["repo"]["python.complexity"], s["repo"]["typescript.complexity"], s["repo"]["complexity"]), (2, 1, 8))
+
+    def test_two_languages_in_one_directory_fail_loudly(self):
+        self.write("a/tool.py", "x = 1\n")
+        with self.assertRaisesRegex(ValueError, r"python adapter .* both claim packages \['a'\]"):
+            self.measure()
+
     def test_measuring_twice_gives_identical_output(self):
         self.assertEqual(measure.dumps(self.measure()), measure.dumps(self.measure()))
 
@@ -136,12 +306,40 @@ class MeasureRepo(unittest.TestCase):
                          {"passed": True, "duration_ms": 10}, {"passed": True, "duration_ms": 20}]}
         self.assertEqual(measure.ci_runtime(runs), {"ci_runs": 3, "ci_median_ms": 20})
 
+    def test_ci_runtime_is_unavailable_with_the_reason_when_no_runs_given(self):
+        self.assertEqual(measure.ci_runtime(None)["ci_median_ms"], Unavailable("no CI runs file given"))
+
+    def test_signals_record_schema_2_and_every_tool_version(self):
+        s = self.measure()
+        self.assertEqual(s["schema"], 2)
+        self.assertEqual(sorted(s["tools"]), [
+            "git", "kaizen-go-tables", "kaizen-python-tables", "kaizen-source-adapter", "kaizen-typescript-tables",
+            "python", "tree-sitter", "tree-sitter-go", "tree-sitter-python", "tree-sitter-typescript",
+        ])
+        self.assertEqual(s["tools"]["kaizen-source-adapter"], source_adapter.SOURCE_ADAPTER_VERSION)
+        self.assertEqual(s["tools"]["kaizen-go-tables"], lang_go.GO.version)
+
+    def test_unavailable_signal_is_written_as_its_reason(self):
+        written = json.loads(measure.dumps(self.measure()))
+        self.assertEqual(written["repo"]["ci_median_ms"], {"unavailable": "no CI runs file given"})
+
+    def test_adapter_omitting_a_declared_signal_fails_loudly(self):
+        class Lazy(source_adapter.SourceAdapter):
+            def measure(self, root, history):
+                result = super().measure(root, history)
+                del result.repo["clones"]
+                return result
+
+        with self.assertRaisesRegex(ValueError, r"omitted repo signals \['clones'\]"):
+            measure.measure(self.root, "HEAD", None, (Lazy(lang_go.GO),))
+
 
 class Rendering(unittest.TestCase):
-    def signals(self, commit, hotspot):
+    def signals(self, commit, hotspot, tools=(('git', '2'),)):
         pkg = {s: 0 for s in render.PACKAGE_SIGNALS} | {"hotspot": hotspot, "hotspot_rank": 1}
         repo = {s: 0 for s in render.REPO_SIGNALS} | {"hotspot": hotspot, "ci_median_ms": None}
-        return {"commit": commit, "measured_at": "t", "window_days": 90, "packages": {"p/q": pkg}, "repo": repo}
+        return {"commit": commit, "measured_at": "t", "window_days": 90, "tools": dict(tools),
+                "packages": {"p/q": pkg}, "repo": repo}
 
     def test_report_shows_trend_against_previous_run_and_after_values(self):
         page = render.render_report(
@@ -171,3 +369,25 @@ class Rendering(unittest.TestCase):
         before, worse = self.signals("a" * 40, 10), self.signals("b" * 40, 10)
         worse["packages"]["p/q"]["clones"] = 3
         self.assertEqual(render.regressions(before, worse, "p/q", "hotspot"), ["clones: 0 → 3"])
+
+    def test_delta_refuses_to_compare_runs_with_different_tool_versions(self):
+        with tempfile.TemporaryDirectory() as d:
+            for name, tools in {"before": (("git", "2"),), "after": (("git", "3"),)}.items():
+                with open(os.path.join(d, name), "w") as f:
+                    json.dump(self.signals(name, 10 if name == "before" else 4, tools), f)
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+                code = kaizen_signals.main(["delta", "--package", "p/q", "--signal", "hotspot",
+                                            "--before", os.path.join(d, "before"), "--after", os.path.join(d, "after")])
+        self.assertEqual(code, 1)
+        self.assertIn("new baseline", err.getvalue())
+
+    def test_report_drops_the_trend_when_the_previous_run_used_other_tools(self):
+        page = render.render_report(
+            self.signals("a" * 40, 10), self.signals("b" * 40, 12, (("git", "1"),)), None, None)
+        self.assertIn("new baseline", page)
+        self.assertNotIn('class="better"', page)
+
+    def test_unavailable_values_render_as_a_dash(self):
+        current = self.signals("a" * 40, 10)
+        current["repo"]["ci_median_ms"] = {"unavailable": "no CI runs file given"}
+        self.assertIn("<td>–</td>", render.render_report(current, None, None, None))

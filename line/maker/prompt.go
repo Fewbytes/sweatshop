@@ -87,12 +87,16 @@ func RolePrompt(role, mandate string, b Bead, andonEvent string) string {
    Submit at most %d times in total.
 5. Never edit files outside the repository in /work. Never try to reach the
    line by any other means than `+"`sweatshop line`"+` (no pushing, no other hosts).
-6. Stop when the commit merged or after %d failed submissions. End your output
-   with exactly one summary line:
+6. Stop when the commit merged or after %d failed submissions. Before you
+   stop without a merge, post a failure report on your card:
+   `+"`sweatshop line cards comment %s`"+` with the text on stdin. Say why you gave up:
+   what you tried, what failed (quote the evidence), and what the next worker
+   should do differently. Without a report the runner can only attach the
+   tail of your output. End your output with exactly one summary line:
    RESULT: merged <sha>
    or
    RESULT: gave-up <reason>
-`, role, indent(trailers, "   "), maxSubmissions, maxSubmissions)
+`, role, indent(trailers, "   "), maxSubmissions, maxSubmissions, b.ID)
 	guide, _ := guidance.For(role)
 	fmt.Fprintf(&p, "\nCode quality guide (applies to every change you make):\n\n%s\n", guide)
 	return p.String()

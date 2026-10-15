@@ -9,7 +9,9 @@
           [--target PKG --category P2 --signal clones --why TEXT]
   delta   --before b.json --after a.json --package PKG --signal NAME
 
-Run with: uv run --no-project line/kaizen/signals/kaizen_signals.py ...
+Run with: uv run --no-project --with-requirements line/kaizen/signals/requirements.txt \
+          line/kaizen/signals/kaizen_signals.py ...
+requirements.txt pins the tree-sitter grammars by checksum.
 """
 
 import argparse
@@ -48,8 +50,15 @@ def cmd_report(args: argparse.Namespace) -> int:
 def cmd_delta(args: argparse.Namespace) -> int:
     """Print the commit message's Signals line; exit 1 if the signal did not drop."""
     before, after = load(args.before), load(args.after)
+    mismatch = render.baseline_mismatch(before, after)
+    if mismatch:
+        print(f"delta refuses to compare: {mismatch}", file=sys.stderr)
+        return 1
     old = render.signal_value(before, args.package, args.signal)
     new = render.signal_value(after, args.package, args.signal)
+    if old is None or new is None:
+        print(f"{args.signal} of {args.package} is unavailable in one of the runs", file=sys.stderr)
+        return 1
     print(f"Signals:   {args.package} {args.signal}: {old:g} → {new:g}")
     for line in render.regressions(before, after, args.package, args.signal):
         print(f"warning: also worse: {line}", file=sys.stderr)

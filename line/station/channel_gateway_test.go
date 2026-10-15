@@ -3,6 +3,7 @@ package station
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -12,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/Fewbytes/sweatshop/line/internal/testwait"
 
 	"github.com/coder/websocket"
 )
@@ -196,21 +199,15 @@ func messageCreate(id, channel, author, text string) map[string]any {
 
 func waitInbox(t *testing.T, ch *Channel, wantIDs ...string) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
+	var ids []string
+	testwait.Until(t, 5*time.Second, fmt.Sprintf("inbox ids %v", wantIDs), func() bool {
 		msgs, _ := ch.Since(context.Background(), "", 0)
-		var ids []string
+		ids = nil
 		for _, m := range msgs {
 			ids = append(ids, m.ID)
 		}
-		if strings.Join(ids, ",") == strings.Join(wantIDs, ",") {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("inbox ids %v, want %v", ids, wantIDs)
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+		return strings.Join(ids, ",") == strings.Join(wantIDs, ",")
+	})
 }
 
 func TestGatewayIdentifyHeartbeatAndMessageDedupe(t *testing.T) {

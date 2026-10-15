@@ -22,6 +22,10 @@ const maxSubmissions = 3
 // TestSignalsScriptExists fails if it moves.
 const signalsScript = "line/kaizen/signals/kaizen_signals.py"
 
+// signalsRequirements pins the tree-sitter grammars the scripts import, by
+// checksum; every uv run of the scripts passes it as --with-requirements.
+const signalsRequirements = "line/kaizen/signals/requirements.txt"
+
 // reportFields are the labels of the change report template in
 // line/guidance/kaizen.md, section 6. The template is the only copy of the
 // format; TestReportFieldsAreInTheTemplate fails if the two diverge.
@@ -87,12 +91,12 @@ Line protocol:
    instructions: bd is not available here. You can read the line's cards with
    `+"`sweatshop line cards list [--status S] [--label L]`"+` and `+"`... show <id>`"+`; open cards
    show what Makers are changing now. Do not touch code they are changing.
-2. Baseline. The signal scripts (python, stdlib only, deterministic) are
+2. Baseline. The signal scripts (python, deterministic; tree-sitter grammars pinned by checksum) are
    %[4]s. Run them from /work on the clean clone:
 
-   BASE=$(git rev-parse HEAD); D=/tmp/kaizen; S=%[4]s
+   BASE=$(git rev-parse HEAD); D=/tmp/kaizen; S=%[4]s; R=%[5]s
    sweatshop line kaizen context --commit $BASE --out $D
-   uv run --no-project $S measure --root . --rev $BASE --runs $D/runs.json --out $D/signals.json
+   uv run --no-project --with-requirements $R $S measure --root . --rev $BASE --runs $D/runs.json --out $D/signals.json
 
    signals.json holds, per package and for the repo: hotspot score (churn x
    cognitive complexity over 90 days of history), hidden-coupling ratio,
@@ -101,7 +105,7 @@ Line protocol:
    the first run) is the previous run's signals.json, for the trend.
 3. Status report. Render it and publish it next to the CI reports:
 
-   uv run --no-project $S report --signals $D/signals.json [--previous $D/previous.json] --out $D/report.html
+   uv run --no-project --with-requirements $R $S report --signals $D/signals.json [--previous $D/previous.json] --out $D/report.html
    sweatshop line kaizen publish --commit $BASE --signals $D/signals.json --report $D/report.html
 
    The report is a per-module table: signals, trend against the previous run,
@@ -118,8 +122,8 @@ Line protocol:
 5. Change, then re-measure the changed tree with the same history, so only
    your edit differs:
 
-   uv run --no-project $S measure --root . --rev $BASE --runs $D/runs.json --out $D/after.json
-   uv run --no-project $S delta --before $D/signals.json --after $D/after.json --package <pkg or .> --signal <signal>
+   uv run --no-project --with-requirements $R $S measure --root . --rev $BASE --runs $D/runs.json --out $D/after.json
+   uv run --no-project --with-requirements $R $S delta --before $D/signals.json --after $D/after.json --package <pkg or .> --signal <signal>
 
    delta prints the Signals line for the commit message and exits 1 when the
    signal did not drop. Then the change is not submitted: revert it and finish
@@ -127,7 +131,7 @@ Line protocol:
    the package that got worse; weigh them. Run `+"`just ci`"+` and make it pass.
    Publish before and after, with the pick, in the report:
 
-   uv run --no-project $S report --signals $D/signals.json --after $D/after.json [--previous $D/previous.json] \
+   uv run --no-project --with-requirements $R $S report --signals $D/signals.json --after $D/after.json [--previous $D/previous.json] \
        --target <pkg> --category "P<n> <name>" --signal <signal> --why "<one sentence>" --out $D/report.html
    sweatshop line kaizen publish --commit $BASE --signals $D/signals.json --after $D/after.json --report $D/report.html
    If master moved and you rebase, measure both again against the new master.
@@ -167,6 +171,6 @@ Line protocol:
 Code quality guide (applies to every change you make):
 
 %[3]s
-`, runID, maxSubmissions, guide, signalsScript)
+`, runID, maxSubmissions, guide, signalsScript, signalsRequirements)
 	return p.String()
 }

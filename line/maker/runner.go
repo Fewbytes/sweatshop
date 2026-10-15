@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -38,6 +39,9 @@ type Beads interface {
 	Claim(ctx context.Context, id, agent string) error
 	Close(ctx context.Context, id, reason string) error
 	Release(ctx context.Context, id, note string) error
+	// CommentCount is how many comments the card has, so the runner can tell
+	// whether a run left a failure report.
+	CommentCount(ctx context.Context, id string) (int, error)
 	// GiveUp labels the bead GaveUpLabel so no maker picks it again. With
 	// escalateToKing it also labels it needs:king: nobody else can unstick it.
 	GiveUp(ctx context.Context, id string, escalateToKing bool) error
@@ -74,6 +78,8 @@ type ContainerSpec struct {
 	// zero values are omitted.
 	Memory, CPUs string
 	Pids         int
+	// Output, if not nil, also receives the container's stdout and stderr.
+	Output io.Writer
 }
 
 type Runner struct {
@@ -336,7 +342,10 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 	if ev := AndonEvent(b); ev != "" {
 		env["SWEATSHOP_ANDON_EVENT"] = ev
 	}
+	commentsBefore, commentsBeforeErr := r.Beads.CommentCount(ctx, b.ID)
+	tail := &tailBuffer{max: failureTailBytes}
 	spec := ContainerSpec{
+		Output: tail,
 		Image:  r.Line.Image,
 		Name:   unsafeNameChars.ReplaceAllString("sweatshop-"+r.Station.Name+"-"+b.ID, "_"),
 		Env:    env,
@@ -412,6 +421,10 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 		r.logf("%s landed", b.ID)
 		return true, errors.Join(runErr, r.Beads.Close(settle, b.ID, "landed via line"))
 	}
+	if counts {
+		// Interrupted, cord-pulled and engine-failed runs are not the agent giving up.
+		note += r.missingReportTail(settle, b.ID, commentsBefore, commentsBeforeErr, tail)
+	}
 	r.logf("%s: %s", b.ID, note)
 	if err := r.Beads.Release(settle, b.ID, note); err != nil {
 		return true, errors.Join(runErr, err)
@@ -423,6 +436,52 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 		return true, errors.Join(runErr, r.Beads.GiveUp(settle, b.ID, slices.Contains(b.Labels, "andon")))
 	}
 	return true, runErr
+}
+
+// failureTailBytes bounds how much of a run's output the runner puts on a
+// card when the agent left no failure report of its own.
+const failureTailBytes = 2000
+
+// missingReportTail returns text for the release note: the tail of the run's
+// output, unless the agent commented on the card during the run (its failure
+// report, which the prompt requires). When the comments cannot be counted it
+// errs towards including the tail.
+func (r *Runner) missingReportTail(ctx context.Context, id string, before int, beforeErr error, tail *tailBuffer) string {
+	after, err := r.Beads.CommentCount(ctx, id)
+	if err = errors.Join(beforeErr, err); err != nil {
+		r.logf("%s: count comments: %v", id, err)
+	} else if after > before {
+		return ""
+	}
+	out := tail.String()
+	if out == "" {
+		return "; the maker left no failure report and no output"
+	}
+	return "; the maker left no failure report. Tail of its output:\n" + out
+}
+
+// tailBuffer keeps the last max bytes written to it. It is safe for the
+// concurrent stdout and stderr writers of one container run.
+type tailBuffer struct {
+	mu  sync.Mutex
+	max int
+	buf []byte
+}
+
+func (t *tailBuffer) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.buf = append(t.buf, p...)
+	if len(t.buf) > t.max {
+		t.buf = t.buf[len(t.buf)-t.max:]
+	}
+	return len(p), nil
+}
+
+func (t *tailBuffer) String() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return strings.TrimSpace(strings.ToValidUTF8(string(t.buf), ""))
 }
 
 // Loop runs Once until ctx ends, sleeping idle between empty polls and after
@@ -532,6 +591,22 @@ func (b BeadsCLI) Release(ctx context.Context, id, note string) error {
 	return err
 }
 
+// CommentCount counts the entries `bd comments <id> --json` lists.
+func (b BeadsCLI) CommentCount(ctx context.Context, id string) (int, error) {
+	if err := checkID(id); err != nil {
+		return 0, err
+	}
+	out, err := b.bd(ctx, "comments", id, "--json")
+	if err != nil {
+		return 0, err
+	}
+	var comments []json.RawMessage
+	if err := json.Unmarshal(out, &comments); err != nil {
+		return 0, fmt.Errorf("parse comments of %s: %w", id, err)
+	}
+	return len(comments), nil
+}
+
 // GiveUp adds GaveUpLabel; Ready and Pick then skip the bead.
 func (b BeadsCLI) GiveUp(ctx context.Context, id string, escalateToKing bool) error {
 	if err := checkID(id); err != nil {
@@ -573,6 +648,31 @@ func (a APICards) Close(ctx context.Context, id, reason string) error {
 
 func (a APICards) Release(ctx context.Context, id, note string) error {
 	return a.Client.CardRelease(ctx, id, note)
+}
+
+// CommentCount reads the "comments" the line attaches to a shown card, which
+// is an issue object or a one-element array.
+func (a APICards) CommentCount(ctx context.Context, id string) (int, error) {
+	raw, err := a.Client.CardShow(ctx, id)
+	if err != nil {
+		return 0, err
+	}
+	var issues []struct {
+		Comments []json.RawMessage `json:"comments"`
+	}
+	if json.Unmarshal(raw, &issues) != nil {
+		var one struct {
+			Comments []json.RawMessage `json:"comments"`
+		}
+		if err := json.Unmarshal(raw, &one); err != nil {
+			return 0, fmt.Errorf("parse card %s: %w", id, err)
+		}
+		return len(one.Comments), nil
+	}
+	if len(issues) == 0 {
+		return 0, fmt.Errorf("card %s not found", id)
+	}
+	return len(issues[0].Comments), nil
 }
 
 func (a APICards) GiveUp(ctx context.Context, id string, escalateToKing bool) error {
@@ -665,6 +765,10 @@ func (d DockerEngine) Run(ctx context.Context, spec ContainerSpec) (int, error) 
 	}
 	if cmd.Stderr == nil {
 		cmd.Stderr = os.Stderr
+	}
+	if spec.Output != nil {
+		cmd.Stdout = io.MultiWriter(cmd.Stdout, spec.Output)
+		cmd.Stderr = io.MultiWriter(cmd.Stderr, spec.Output)
 	}
 	err := cmd.Run()
 	if spec.Name != "" {
