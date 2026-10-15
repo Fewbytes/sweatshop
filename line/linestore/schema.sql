@@ -49,3 +49,20 @@ CREATE TABLE IF NOT EXISTS levels (
 CREATE TABLE IF NOT EXISTS imported (
   file TEXT PRIMARY KEY
 );
+
+-- mutation_run is one mutation-testing measurement of the files a kaizen run or
+-- a landed card touched. score and sample_size are NULL, with the reason in
+-- unavailable, when the tool could not finish: a missing score is not 0.
+CREATE TABLE IF NOT EXISTS mutation_run (
+  seq          INTEGER PRIMARY KEY,
+  commit_sha   TEXT NOT NULL,
+  source       TEXT NOT NULL,
+  language     TEXT NOT NULL,
+  scope        TEXT NOT NULL,
+  tool         TEXT NOT NULL,
+  tool_version TEXT NOT NULL,
+  duration_ms  INTEGER NOT NULL,
+  sample_size  INTEGER,
+  score        REAL,
+  unavailable  TEXT NOT NULL
+);

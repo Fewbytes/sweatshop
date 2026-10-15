@@ -68,11 +68,22 @@ func (s *Server) routeKaizen(w http.ResponseWriter, r *http.Request, st *Station
 		}
 		return s.previousKaizenSignals(w, r)
 	}
+	if r.URL.Path == "/v1/kaizen/mutation" && r.Method == http.MethodGet {
+		if st.Role != kaizenRole {
+			return "", fail(http.StatusForbidden, "role %q may not read kaizen mutation runs", st.Role)
+		}
+		return s.listKaizenMutation(w, r)
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
 		return "", fail(http.StatusMethodNotAllowed, "use POST for %s", r.URL.Path)
 	}
 	switch r.URL.Path {
+	case "/v1/kaizen/mutation":
+		if st.Role != kaizenRole {
+			return "", fail(http.StatusForbidden, "role %q may not record kaizen mutation runs", st.Role)
+		}
+		return s.recordKaizenMutation(w, r)
 	case "/v1/kaizen/request":
 		if st.Role != heijunkaRole {
 			return "", fail(http.StatusForbidden, "role %q may not request a kaizen run", st.Role)

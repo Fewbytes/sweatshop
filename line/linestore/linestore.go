@@ -44,6 +44,31 @@ type KaizenBaseline struct {
 	Signals json.RawMessage
 }
 
+// MutationSource says what a mutation measurement was taken for.
+type MutationSource string
+
+const (
+	MutationFromKaizenRun  MutationSource = "kaizen"
+	MutationFromLandedCard MutationSource = "card"
+)
+
+// MutationRun is one mutation measurement of Scope (Go package directories or
+// source files) at Commit. Score and SampleSize are nil, and Unavailable says
+// why, when the tool could not finish; ToolVersion is empty when the tool was
+// not installed. Mutation score is tracked, never gated on.
+type MutationRun struct {
+	Commit      string         `json:"commit"`
+	Source      MutationSource `json:"source"`
+	Language    string         `json:"language"`
+	Scope       []string       `json:"scope"`
+	Tool        string         `json:"tool"`
+	ToolVersion string         `json:"tool_version"`
+	DurationMS  int64          `json:"duration_ms"`
+	SampleSize  *int           `json:"sample_size"` // mutants that counted towards Score
+	Score       *float64       `json:"score"`       // in [0, 1], higher is better
+	Unavailable string         `json:"unavailable"`
+}
+
 // Store is the line database.
 type Store struct{ db *sql.DB }
 
@@ -235,4 +260,42 @@ func (s *Store) Levels(ctx context.Context) (Levels, error) {
 		return Levels{}, nil
 	}
 	return l, err
+}
+
+// RecordMutationRun saves one mutation measurement.
+func (s *Store) RecordMutationRun(ctx context.Context, m MutationRun) error {
+	scope, err := json.Marshal(m.Scope)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx,
+		`INSERT INTO mutation_run (commit_sha, source, language, scope, tool, tool_version, duration_ms, sample_size, score, unavailable)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.Commit, string(m.Source), m.Language, string(scope), m.Tool, m.ToolVersion, m.DurationMS, m.SampleSize, m.Score, m.Unavailable)
+	return err
+}
+
+// MutationRuns returns every saved mutation measurement, oldest first.
+func (s *Store) MutationRuns(ctx context.Context) ([]MutationRun, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT commit_sha, source, language, scope, tool, tool_version, duration_ms, sample_size, score, unavailable
+		 FROM mutation_run ORDER BY seq`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []MutationRun{}
+	for rows.Next() {
+		var m MutationRun
+		var source, scope string
+		if err := rows.Scan(&m.Commit, &source, &m.Language, &scope, &m.Tool, &m.ToolVersion, &m.DurationMS, &m.SampleSize, &m.Score, &m.Unavailable); err != nil {
+			return nil, err
+		}
+		m.Source = MutationSource(source)
+		if err := json.Unmarshal([]byte(scope), &m.Scope); err != nil {
+			return nil, fmt.Errorf("stored mutation scope %q: %w", scope, err)
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
 }

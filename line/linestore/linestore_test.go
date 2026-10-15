@@ -173,3 +173,24 @@ func TestImportLegacyWithoutFilesIsANoOp(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestMutationRunsRoundTripKeepsUnavailableApartFromZero(t *testing.T) {
+	s, _ := openTemp(t)
+	ctx := context.Background()
+	size, zero := 5, 0.0
+	score := 0.6
+	want := []MutationRun{
+		{Commit: "a", Source: MutationFromKaizenRun, Language: "go", Scope: []string{"pkg"}, Tool: "gremlins", ToolVersion: "v0.5.1", DurationMS: 90000, SampleSize: &size, Score: &score},
+		{Commit: "b", Source: MutationFromLandedCard, Language: "python", Scope: []string{"a.py", "b.py"}, Tool: "mutmut", DurationMS: 3, Unavailable: "mutmut is not installed"},
+		{Commit: "c", Source: MutationFromLandedCard, Language: "go", Scope: []string{"pkg"}, Tool: "gremlins", ToolVersion: "v0.5.1", SampleSize: &size, Score: &zero},
+	}
+	for _, m := range want {
+		if err := s.RecordMutationRun(ctx, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.MutationRuns(ctx)
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("mutation runs = %+v, %v; want %+v", got, err, want)
+	}
+}

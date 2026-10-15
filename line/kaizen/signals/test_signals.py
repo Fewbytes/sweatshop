@@ -882,11 +882,15 @@ class MutationScore(unittest.TestCase):
         self.assertEqual((got["killed"], got["survived"], got["timed_out"]), (2, 2, 1))
         self.assertEqual(got["mutation_score"], 3 / 5)
         self.assertEqual(got["tool_version"], "v0.5.1")
+        self.assertEqual(got["sample_size"], 5)
+        self.assertGreaterEqual(got["duration_ms"], 0)
 
     def test_hitting_the_cap_makes_the_score_unavailable_not_zero(self):
         got = mutation.mutation_signals(".", "go", ("pkg",), cap_seconds=30, run=self.fake_run(timeout_on=True))
         self.assertEqual(got["mutation_score"], Unavailable("gremlins hit the 30s cap"))
         self.assertEqual(got["killed"], Unavailable("gremlins hit the 30s cap"))
+        self.assertEqual(got["sample_size"], Unavailable("gremlins hit the 30s cap"))
+        self.assertGreaterEqual(got["duration_ms"], 0)
 
     def test_a_missing_tool_makes_the_score_unavailable(self):
         def run(argv, cwd, timeout):

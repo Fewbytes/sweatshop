@@ -19,7 +19,11 @@ code measurably better on a stated signal and provably unchanged in behavior.
    score of the target's package or files (Section 3). A low score means the
    tests would not notice most behavior changes, so write characterization
    tests first. An unavailable score (tool missing, wall-time cap hit) is not
-   a low score: check coverage by hand.
+   a low score: check coverage by hand. After measuring, record the result
+   with `sweatshop line kaizen mutation --commit SHA --source kaizen --file
+   mutation.json` (the line keeps tool, version, sample size and runtime so we
+   learn whether the score means anything and what it costs); `sweatshop line
+   kaizen mutation-trend` prints the history. Never gate on it.
    Changes to input validation, defaults, fallbacks, and error handling or
    exception contracts count as behavior changes and are not allowed in a
    refactor, even when tests stay green. In CodeThread (arXiv 2606.21804)

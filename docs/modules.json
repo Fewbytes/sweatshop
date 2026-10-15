@@ -951,7 +951,7 @@
     "line/cmd/sweatshop": {
       "entry_point_count": 0,
       "entry_points": [],
-      "hidden_coupling_ratio": 0.0,
+      "hidden_coupling_ratio": 0.133,
       "hotspot_rank": 2,
       "imported_by": [],
       "imports": [
@@ -967,13 +967,14 @@
         "line/internal/testwait",
         "line/kaizen",
         "line/linedir",
+        "line/linestore",
         "line/maker",
         "line/station",
         "line/viceroy",
         "line/witness"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "7be996b8a5fb06391e225c32d7f9975dfcd61fae",
       "purpose": "Command sweatshop administers an assembly line (witness keys, the merge"
     },
     "line/constitution": {
@@ -1344,17 +1345,22 @@
       "purpose": "Package linedir creates and loads a line directory: the on-disk home of one"
     },
     "line/linestore": {
-      "entry_point_count": 5,
+      "entry_point_count": 9,
       "entry_points": [
         "FileName",
         "KaizenBaseline",
         "Levels",
+        "MutationFromKaizenRun",
+        "MutationFromLandedCard",
+        "MutationRun",
+        "MutationSource",
         "Open",
         "Store"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 24,
+      "hotspot_rank": 23,
       "imported_by": [
+        "line/cmd/sweatshop",
         "line/heijunka",
         "line/station"
       ],
@@ -1362,7 +1368,7 @@
         "line/report"
       ],
       "lcom4": 1,
-      "measured_at_commit": "96da24bc59d97926a914586077287c786d3424ff",
+      "measured_at_commit": "7be996b8a5fb06391e225c32d7f9975dfcd61fae",
       "purpose": "Package linestore is the line's master database: witness runs, per-test"
     },
     "line/maker": {
@@ -1454,7 +1460,7 @@
       "purpose": "Package runner is the one interface the line uses to run station and"
     },
     "line/station": {
-      "entry_point_count": 67,
+      "entry_point_count": 69,
       "entry_points": [
         "BeadsCards",
         "CLIEngine",
@@ -1495,7 +1501,7 @@
         "line/witness"
       ],
       "lcom4": 1,
-      "measured_at_commit": "58bcbe362fd664b1630fbaa9b5913596a6c43131",
+      "measured_at_commit": "7be996b8a5fb06391e225c32d7f9975dfcd61fae",
       "purpose": "Package station is the station API: the only way containerized agents reach"
     },
     "line/testhygiene": {

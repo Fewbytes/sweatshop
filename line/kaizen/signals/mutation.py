@@ -16,6 +16,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -107,15 +108,22 @@ def mutation_signals(
     run: Runner = run_subprocess,
 ) -> dict:
     """The mutation signals of `scope` (paths relative to root): the tool and
-    its version, killed/survived/timed_out, and the score in [0, 1] (higher is
-    better), or Unavailable for every count when the run could not finish."""
+    its version, killed/survived/timed_out, the score in [0, 1] (higher is
+    better) and its sample_size (mutants that counted), or Unavailable for
+    every count when the run could not finish. duration_ms is the wall time of
+    the whole call either way: the line records it to learn whether running
+    mutation on every card is affordable."""
     tool = TOOLS[language]
+    started = time.monotonic()
     result: dict = {"language": language, "scope": list(scope), "tool": tool.name}
+
+    def elapsed_ms() -> int:
+        return round((time.monotonic() - started) * 1000)
 
     def unavailable(reason: str) -> dict:
         gone = Unavailable(reason)
         return {**result, "tool_version": gone, "killed": gone, "survived": gone, "timed_out": gone,
-                "mutation_score": gone}
+                "mutation_score": gone, "sample_size": gone, "duration_ms": elapsed_ms()}
 
     try:
         version = run(list(tool.version_argv), root, cap_seconds).strip()
@@ -132,4 +140,6 @@ def mutation_signals(
     total = detected + counts.survived
     result.update(killed=counts.killed, survived=counts.survived, timed_out=counts.timed_out)
     result["mutation_score"] = detected / total if total else Unavailable("the tool found no mutants in the scope")
+    result["sample_size"] = total
+    result["duration_ms"] = elapsed_ms()
     return result

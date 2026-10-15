@@ -24,6 +24,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/gitx"
 	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 	"github.com/Fewbytes/sweatshop/line/linedir"
+	"github.com/Fewbytes/sweatshop/line/linestore"
 	"github.com/Fewbytes/sweatshop/line/station"
 )
 
@@ -815,5 +816,18 @@ func TestStationLineShowsLastAndNextRunOfScheduledStation(t *testing.T) {
 	got = stationLine(station.StationStatus{Name: "maker-1", Role: "maker", State: station.StateIdle})
 	if want := "station maker-1 (maker) idle  alive=false"; got != want {
 		t.Errorf("stationLine = %q, want %q", got, want)
+	}
+}
+
+func TestMutationTrendPrintsUnavailableReasonsNotNumbers(t *testing.T) {
+	score, size := 0.6, 5
+	got := formatMutationTrend([]linestore.MutationRun{
+		{Commit: strings.Repeat("a", 40), Source: linestore.MutationFromKaizenRun, Language: "go", Scope: []string{"pkg"}, Tool: "gremlins", ToolVersion: "v0.5.1", DurationMS: 90000, SampleSize: &size, Score: &score},
+		{Commit: strings.Repeat("b", 40), Source: linestore.MutationFromLandedCard, Language: "python", Scope: []string{"a.py", "b.py"}, Tool: "mutmut", DurationMS: 3, Unavailable: "mutmut is not installed"},
+	})
+	want := "aaaaaaaaaaaa kaizen go         gremlins v0.5.1 pkg score 0.600 over 5 mutants in 1m30s\n" +
+		"bbbbbbbbbbbb card   python     mutmut  a.py,b.py unavailable: mutmut is not installed in 3ms\n"
+	if got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
 	}
 }

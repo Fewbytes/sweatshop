@@ -33,6 +33,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/heijunka"
 	"github.com/Fewbytes/sweatshop/line/kaizen"
 	"github.com/Fewbytes/sweatshop/line/linedir"
+	"github.com/Fewbytes/sweatshop/line/linestore"
 	"github.com/Fewbytes/sweatshop/line/maker"
 	"github.com/Fewbytes/sweatshop/line/station"
 	"github.com/Fewbytes/sweatshop/line/viceroy"
@@ -84,6 +85,9 @@ const usage = `usage:
                                         kaizen run: save the CI runs (runs.json) and the previous run's signals (previous.json, if any) for the signal scripts
   sweatshop line kaizen publish --commit SHA --signals F --report F [--after F]
                                         kaizen run: store signals.json and report.html under reports/kaizen/<commit>/ next to the CI reports
+  sweatshop line kaizen mutation --commit SHA --source kaizen|card --file mutation.json
+                                        kaizen run: record the mutation score (with tool, version, sample size and runtime) kaizen_signals.py mutation measured
+  sweatshop line kaizen mutation-trend  kaizen run: print every recorded mutation measurement, oldest first
   sweatshop line kaizen report (Markdown on stdin)
                                         kaizen run: publish this run's analysis report to the line's object store (SWEATSHOP_BEAD names the run)
   sweatshop viceroy run [--heartbeat 6h]
@@ -149,6 +153,10 @@ func run(args []string, stdout io.Writer) error {
 		return lineKaizenReport(os.Stdin, stdout)
 	case len(args) >= 3 && args[0] == "line" && args[1] == "kaizen" && args[2] == "context":
 		return lineKaizenContext(args[3:], stdout)
+	case len(args) >= 3 && args[0] == "line" && args[1] == "kaizen" && args[2] == "mutation":
+		return lineKaizenMutation(args[3:], stdout)
+	case len(args) == 3 && args[0] == "line" && args[1] == "kaizen" && args[2] == "mutation-trend":
+		return lineKaizenMutationTrend(stdout)
 	case len(args) >= 3 && args[0] == "line" && args[1] == "kaizen" && args[2] == "publish":
 		return lineKaizenPublish(args[3:], stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "kaizen":
@@ -713,6 +721,68 @@ func lineKaizenPublish(args []string, stdout io.Writer) error {
 	}
 	fmt.Fprintln(stdout, "published", key)
 	return nil
+}
+
+// lineKaizenMutation records the mutation measurement `kaizen_signals.py
+// mutation` wrote. Mutation score is tracked, never gated on.
+func lineKaizenMutation(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("line kaizen mutation", flag.ContinueOnError)
+	commit := fs.String("commit", "", "commit the mutation score was measured at")
+	source := fs.String("source", "", "what the measurement was taken for: kaizen (a kaizen run) or card (a landed card)")
+	file := fs.String("file", "", "mutation.json")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 || *commit == "" || *source == "" || *file == "" {
+		return errors.New(usage)
+	}
+	data, err := os.ReadFile(*file)
+	if err != nil {
+		return err
+	}
+	m, err := station.MutationRunFromSignals(*commit, linestore.MutationSource(*source), data)
+	if err != nil {
+		return err
+	}
+	c, err := lineClient()
+	if err != nil {
+		return err
+	}
+	if err := c.RecordKaizenMutation(context.Background(), m); err != nil {
+		return err
+	}
+	fmt.Fprintln(stdout, "recorded mutation run at", *commit)
+	return nil
+}
+
+// lineKaizenMutationTrend prints every recorded mutation measurement, so the
+// trend, the sample sizes and the cost of a run can be read side by side.
+func lineKaizenMutationTrend(stdout io.Writer) error {
+	c, err := lineClient()
+	if err != nil {
+		return err
+	}
+	runs, err := c.KaizenMutationRuns(context.Background())
+	if err != nil {
+		return err
+	}
+	fmt.Fprint(stdout, formatMutationTrend(runs))
+	return nil
+}
+
+// formatMutationTrend renders mutation measurements one per line; an
+// unavailable score prints its reason, never a number.
+func formatMutationTrend(runs []linestore.MutationRun) string {
+	var b strings.Builder
+	for _, m := range runs {
+		score := "unavailable: " + m.Unavailable
+		if m.Score != nil {
+			score = fmt.Sprintf("score %.3f over %d mutants", *m.Score, *m.SampleSize)
+		}
+		fmt.Fprintf(&b, "%s %-6s %-10s %s %s %s %s in %s\n", m.Commit[:12], m.Source, m.Language, m.Tool, m.ToolVersion,
+			strings.Join(m.Scope, ","), score, time.Duration(m.DurationMS)*time.Millisecond)
+	}
+	return b.String()
 }
 
 // lineKaizen runs a Kaizen station on the host, like lineMaker but with no
