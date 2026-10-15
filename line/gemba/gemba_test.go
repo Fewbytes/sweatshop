@@ -51,6 +51,8 @@ func (f *labelledBeads) Release(_ context.Context, id, _ string) error {
 	return nil
 }
 
+func (f *labelledBeads) CommentCount(context.Context, string) (int, error) { return 0, nil }
+
 func (f *labelledBeads) GiveUp(_ context.Context, id string, _ bool) error {
 	f.calls = append(f.calls, "giveup "+id)
 	return nil

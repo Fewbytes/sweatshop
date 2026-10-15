@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -153,9 +156,9 @@ func TestOnceGivesUpAfterMaxAttempts(t *testing.T) {
 		}
 	}
 	want := []string{
-		"ready line", "claim b-1 maker-1", "release b-1 maker run ended without landing (exit 3) [attempt 1/3]",
-		"ready line", "claim b-1 maker-1", "release b-1 maker run ended without landing (exit 3) [attempt 2/3]",
-		"ready line", "claim b-1 maker-1", "release b-1 maker run ended without landing (exit 3) [attempt 3/3]; giving up: labelled " + GaveUpLabel,
+		"ready line", "claim b-1 maker-1", "release b-1 maker run ended without landing (exit 3) [attempt 1/3]" + noReportNote,
+		"ready line", "claim b-1 maker-1", "release b-1 maker run ended without landing (exit 3) [attempt 2/3]" + noReportNote,
+		"ready line", "claim b-1 maker-1", "release b-1 maker run ended without landing (exit 3) [attempt 3/3]; giving up: labelled " + GaveUpLabel + noReportNote,
 		"giveup b-1",
 	}
 	if !reflect.DeepEqual(fb.calls, want) {
@@ -224,7 +227,16 @@ type fakeBeads struct {
 	ready  []Bead
 	calls  []string
 	claims map[string]string
+	// comments is what CommentCount reports; a run may raise it to act as an
+	// agent that posted a failure report.
+	comments int
 }
+
+// noReportNote is what a release note ends with when the run left no
+// comment and printed nothing.
+const noReportNote = "; the maker left no failure report and no output"
+
+func (f *fakeBeads) CommentCount(context.Context, string) (int, error) { return f.comments, nil }
 
 func (f *fakeBeads) GiveUp(_ context.Context, id string, escalateToKing bool) error {
 	f.calls = append(f.calls, "giveup "+id)
@@ -324,7 +336,7 @@ func TestOnceReleasesUnlandedBead(t *testing.T) {
 	if err != nil || !worked {
 		t.Fatalf("Once = %v %v", worked, err)
 	}
-	want := []string{"ready line", "claim b-1 maker-1", "release b-1 maker run ended without landing (exit 3) [attempt 1/3]"}
+	want := []string{"ready line", "claim b-1 maker-1", "release b-1 maker run ended without landing (exit 3) [attempt 1/3]" + noReportNote}
 	if !reflect.DeepEqual(fb.calls, want) {
 		t.Fatalf("calls = %q, want %q", fb.calls, want)
 	}
@@ -691,5 +703,66 @@ func TestLoopLogsSignalWhenIdle(t *testing.T) {
 	}
 	if want := "exiting on interrupt\n"; !strings.Contains(logs.String(), want) {
 		t.Fatalf("log = %q, want %q", logs.String(), want)
+	}
+}
+
+func TestOnceReleaseNoteCarriesOutputTailWhenAgentLeftNoReport(t *testing.T) {
+	bare, _ := remote(t)
+	fb := &fakeBeads{ready: []Bead{{ID: "b-1", Priority: 1}}}
+	fe := &fakeEngine{run: func(spec ContainerSpec) (int, error) {
+		fmt.Fprint(spec.Output, "x", strings.Repeat("y", failureTailBytes), "\nRESULT: gave-up tests fail")
+		return 0, nil
+	}}
+	r := newRunner(t, bare, fb, fe)
+	if _, err := r.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	note := fb.calls[len(fb.calls)-1]
+	if !strings.HasSuffix(note, "\nRESULT: gave-up tests fail") || strings.Contains(note, "xy") {
+		t.Fatalf("release note = %q, want it to end with the output's tail", note)
+	}
+	if !strings.Contains(note, "left no failure report") || len(note) > failureTailBytes+200 {
+		t.Fatalf("release note = %q (%d bytes), want the missing-report marker and a bounded tail", note, len(note))
+	}
+}
+
+func TestOnceReleaseNoteOmitsTailWhenAgentCommented(t *testing.T) {
+	bare, _ := remote(t)
+	fb := &fakeBeads{ready: []Bead{{ID: "b-1", Priority: 1}}, comments: 4}
+	fe := &fakeEngine{run: func(spec ContainerSpec) (int, error) {
+		fmt.Fprint(spec.Output, "RESULT: gave-up see my comment")
+		fb.comments++
+		return 0, nil
+	}}
+	r := newRunner(t, bare, fb, fe)
+	if _, err := r.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := "release b-1 maker run ended without landing (exit 0) [attempt 1/3]"
+	if last := fb.calls[len(fb.calls)-1]; last != want {
+		t.Fatalf("last call = %q, want %q", last, want)
+	}
+}
+
+func TestPromptRequiresFailureReportOnTheCard(t *testing.T) {
+	p := Prompt(Bead{ID: "b-7", Title: "t"}, "")
+	if !strings.Contains(p, "post a failure report on your card:\n   `sweatshop line cards comment b-7`") {
+		t.Fatalf("prompt lacks the failure report step:\n%s", p)
+	}
+}
+
+func TestAPICardsCommentCountReadsShownComments(t *testing.T) {
+	for name, body := range map[string]string{
+		"object": `{"id":"b-1","comments":[{"text":"a"},{"text":"b"}]}`,
+		"array":  `[{"id":"b-1","comments":[{"text":"a"},{"text":"b"}]}]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, body) }))
+			defer ts.Close()
+			n, err := (APICards{Client: station.Client{URL: ts.URL, Token: "mt"}}).CommentCount(context.Background(), "b-1")
+			if err != nil || n != 2 {
+				t.Fatalf("CommentCount = %d, %v; want 2, nil", n, err)
+			}
+		})
 	}
 }
