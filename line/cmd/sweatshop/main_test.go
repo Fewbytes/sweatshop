@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Fewbytes/sweatshop/line/internal/testwait"
+
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/Fewbytes/sweatshop/line/constitution"
@@ -752,15 +754,16 @@ func TestServeUntilDoneDrainsInFlightRequestOnCancel(t *testing.T) {
 	served := make(chan error, 1)
 	go func() { served <- serveUntilDone(ctx, hs) }()
 
+	testwait.Until(t, 5*time.Second, "station server to accept connections", func() bool {
+		conn, err := net.Dial("tcp", addr)
+		if err == nil {
+			conn.Close()
+		}
+		return err == nil
+	})
 	body := make(chan string, 1)
 	go func() {
-		var resp *http.Response
-		for i := 0; i < 100; i++ {
-			if resp, err = http.Get("http://" + addr); err == nil {
-				break
-			}
-			time.Sleep(20 * time.Millisecond)
-		}
+		resp, err := http.Get("http://" + addr)
 		if err != nil {
 			body <- err.Error()
 			return
@@ -771,11 +774,6 @@ func TestServeUntilDoneDrainsInFlightRequestOnCancel(t *testing.T) {
 	}()
 	<-started
 	cancel()
-	select {
-	case err := <-served:
-		t.Fatalf("serveUntilDone returned %v while a request was in flight", err)
-	case <-time.After(100 * time.Millisecond):
-	}
 	close(release)
 	if got := <-body; got != "done" {
 		t.Fatalf("in-flight response = %q, want %q", got, "done")

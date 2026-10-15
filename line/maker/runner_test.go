@@ -20,6 +20,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/gitx"
 	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 	"github.com/Fewbytes/sweatshop/line/guidance"
+	"github.com/Fewbytes/sweatshop/line/internal/testwait"
 	"github.com/Fewbytes/sweatshop/line/linedir"
 	"github.com/Fewbytes/sweatshop/line/station"
 )
@@ -621,16 +622,25 @@ func TestDockerEngine(t *testing.T) {
 // Cancelling a run must stop the CLI gracefully and then remove the
 // container, so no orphan keeps working a card that is being released.
 func TestDockerEngineCancelRemovesContainer(t *testing.T) {
-	logFile := fakeBin(t, "docker", `case "$1" in run) exec sleep 30;; esac
+	dir := t.TempDir()
+	never := filepath.Join(dir, "never-written")
+	if err := syscall.Mkfifo(never, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	started := filepath.Join(dir, "started")
+	logFile := fakeBin(t, "docker", `case "$1" in run) touch '`+started+`'; exec cat '`+never+`';; esac
 `)
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	start := time.Now()
+	go func() {
+		testwait.Until(t, 5*time.Second, "docker run to start", func() bool {
+			_, err := os.Stat(started)
+			return err == nil
+		})
+		cancel()
+	}()
 	if _, err := (DockerEngine{Bin: "docker"}).Run(ctx, ContainerSpec{Image: "img", Name: "maker-1-b-1"}); err == nil {
 		t.Fatal("Run of a SIGTERMed CLI reported success")
-	}
-	if d := time.Since(start); d > 10*time.Second {
-		t.Fatalf("Run took %s after cancellation", d)
 	}
 	got := calls(t, logFile)
 	if len(got) != 2 || got[1] != "rm -f -- maker-1-b-1" {

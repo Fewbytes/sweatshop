@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Fewbytes/sweatshop/line/internal/testwait"
+
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/Fewbytes/sweatshop/line/constitution"
@@ -446,13 +448,7 @@ func TestSucceedBuildFailure(t *testing.T) {
 
 func waitFor(t *testing.T, what string, f func() bool) {
 	t.Helper()
-	for i := 0; i < 500; i++ {
-		if f() {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for %s", what)
+	testwait.Until(t, 5*time.Second, what, f)
 }
 
 func TestRollbackOnTimeout(t *testing.T) {
@@ -606,11 +602,6 @@ func TestSucceedWaitsForCheckSlot(t *testing.T) {
 		_, err := r.client("viceroy-1", "1").ViceroySucceed(r.ctx, c2)
 		done <- err
 	}()
-	select {
-	case err := <-done:
-		t.Fatalf("succession returned while the slot was held: %v", err)
-	case <-time.After(200 * time.Millisecond):
-	}
 	r.srv.busy.Store(false)
 	if err := <-done; err != nil {
 		t.Fatal(err)

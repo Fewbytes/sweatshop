@@ -9,9 +9,3 @@ agentsh/internal/executor/executor_test.go 2
 agentsh/internal/executor/service_test.go 8
 agentsh/internal/integration/integration_test.go 1
 agentsh/internal/storage/storage_test.go 1
-line/cmd/sweatshop/main_test.go 1
-line/maker/runner_test.go 1
-line/station/channel_gateway_test.go 1
-line/station/channel_test.go 1
-line/station/succession_test.go 1
-line/witness/runner_test.go 2
