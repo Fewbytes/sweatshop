@@ -319,7 +319,7 @@ func TestChannelPollsWhileGatewayIsDown(t *testing.T) {
 func TestGatewayInteractionApprovesForSovereignOnly(t *testing.T) {
 	cards := &fakeCards{}
 	ch, fg := newGatewayChan(t, proposedCards{fakeCards: cards,
-		proposed: `[{"id":"x-1","title":"Add widgets"},{"id":"x-2","title":"Fix gadgets"}]`})
+		proposed: `[{"id":"x-1","title":"Add widgets"},{"id":"x-2","title":"Fix gadgets"},{"id":"x-3","title":"Fix gizmos","labels":["line-proposed","line"]}]`})
 	ctx := context.Background()
 	interaction := func(typ int, user, card string) json.RawMessage {
 		b, _ := json.Marshal(map[string]any{
@@ -351,8 +351,14 @@ func TestGatewayInteractionApprovesForSovereignOnly(t *testing.T) {
 		t.Fatalf("autocomplete %v", cb)
 	}
 
+	ch.gatewayInteraction(ctx, interaction(interactionAutocomplete, kingID, "fix"))
+	cb = fg.callbackLog()
+	if len(cb) != 3 || !strings.Contains(cb[2], `"value":"x-2"`) || strings.Contains(cb[2], "x-3") {
+		t.Fatalf("autocomplete listed approved card: %v", cb)
+	}
+
 	ch.gatewayInteraction(ctx, interaction(interactionApplicationCommand, kingID, "../etc"))
-	if cb = fg.callbackLog(); len(cb) != 3 || !strings.Contains(cb[2], "invalid card id") || len(cards.calls) != 3 {
+	if cb = fg.callbackLog(); len(cb) != 4 || !strings.Contains(cb[3], "invalid card id") || len(cards.calls) != 3 {
 		t.Fatalf("invalid id: %v calls %v", cb, cards.calls)
 	}
 }

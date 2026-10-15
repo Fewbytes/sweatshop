@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -36,8 +37,9 @@ type CommandChoice struct {
 }
 
 type cardSummary struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
+	ID     string   `json:"id"`
+	Title  string   `json:"title"`
+	Labels []string `json:"labels"`
 }
 
 func (c *Channel) listCards(ctx context.Context, f ListFilter) ([]cardSummary, error) {
@@ -195,7 +197,9 @@ func (c *Channel) gatewayInteraction(ctx context.Context, raw json.RawMessage) {
 	}
 }
 
-// proposedChoices suggests line-proposed cards whose id or title contains typed.
+// proposedChoices suggests line-proposed cards whose id or title contains
+// typed. Approval leaves LabelProposed on a card, so cards already carrying
+// LabelLine are skipped.
 func (c *Channel) proposedChoices(ctx context.Context, typed string) ([]CommandChoice, error) {
 	cards, err := c.listCards(ctx, ListFilter{Label: LabelProposed})
 	if err != nil {
@@ -206,6 +210,9 @@ func (c *Channel) proposedChoices(ctx context.Context, typed string) ([]CommandC
 	for _, card := range cards {
 		if len(choices) == maxChoices {
 			break
+		}
+		if slices.Contains(card.Labels, LabelLine) {
+			continue
 		}
 		name := card.ID + " " + card.Title
 		if !strings.Contains(strings.ToLower(name), typed) {
