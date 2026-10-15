@@ -143,26 +143,33 @@ func (r Repo) Parents(ctx context.Context, commit string) ([]string, error) {
 	return parents, nil
 }
 
-// ChangedPaths lists the paths whose content or mode differs between the
-// trees of from and to, sorted, without rename detection.
-func (r Repo) ChangedPaths(ctx context.Context, from, to string) ([]string, error) {
+// diffTrees returns the changes from the tree of from to the tree of to,
+// without rename detection, and the repository they were read from.
+func (r Repo) diffTrees(ctx context.Context, from, to string) (*git.Repository, object.Changes, error) {
 	repo, err := r.open(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	trees := make([]*object.Tree, 0, 2)
 	for _, rev := range []string{from, to} {
 		c, err := resolveCommit(repo, rev)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		t, err := c.Tree()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		trees = append(trees, t)
 	}
 	changes, err := object.DiffTreeWithOptions(ctx, trees[0], trees[1], &object.DiffTreeOptions{DetectRenames: false})
+	return repo, changes, err
+}
+
+// ChangedPaths lists the paths whose content or mode differs between the
+// trees of from and to, sorted, without rename detection.
+func (r Repo) ChangedPaths(ctx context.Context, from, to string) ([]string, error) {
+	_, changes, err := r.diffTrees(ctx, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -178,6 +185,51 @@ func (r Repo) ChangedPaths(ctx context.Context, from, to string) ([]string, erro
 	}
 	sort.Strings(paths)
 	return paths, nil
+}
+
+// BlobHeadBytes is how much of each changed blob ChangedBlobs reads: enough
+// to reach a PE header from the DOS stub's pointer to it.
+const BlobHeadBytes = 1024
+
+// ChangedBlob is a regular file that exists in the target tree of ChangedBlobs
+// and differs from the base tree.
+type ChangedBlob struct {
+	Path string
+	Size int64
+	Head []byte // the first BlobHeadBytes bytes, fewer for a smaller blob
+}
+
+// ChangedBlobs lists, sorted by path, the regular files added or modified
+// between the trees of from and to. Deletions, symlinks and submodules are
+// not blobs a clone downloads as file content, so they are left out.
+func (r Repo) ChangedBlobs(ctx context.Context, from, to string) ([]ChangedBlob, error) {
+	repo, changes, err := r.diffTrees(ctx, from, to)
+	if err != nil {
+		return nil, err
+	}
+	var blobs []ChangedBlob
+	for _, c := range changes {
+		mode := c.To.TreeEntry.Mode
+		if c.To.Name == "" || (mode != filemode.Regular && mode != filemode.Executable) {
+			continue
+		}
+		blob, err := repo.BlobObject(c.To.TreeEntry.Hash)
+		if err != nil {
+			return nil, fmt.Errorf("read blob %s: %w", c.To.Name, err)
+		}
+		reader, err := blob.Reader()
+		if err != nil {
+			return nil, fmt.Errorf("open blob %s: %w", c.To.Name, err)
+		}
+		head, err := io.ReadAll(io.LimitReader(reader, BlobHeadBytes))
+		reader.Close()
+		if err != nil {
+			return nil, fmt.Errorf("read blob %s: %w", c.To.Name, err)
+		}
+		blobs = append(blobs, ChangedBlob{Path: c.To.Name, Size: blob.Size, Head: head})
+	}
+	sort.Slice(blobs, func(i, j int) bool { return blobs[i].Path < blobs[j].Path })
+	return blobs, nil
 }
 
 // Ref returns the object ID rev names, which must exist.

@@ -42,6 +42,13 @@ roles = ["gemba"]
 pattern = "station/**"
 roles = ["gemba"]
 
+# guards.blobs: the merge guard rejects a commit that adds or changes a blob
+# over max_bytes (default 1 MiB) or an executable binary (ELF, Mach-O, PE),
+# unless the path matches allow (same syntax as guards.paths patterns).
+[guards.blobs]
+max_bytes = 1048576
+allow = ["testdata/**"]
+
 # sovereign: the king, the only identity whose channel messages carry authority.
 [sovereign]
 name = "alice"

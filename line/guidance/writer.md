@@ -112,6 +112,9 @@ Three goals, in priority order:
 
 ## 6. Review surface (for humans)
 
+- **Build output is never committed.** No binaries, `bin/`, `dist/` or other
+  generated artifacts. Run `git status` before committing and stage paths by
+  name; the merge guard rejects any blob over 1 MB and any executable.
 - **Small, single-purpose diffs.** One logical change per commit. Mechanical
   changes (renames, moves, formatting) in separate commits from behavior
   changes.
