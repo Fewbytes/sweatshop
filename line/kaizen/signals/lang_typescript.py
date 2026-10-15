@@ -5,7 +5,7 @@ import posixpath
 import re
 
 import tree_sitter_typescript
-from tree_sitter import Language
+from tree_sitter import Language, Node
 
 from syntax import Idiom, ImportResolver, LanguageSpec, package_of
 
@@ -27,6 +27,14 @@ def typescript_import_resolver(root: str, files: set[str]) -> ImportResolver:
         return package_of(stem) if stem in stems else None
 
     return resolve
+
+
+def _inside_export(node: Node) -> bool:
+    while node.parent is not None:
+        node = node.parent
+        if node.type == "export_statement":
+            return True
+    return False
 
 
 TYPESCRIPT = LanguageSpec(
@@ -70,6 +78,7 @@ TYPESCRIPT = LanguageSpec(
             (enum_declaration name: (identifier) @name)
             (lexical_declaration (variable_declarator name: (identifier) @name))])
         ])""",
+    is_exported=_inside_export,
     not_dead=re.compile(r"^(main|_)$"),
     identifier_types=frozenset({
         "identifier", "type_identifier", "property_identifier",

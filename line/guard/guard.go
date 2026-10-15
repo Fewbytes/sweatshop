@@ -42,6 +42,7 @@ const (
 	ReasonBaseMoved      Reason = "base_moved"
 	ReasonRoleForbidden  Reason = "role_forbidden"
 	ReasonBadCandidate   Reason = "bad_candidate"
+	ReasonBlobForbidden  Reason = "blob_forbidden"
 
 	ReasonRoleNotPermitted Reason = "role_not_permitted"
 	ReasonNoBase           Reason = "no_base"
@@ -151,6 +152,14 @@ func (g Guard) Merge(ctx context.Context, commit string, env attest.Envelope) (R
 		if roles, guarded := g.Constitution.AllowedRoles(p); guarded && !slices.Contains(roles, predicate.Role) {
 			return reject(ReasonRoleForbidden, fmt.Sprintf("%s may only be changed by %v, not %s", p, roles, predicate.Role))
 		}
+	}
+
+	blobs, err := g.Repo.ChangedBlobs(ctx, base, commit)
+	if err != nil {
+		return Result{}, err
+	}
+	if detail := blobViolation(g.Constitution.Guards.Blobs, blobs); detail != "" {
+		return reject(ReasonBlobForbidden, detail)
 	}
 
 	if err := g.Repo.UpdateRef(ctx, g.Ref, commit, base); err != nil {

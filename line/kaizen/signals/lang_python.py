@@ -71,6 +71,7 @@ PYTHON = LanguageSpec(
           (decorated_definition definition: (function_definition name: (identifier) @name))
           (decorated_definition definition: (class_definition name: (identifier) @name))
         ])""",
+    is_exported=lambda name: not name.text.startswith(b"_"),
     not_dead=re.compile(r"^(main|_|__\w+__|test_\w*|Test\w*)$"),
     identifier_types=frozenset({"identifier"}),
     idioms=(

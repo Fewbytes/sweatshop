@@ -421,7 +421,7 @@ func TestExampleParses(t *testing.T) {
 		t.Fatal(err)
 	}
 	if c.Trust.Level != "attest" || len(c.Trust.Keys) != 1 || c.Runner.Kind != "container" ||
-		len(c.Checks.Required) != 1 || len(c.Guards.Paths) != 2 ||
+		len(c.Checks.Required) != 1 || len(c.Guards.Paths) != 2 || c.Guards.Blobs.MaxBytes != 1<<20 || !c.Guards.Blobs.Allows("testdata/x.bin") ||
 		c.Sovereign.Discord == "" || c.Channel.Kind != "discord" ||
 		!c.Viceroy.Succession || len(c.Viceroy.Delegations) != 4 {
 		t.Fatalf("example parsed unexpectedly: %+v", c)
@@ -444,6 +444,27 @@ func TestCardsCommentCapDefaultsAndRejectsNegative(t *testing.T) {
 	}
 	if _, err := Parse([]byte("[cards]\ncomment_cap = -1\n" + base)); err == nil {
 		t.Fatal("negative cap accepted")
+	}
+}
+
+func TestBlobGuardDefaultsAllowListAndRejectsBad(t *testing.T) {
+	_, key := publicKey(t)
+	base := valid(key)
+	c, err := Parse([]byte(base))
+	if err != nil || c.Guards.Blobs.MaxBytesOrDefault() != DefaultBlobMaxBytes || c.Guards.Blobs.Allows("bin/tool") {
+		t.Fatalf("default: %+v %v", c.Guards.Blobs, err)
+	}
+	c, err = Parse([]byte("[guards.blobs]\nmax_bytes = 10\nallow = [\"vendor/**\", \"*.wasm\"]\n" + base))
+	if err != nil || c.Guards.Blobs.MaxBytesOrDefault() != 10 {
+		t.Fatalf("explicit: %+v %v", c.Guards.Blobs, err)
+	}
+	if !c.Guards.Blobs.Allows("vendor/lib/a.so") || !c.Guards.Blobs.Allows("m.wasm") || c.Guards.Blobs.Allows("bin/tool") {
+		t.Fatalf("allow list matched wrongly: %+v", c.Guards.Blobs)
+	}
+	for _, bad := range []string{"max_bytes = -1", "allow = [\"[\"]"} {
+		if _, err := Parse([]byte("[guards.blobs]\n" + bad + "\n" + base)); err == nil {
+			t.Errorf("guards.blobs %q accepted", bad)
+		}
 	}
 }
 

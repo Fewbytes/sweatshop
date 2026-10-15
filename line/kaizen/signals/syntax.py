@@ -73,6 +73,7 @@ class LanguageSpec:
     import_query: str
     declaration_query: str
     not_dead: re.Pattern[str]  # declared names that are used without a textual reference
+    is_exported: Callable[[Node], bool]  # declaration_query's @name node -> part of the module's public surface?
     identifier_types: frozenset[str]
     idioms: tuple[Idiom, ...]
 
@@ -90,6 +91,9 @@ class SourceFile:
     imports: list[str]
     functions: list[FunctionComplexity]
     symbols: list[str]
+    symbol_refs: dict[str, frozenset[str]]  # symbol -> identifiers its declaration uses, itself excluded
+    entry_points: list[str]  # the symbols the language exports
+    purpose: str  # first line of the leading doc comment or docstring, "" when there is none
     identifiers: list[str]
     idioms: dict[tuple[str, str], int]
     tokens: list[str]  # leaf tokens without comments, for clone windows
@@ -183,6 +187,26 @@ def _functions(spec: LanguageSpec, root: Node) -> list[FunctionComplexity]:
     return out
 
 
+_COMMENT_MARKER = re.compile(r"^\s*(//+|/\*+|\*+/?|#+|\"\"\"|''\')\s*")
+# Lines that head a file but describe tooling, not the code: "# /// script", //go:build.
+_NOT_PURPOSE = re.compile(r"^(/// |go:|\+build|Copyright)")
+
+
+def _purpose(spec: LanguageSpec, root: Node) -> str:
+    for node in root.children:
+        if node.type == "expression_statement" and node.children and node.children[0].type == "string":
+            text = _text(node)  # a docstring
+        elif node.type in _COMMENT_TYPES:
+            text = _text(node)
+        else:
+            return ""
+        for line in text.splitlines():
+            line = _COMMENT_MARKER.sub("", line).strip().rstrip("*/").strip(_QUOTES + " ")
+            if line and not _NOT_PURPOSE.match(line):
+                return line
+    return ""
+
+
 def parse_source(spec: LanguageSpec, path: str, source: bytes) -> SourceFile:
     root = _parser(spec.grammar).parse(source).root_node
     nodes = list(_nodes(root))
@@ -190,15 +214,23 @@ def parse_source(spec: LanguageSpec, path: str, source: bytes) -> SourceFile:
     for idiom in spec.idioms:
         matches = QueryCursor(_query(spec.grammar, idiom.query)).matches(root)
         idioms[(idiom.concern, idiom.name)] = len(matches)
+    declared = [
+        (name, n) for n in _captured(spec, spec.declaration_query, root, "name")
+        if not spec.not_dead.match(name := _text(n))
+    ]
+    symbol_refs: dict[str, frozenset[str]] = {}
+    for name, n in declared:
+        used = {_text(m) for m in _nodes(n.parent) if m.type in spec.identifier_types} - {name}
+        symbol_refs[name] = symbol_refs.get(name, frozenset()) | used
     return SourceFile(
         path=path,
         is_test=spec.is_test(path),
         imports=[_text(n).strip(_QUOTES) for n in _captured(spec, spec.import_query, root, "path")],
         functions=_functions(spec, root),
-        symbols=[
-            name for n in _captured(spec, spec.declaration_query, root, "name")
-            if not spec.not_dead.match(name := _text(n))
-        ],
+        symbols=[name for name, _ in declared],
+        symbol_refs=symbol_refs,
+        entry_points=[name for name, n in declared if spec.is_exported(n)],
+        purpose=_purpose(spec, root),
         identifiers=[_text(n) for n in nodes if n.type in spec.identifier_types],
         idioms=idioms,
         tokens=[_text(n) for n in nodes if n.child_count == 0 and n.type not in _COMMENT_TYPES and n.start_byte < n.end_byte],

@@ -60,6 +60,17 @@ def lcom4(sources: dict[str, SourceFile]) -> int:
     return len({find(p) for p in sources}) or 1
 
 
+def symbol_edges(sources: dict[str, SourceFile]) -> list[list[str]]:
+    """The cohesion graph of one package: [symbol, symbol] for each top-level
+    symbol whose declaration uses the name of another symbol of the package."""
+    declared = {name for f in sources.values() for name in f.symbols}
+    edges = {
+        (name, used)
+        for f in sources.values() for name, refs in f.symbol_refs.items() for used in refs & declared
+    }
+    return [list(edge) for edge in sorted(edges)]
+
+
 def file_signals(
     source: dict[str, SourceFile],
     commits: list[Commit],

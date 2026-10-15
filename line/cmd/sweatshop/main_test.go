@@ -306,6 +306,27 @@ func TestLineStationAdd(t *testing.T) {
 	}
 }
 
+func TestLineStationAddAcceptsHeijunkaRole(t *testing.T) {
+	dir, _ := initLine(t)
+	var out bytes.Buffer
+	if err := run([]string{"line", "station", "add", "--dir", dir, "--name", "heijunka-1", "--role", "heijunka"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "station heijunka-1 role heijunka key_id ") {
+		t.Fatalf("output = %q", out.String())
+	}
+	l, err := linedir.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range l.Stations {
+		if s.Name == "heijunka-1" && s.Role == "heijunka" {
+			return
+		}
+	}
+	t.Fatalf("heijunka-1 with role heijunka not in %+v", l.Stations)
+}
+
 func TestLineCards(t *testing.T) {
 	var got []string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

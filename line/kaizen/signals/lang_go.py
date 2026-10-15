@@ -72,6 +72,7 @@ GO = LanguageSpec(
             (var_spec_list (var_spec name: (identifier) @name))])
           (const_declaration (const_spec name: (identifier) @name))
         ])""",
+    is_exported=lambda name: name.text[:1].isupper(),
     not_dead=re.compile(r"^(main|init|_|Test\w*|Benchmark\w*|Example\w*|Fuzz\w*)$"),
     identifier_types=frozenset({"identifier", "type_identifier", "field_identifier", "package_identifier", "label_name"}),
     # Pattern entropy is the Shannon entropy of the counts within one concern:

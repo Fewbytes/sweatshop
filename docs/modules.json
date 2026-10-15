@@ -1,0 +1,1513 @@
+{
+  "modules": {
+    "agentsh/cmd/agentsh": {
+      "entry_point_count": 0,
+      "entry_points": [],
+      "hidden_coupling_ratio": 0.857,
+      "hotspot_rank": 16,
+      "imported_by": [],
+      "imports": [
+        "agentsh/internal/rpc",
+        "agentsh/internal/storage",
+        "agentsh/internal/version",
+        "agentsh/internal/workspace"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": ""
+    },
+    "agentsh/cmd/agentsh-analytics": {
+      "entry_point_count": 0,
+      "entry_points": [],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 41,
+      "imported_by": [],
+      "imports": [
+        "agentsh/internal/exporter",
+        "agentsh/internal/workspace"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": ""
+    },
+    "agentsh/cmd/agentshd": {
+      "entry_point_count": 0,
+      "entry_points": [],
+      "hidden_coupling_ratio": 0.75,
+      "hotspot_rank": 25,
+      "imported_by": [],
+      "imports": [
+        "agentsh/internal/config",
+        "agentsh/internal/daemon",
+        "agentsh/internal/mcp",
+        "agentsh/internal/version",
+        "agentsh/internal/workspace"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": ""
+    },
+    "agentsh/internal/analyzer": {
+      "entry_point_count": 14,
+      "entry_points": [
+        "AnalyzeReader",
+        "AnalyzeStream",
+        "BaselineComparison",
+        "ClusterLines",
+        "ComputeLevelHistogram",
+        "DefaultMaxAnalysisBytes",
+        "DetectLogLevel",
+        "DetectStackTraces",
+        "GenerateTemplateID",
+        "LogAnalysis",
+        "LogTemplate",
+        "MaskVariables"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 11,
+      "imported_by": [
+        "agentsh/internal/daemon"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": ""
+    },
+    "agentsh/internal/config": {
+      "entry_point_count": 6,
+      "entry_points": [
+        "Candidates",
+        "Config",
+        "LegacyEnvVars",
+        "Load",
+        "Turso",
+        "Witness"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 22,
+      "imported_by": [
+        "agentsh/cmd/agentshd",
+        "agentsh/internal/daemon"
+      ],
+      "imports": [
+        "line/constitution"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package config loads agentsh daemon settings from a file."
+    },
+    "agentsh/internal/daemon": {
+      "entry_point_count": 3,
+      "entry_points": [
+        "New",
+        "NewWithConfig",
+        "Server"
+      ],
+      "hidden_coupling_ratio": 0.25,
+      "hotspot_rank": 6,
+      "imported_by": [
+        "agentsh/cmd/agentshd"
+      ],
+      "imports": [
+        "agentsh/internal/analyzer",
+        "agentsh/internal/config",
+        "agentsh/internal/executor",
+        "agentsh/internal/output",
+        "agentsh/internal/rpc",
+        "agentsh/internal/service",
+        "agentsh/internal/storage",
+        "agentsh/internal/testwait",
+        "agentsh/internal/version",
+        "agentsh/internal/workspace",
+        "line/attest",
+        "line/constitution",
+        "line/gitx",
+        "line/gitx/gittest",
+        "line/guard",
+        "line/witness"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": ""
+    },
+    "agentsh/internal/executor": {
+      "entry_point_count": 29,
+      "entry_points": [
+        "Cgroup",
+        "CommandPrelude",
+        "Containment",
+        "DefaultContainment",
+        "DefaultGrace",
+        "DefaultIdleWait",
+        "DefaultLoopConfig",
+        "DefaultLoopThreshold",
+        "DefaultLoopWindow",
+        "DefaultTimeout",
+        "DetectCgroup",
+        "Executor"
+      ],
+      "hidden_coupling_ratio": 0.556,
+      "hotspot_rank": 4,
+      "imported_by": [
+        "agentsh/internal/daemon",
+        "agentsh/internal/integration"
+      ],
+      "imports": [
+        "agentsh/internal/output",
+        "agentsh/internal/service",
+        "agentsh/internal/session",
+        "agentsh/internal/storage"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": ""
+    },
+    "agentsh/internal/exporter": {
+      "entry_point_count": 7,
+      "entry_points": [
+        "ErrorRecord",
+        "ExportStats",
+        "ExportWorkspace",
+        "InvocationRecord",
+        "ReadParquet",
+        "TemplateRecord",
+        "WriteParquet"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 33,
+      "imported_by": [
+        "agentsh/cmd/agentsh-analytics"
+      ],
+      "imports": [
+        "agentsh/internal/storage",
+        "agentsh/internal/workspace"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": ""
+    },
+    "agentsh/internal/integration": {
+      "entry_point_count": 0,
+      "entry_points": [],
+      "hidden_coupling_ratio": 0.857,
+      "hotspot_rank": 55,
+      "imported_by": [],
+      "imports": [
+        "agentsh/internal/executor",
+        "agentsh/internal/storage"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": ""
+    },
+    "agentsh/internal/mcp": {
+      "entry_point_count": 2,
+      "entry_points": [
+        "New",
+        "Server"
+      ],
+      "hidden_coupling_ratio": 0.75,
+      "hotspot_rank": 29,
+      "imported_by": [
+        "agentsh/cmd/agentshd"
+      ],
+      "imports": [
+        "agentsh/internal/rpc",
+        "agentsh/internal/version",
+        "agentsh/internal/workspace"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": ""
+    },
+    "agentsh/internal/output": {
+      "entry_point_count": 14,
+      "entry_points": [
+        "DetectFamily",
+        "FormatCommand",
+        "Grep",
+        "GrepMaxMatches",
+        "MaxFailureExcerptLine",
+        "MaxSummaryFailures",
+        "Options",
+        "Preview",
+        "PreviewByteLimit",
+        "PreviewHeadLines",
+        "PreviewTailLines",
+        "Read"
+      ],
+      "hidden_coupling_ratio": 0.625,
+      "hotspot_rank": 3,
+      "imported_by": [
+        "agentsh/internal/daemon",
+        "agentsh/internal/executor"
+      ],
+      "imports": [
+        "agentsh/internal/storage"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": ""
+    },
+    "agentsh/internal/rpc": {
+      "entry_point_count": 42,
+      "entry_points": [
+        "BashGCRequest",
+        "BashHistoryRequest",
+        "BashInputRequest",
+        "BashKillRequest",
+        "BashOutputRequest",
+        "BashReplayRequest",
+        "BashRequest",
+        "BashServiceKillRequest",
+        "BashServiceLogsRequest",
+        "BashServiceRequest",
+        "BashServiceStatusRequest",
+        "BashStateRequest"
+      ],
+      "hidden_coupling_ratio": 0.667,
+      "hotspot_rank": 32,
+      "imported_by": [
+        "agentsh/cmd/agentsh",
+        "agentsh/internal/daemon",
+        "agentsh/internal/mcp"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": ""
+    },
+    "agentsh/internal/service": {
+      "entry_point_count": 9,
+      "entry_points": [
+        "BuildPredicates",
+        "DefaultPollInterval",
+        "DefaultTailBytes",
+        "HTTPPredicate",
+        "PortPredicate",
+        "Predicate",
+        "ReadinessSpec",
+        "StdoutRegexPredicate",
+        "WaitReady"
+      ],
+      "hidden_coupling_ratio": 1.0,
+      "hotspot_rank": 34,
+      "imported_by": [
+        "agentsh/internal/daemon",
+        "agentsh/internal/executor"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package service evaluates readiness predicates for named background"
+    },
+    "agentsh/internal/session": {
+      "entry_point_count": 5,
+      "entry_points": [
+        "Manager",
+        "NewManager",
+        "ParseCapturedState",
+        "State",
+        "StateCaptureScript"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 43,
+      "imported_by": [
+        "agentsh/internal/executor"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": ""
+    },
+    "agentsh/internal/storage": {
+      "entry_point_count": 27,
+      "entry_points": [
+        "Attestation",
+        "BlobStore",
+        "BlobWriter",
+        "BuildLineIndex",
+        "CommandSummary",
+        "Config",
+        "DefaultCheckpointBytes",
+        "DefaultCheckpointLines",
+        "Failure",
+        "GCResult",
+        "IndexEntry",
+        "Invocation"
+      ],
+      "hidden_coupling_ratio": 0.571,
+      "hotspot_rank": 5,
+      "imported_by": [
+        "agentsh/cmd/agentsh",
+        "agentsh/internal/daemon",
+        "agentsh/internal/executor",
+        "agentsh/internal/exporter",
+        "agentsh/internal/integration",
+        "agentsh/internal/output"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": ""
+    },
+    "agentsh/internal/testwait": {
+      "entry_point_count": 1,
+      "entry_points": [
+        "Until"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 50,
+      "imported_by": [
+        "agentsh/internal/daemon"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package testwait is the one place tests wait on wall-clock time."
+    },
+    "agentsh/internal/version": {
+      "entry_point_count": 3,
+      "entry_points": [
+        "Commit",
+        "String",
+        "Version"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 53,
+      "imported_by": [
+        "agentsh/cmd/agentsh",
+        "agentsh/cmd/agentshd",
+        "agentsh/internal/daemon",
+        "agentsh/internal/mcp"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package version holds the build-time version identity shared by agentsh"
+    },
+    "agentsh/internal/workspace": {
+      "entry_point_count": 2,
+      "entry_points": [
+        "Paths",
+        "Resolve"
+      ],
+      "hidden_coupling_ratio": 0.8,
+      "hotspot_rank": 39,
+      "imported_by": [
+        "agentsh/cmd/agentsh",
+        "agentsh/cmd/agentsh-analytics",
+        "agentsh/cmd/agentshd",
+        "agentsh/internal/daemon",
+        "agentsh/internal/exporter",
+        "agentsh/internal/mcp"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": ""
+    },
+    "bughunt/cmd/bughunt": {
+      "entry_point_count": 0,
+      "entry_points": [],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 47,
+      "imported_by": [],
+      "imports": [
+        "bughunt/internal/cli",
+        "bughunt/internal/version"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Command bughunt finds bugs, records them, and turns them into static checks."
+    },
+    "bughunt/internal/cli": {
+      "entry_point_count": 6,
+      "entry_points": [
+        "Dir",
+        "Init",
+        "Layout",
+        "Paths",
+        "Registry",
+        "Scan"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 28,
+      "imported_by": [
+        "bughunt/cmd/bughunt"
+      ],
+      "imports": [
+        "bughunt/internal/config",
+        "bughunt/internal/detector",
+        "bughunt/internal/gitinfo",
+        "bughunt/internal/scan",
+        "bughunt/internal/store",
+        "bughunt/internal/symbol"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package cli implements the bughunt commands."
+    },
+    "bughunt/internal/config": {
+      "entry_point_count": 3,
+      "entry_points": [
+        "Config",
+        "Default",
+        "Load"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 46,
+      "imported_by": [
+        "bughunt/internal/cli",
+        "bughunt/internal/scan"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package config loads .bughunt/config.yaml. An absent or empty file is valid"
+    },
+    "bughunt/internal/detector": {
+      "entry_point_count": 14,
+      "entry_points": [
+        "Detector",
+        "NewAstGrep",
+        "NewContextClosure",
+        "NewErrcheck",
+        "NewExecRunner",
+        "NewGoVet",
+        "NewGosec",
+        "NewHiddenCoupling",
+        "NewIneffassign",
+        "NewPatternEntropy",
+        "NewRegistry",
+        "NewStaticcheck"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 8,
+      "imported_by": [
+        "bughunt/internal/cli",
+        "bughunt/internal/scan"
+      ],
+      "imports": [
+        "bughunt/internal/finding",
+        "bughunt/internal/gitinfo",
+        "bughunt/internal/symbol"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package detector adapts external analysis tools to one normalized interface."
+    },
+    "bughunt/internal/finding": {
+      "entry_point_count": 7,
+      "entry_points": [
+        "Fingerprint",
+        "Hit",
+        "Normalize",
+        "Severity",
+        "SeverityHigh",
+        "SeverityLow",
+        "SeverityMedium"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 54,
+      "imported_by": [
+        "bughunt/internal/detector",
+        "bughunt/internal/scan"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package finding defines the normalized output of every detector and the"
+    },
+    "bughunt/internal/gitinfo": {
+      "entry_point_count": 4,
+      "entry_points": [
+        "ChangedLines",
+        "HeadSHA",
+        "ParseUnifiedDiff",
+        "RepoRoot"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 37,
+      "imported_by": [
+        "bughunt/internal/cli",
+        "bughunt/internal/detector",
+        "bughunt/internal/scan"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package gitinfo reads the repository facts scan needs: the current commit and"
+    },
+    "bughunt/internal/scan": {
+      "entry_point_count": 4,
+      "entry_points": [
+        "Options",
+        "Recorded",
+        "Result",
+        "Run"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 23,
+      "imported_by": [
+        "bughunt/internal/cli"
+      ],
+      "imports": [
+        "bughunt/internal/config",
+        "bughunt/internal/detector",
+        "bughunt/internal/finding",
+        "bughunt/internal/gitinfo",
+        "bughunt/internal/store"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package scan runs the deterministic detectors and records what they find."
+    },
+    "bughunt/internal/store": {
+      "entry_point_count": 11,
+      "entry_points": [
+        "Finding",
+        "Open",
+        "Run",
+        "Status",
+        "StatusConfirmed",
+        "StatusEscalated",
+        "StatusFixed",
+        "StatusNew",
+        "StatusSuppressed",
+        "StatusUnreproducible",
+        "Store"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 42,
+      "imported_by": [
+        "bughunt/internal/cli",
+        "bughunt/internal/scan"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package store persists runs, findings, and rules. The API is written against"
+    },
+    "bughunt/internal/symbol": {
+      "entry_point_count": 3,
+      "entry_points": [
+        "NewGo",
+        "Resolve",
+        "Resolver"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 38,
+      "imported_by": [
+        "bughunt/internal/cli",
+        "bughunt/internal/detector"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package symbol maps a source location to the name of its enclosing"
+    },
+    "bughunt/internal/version": {
+      "entry_point_count": 2,
+      "entry_points": [
+        "Commit",
+        "Version"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 56,
+      "imported_by": [
+        "bughunt/cmd/bughunt"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package version carries build metadata injected at link time."
+    },
+    "depmaint/cmd/depmaint": {
+      "entry_point_count": 0,
+      "entry_points": [],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 44,
+      "imported_by": [],
+      "imports": [
+        "depmaint/internal/cli",
+        "depmaint/internal/goexpander",
+        "depmaint/internal/pyexpander",
+        "depmaint/internal/version"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Command depmaint expands, caches, and drives dependency-maintenance campaigns."
+    },
+    "depmaint/internal/cli": {
+      "entry_point_count": 4,
+      "entry_points": [
+        "Graph",
+        "Init",
+        "Layout",
+        "Paths"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 30,
+      "imported_by": [
+        "depmaint/cmd/depmaint"
+      ],
+      "imports": [
+        "depmaint/internal/expander",
+        "depmaint/internal/snapshot",
+        "depmaint/internal/store"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": ""
+    },
+    "depmaint/internal/config": {
+      "entry_point_count": 3,
+      "entry_points": [
+        "Config",
+        "Default",
+        "Load"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 48,
+      "imported_by": [],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package config loads .depmaint/config.toml \u2014 committed team posture"
+    },
+    "depmaint/internal/expander": {
+      "entry_point_count": 5,
+      "entry_points": [
+        "All",
+        "Edge",
+        "Expander",
+        "Node",
+        "Register"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 57,
+      "imported_by": [
+        "depmaint/internal/cli",
+        "depmaint/internal/goexpander",
+        "depmaint/internal/project",
+        "depmaint/internal/pyexpander",
+        "depmaint/internal/snapshot",
+        "depmaint/internal/store"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package expander defines the contract ecosystem expanders implement"
+    },
+    "depmaint/internal/goexpander": {
+      "entry_point_count": 2,
+      "entry_points": [
+        "Expander",
+        "MainModulePath"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 26,
+      "imported_by": [
+        "depmaint/cmd/depmaint",
+        "depmaint/internal/project"
+      ],
+      "imports": [
+        "depmaint/internal/expander"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package goexpander implements the depmaint Go expander: it reads resolved"
+    },
+    "depmaint/internal/project": {
+      "entry_point_count": 3,
+      "entry_points": [
+        "Derive",
+        "Project",
+        "RootGraph"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 40,
+      "imported_by": [],
+      "imports": [
+        "depmaint/internal/expander",
+        "depmaint/internal/goexpander",
+        "depmaint/internal/pyexpander"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package project derives projects from per-root dependency graphs: roots"
+    },
+    "depmaint/internal/pyexpander": {
+      "entry_point_count": 2,
+      "entry_points": [
+        "Expander",
+        "MainModulePath"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 31,
+      "imported_by": [
+        "depmaint/cmd/depmaint",
+        "depmaint/internal/project"
+      ],
+      "imports": [
+        "depmaint/internal/expander"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package pyexpander implements the depmaint Python expander: it reads"
+    },
+    "depmaint/internal/snapshot": {
+      "entry_point_count": 4,
+      "entry_points": [
+        "Build",
+        "Diff",
+        "Drift",
+        "Snapshot"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 45,
+      "imported_by": [
+        "depmaint/internal/cli",
+        "depmaint/internal/store"
+      ],
+      "imports": [
+        "depmaint/internal/expander"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package snapshot builds a content-addressed graph snapshot from whatever"
+    },
+    "depmaint/internal/store": {
+      "entry_point_count": 2,
+      "entry_points": [
+        "Open",
+        "Store"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 36,
+      "imported_by": [
+        "depmaint/internal/cli"
+      ],
+      "imports": [
+        "depmaint/internal/expander",
+        "depmaint/internal/snapshot"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package store persists graph snapshots, nodes, edges, and enrichment in"
+    },
+    "depmaint/internal/version": {
+      "entry_point_count": 2,
+      "entry_points": [
+        "Commit",
+        "Version"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 58,
+      "imported_by": [
+        "depmaint/cmd/depmaint"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package version carries build metadata injected at link time."
+    },
+    "line/andon": {
+      "entry_point_count": 6,
+      "entry_points": [
+        "API",
+        "BeadCards",
+        "Cards",
+        "Flake",
+        "Resolver",
+        "Watcher"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 19,
+      "imported_by": [
+        "line/cmd/sweatshop",
+        "line/harness"
+      ],
+      "imports": [
+        "line/attest",
+        "line/guard",
+        "line/station",
+        "line/witness"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package andon is the host-side watcher that keeps the line honest: it"
+    },
+    "line/attest": {
+      "entry_point_count": 25,
+      "entry_points": [
+        "CheckResult",
+        "ChecksPredicate",
+        "ChecksPredicateType",
+        "CommitDigestAlgorithm",
+        "CommitSubjectName",
+        "EncodePublicKey",
+        "Envelope",
+        "ErrNoTrustedSignature",
+        "GenerateKeyFile",
+        "KeyID",
+        "LoadPrivateKey",
+        "NewStatement"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 27,
+      "imported_by": [
+        "agentsh/internal/daemon",
+        "line/andon",
+        "line/cmd/sweatshop",
+        "line/constitution",
+        "line/guard",
+        "line/harness",
+        "line/linedir",
+        "line/station",
+        "line/witness"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package attest signs and verifies DSSE envelopes carrying in-toto"
+    },
+    "line/cistats": {
+      "entry_point_count": 7,
+      "entry_points": [
+        "Compute",
+        "DayDuration",
+        "Flake",
+        "MetricsWindow",
+        "ParseSince",
+        "RoleTimeToGreen",
+        "Summary"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 35,
+      "imported_by": [
+        "line/station"
+      ],
+      "imports": [
+        "line/report"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package cistats answers questions about CI health from the line's stored"
+    },
+    "line/cmd/sweatshop": {
+      "entry_point_count": 0,
+      "entry_points": [],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 2,
+      "imported_by": [],
+      "imports": [
+        "line/andon",
+        "line/attest",
+        "line/constitution",
+        "line/deploy",
+        "line/gemba",
+        "line/gitx",
+        "line/gitx/gittest",
+        "line/guard",
+        "line/heijunka",
+        "line/internal/testwait",
+        "line/kaizen",
+        "line/linedir",
+        "line/maker",
+        "line/station",
+        "line/viceroy",
+        "line/witness"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Command sweatshop administers an assembly line (witness keys, the merge"
+    },
+    "line/constitution": {
+      "entry_point_count": 29,
+      "entry_points": [
+        "BlobGuard",
+        "Cards",
+        "Channel",
+        "Check",
+        "Checks",
+        "Constitution",
+        "DefaultBlobMaxBytes",
+        "DefaultCPUs",
+        "DefaultCheckTimeout",
+        "DefaultCommentCap",
+        "DefaultMemory",
+        "DefaultNeedsTimeout"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 13,
+      "imported_by": [
+        "agentsh/internal/config",
+        "agentsh/internal/daemon",
+        "line/cmd/sweatshop",
+        "line/guard",
+        "line/guidance",
+        "line/harness",
+        "line/heijunka",
+        "line/linedir",
+        "line/station",
+        "line/witness"
+      ],
+      "imports": [
+        "line/attest"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package constitution loads the line's rules. v0 holds only what the witness"
+    },
+    "line/deploy": {
+      "entry_point_count": 16,
+      "entry_points": [
+        "API",
+        "Actuator",
+        "Backend",
+        "Client",
+        "DesiredResponse",
+        "Exec",
+        "HTTPHealth",
+        "HealthWindow",
+        "Kubernetes",
+        "Launchd",
+        "OSExec",
+        "Release"
+      ],
+      "hidden_coupling_ratio": 0.333,
+      "hotspot_rank": 20,
+      "imported_by": [
+        "line/cmd/sweatshop",
+        "line/station"
+      ],
+      "imports": [
+        "line/gitx"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package deploy rolls a release onto the host. The line decides what to"
+    },
+    "line/gemba": {
+      "entry_point_count": 4,
+      "entry_points": [
+        "Configure",
+        "Label",
+        "Mandate",
+        "Prompt"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 59,
+      "imported_by": [
+        "line/cmd/sweatshop"
+      ],
+      "imports": [
+        "line/gitx",
+        "line/gitx/gittest",
+        "line/guidance",
+        "line/linedir",
+        "line/maker"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package gemba configures the maker runner as a Gemba station: it claims"
+    },
+    "line/gitx": {
+      "entry_point_count": 6,
+      "entry_points": [
+        "BlobHeadBytes",
+        "ChangedBlob",
+        "ErrNothingToBundle",
+        "ErrRefMoved",
+        "LogEntry",
+        "Repo"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 9,
+      "imported_by": [
+        "agentsh/internal/daemon",
+        "line/cmd/sweatshop",
+        "line/deploy",
+        "line/gemba",
+        "line/guard",
+        "line/harness",
+        "line/kaizen",
+        "line/linedir",
+        "line/maker",
+        "line/station",
+        "line/witness"
+      ],
+      "imports": [
+        "line/gitx/gittest"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package gitx reads and writes git repositories for line components, in"
+    },
+    "line/gitx/gittest": {
+      "entry_point_count": 1,
+      "entry_points": [
+        "Git"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 49,
+      "imported_by": [
+        "agentsh/internal/daemon",
+        "line/cmd/sweatshop",
+        "line/gemba",
+        "line/gitx",
+        "line/guard",
+        "line/harness",
+        "line/kaizen",
+        "line/linedir",
+        "line/maker",
+        "line/station",
+        "line/witness"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package gittest builds repository fixtures for tests by running the git"
+    },
+    "line/guard": {
+      "entry_point_count": 30,
+      "entry_points": [
+        "AndonEvent",
+        "CandidatePrefix",
+        "Cleared",
+        "FixTrailer",
+        "Guard",
+        "InstallHooks",
+        "Merged",
+        "Reason",
+        "ReasonAlreadyStopped",
+        "ReasonBadCandidate",
+        "ReasonBaseMoved",
+        "ReasonBlobForbidden"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 14,
+      "imported_by": [
+        "agentsh/internal/daemon",
+        "line/andon",
+        "line/cmd/sweatshop",
+        "line/harness",
+        "line/kaizen",
+        "line/linedir",
+        "line/maker",
+        "line/station",
+        "line/witness"
+      ],
+      "imports": [
+        "line/attest",
+        "line/constitution",
+        "line/gitx",
+        "line/gitx/gittest"
+      ],
+      "lcom4": 2,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package guard is the merge guard: the only writer of the guarded branch."
+    },
+    "line/guidance": {
+      "entry_point_count": 4,
+      "entry_points": [
+        "For",
+        "Gemba",
+        "Kaizen",
+        "Writer"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 51,
+      "imported_by": [
+        "line/gemba",
+        "line/kaizen",
+        "line/maker"
+      ],
+      "imports": [
+        "line/constitution"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package guidance holds the code-quality guides the line's code-writing"
+    },
+    "line/harness": {
+      "entry_point_count": 0,
+      "entry_points": [],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 60,
+      "imported_by": [],
+      "imports": [
+        "line/andon",
+        "line/attest",
+        "line/constitution",
+        "line/gitx",
+        "line/gitx/gittest",
+        "line/guard",
+        "line/linedir",
+        "line/station",
+        "line/witness"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": ""
+    },
+    "line/heijunka": {
+      "entry_point_count": 31,
+      "entry_points": [
+        "Actuator",
+        "AnalyzeFlow",
+        "BeadsNeeds",
+        "BeadsObserver",
+        "Decide",
+        "DecideStaleNeed",
+        "DefaultPolicy",
+        "FlowCard",
+        "FlowReport",
+        "KaizenRequester",
+        "Levels",
+        "LevelsFile"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 15,
+      "imported_by": [
+        "line/cmd/sweatshop"
+      ],
+      "imports": [
+        "line/constitution",
+        "line/maker",
+        "line/station"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package heijunka is the host-side worker that levels the line's flow. It is"
+    },
+    "line/internal/testwait": {
+      "entry_point_count": 1,
+      "entry_points": [
+        "Until"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 52,
+      "imported_by": [
+        "line/cmd/sweatshop",
+        "line/maker",
+        "line/station",
+        "line/witness"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package testwait is the one place line tests wait on wall-clock time. It"
+    },
+    "line/kaizen": {
+      "entry_point_count": 7,
+      "entry_points": [
+        "CheckCommitReport",
+        "CheckReport",
+        "DefaultInterval",
+        "DefaultPoll",
+        "Prompt",
+        "RequestAPI",
+        "Runner"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 21,
+      "imported_by": [
+        "line/cmd/sweatshop"
+      ],
+      "imports": [
+        "line/gitx",
+        "line/gitx/gittest",
+        "line/guard",
+        "line/guidance",
+        "line/linedir",
+        "line/maker",
+        "line/station"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package kaizen runs a Kaizen station: a host-side loop that, on a schedule"
+    },
+    "line/kaizen/signals": {
+      "entry_point_count": 102,
+      "entry_points": [
+        "ADAPTERS",
+        "ANONYMOUS_FUNCTION",
+        "Adapter",
+        "AdapterResult",
+        "CI_RUNS_CONSIDERED",
+        "CLONE_WINDOW_TOKENS",
+        "COHESION_GRAPH_MODULES",
+        "COMPONENT_COLOURS",
+        "Commit",
+        "DEFAULT_CAP_SECONDS",
+        "FunctionComplexity",
+        "GO"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 1,
+      "imported_by": [],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "The per-language adapter interface and the types signals travel in."
+    },
+    "line/linedir": {
+      "entry_point_count": 11,
+      "entry_points": [
+        "AddStation",
+        "CommitConstitution",
+        "ConstitutionBlob",
+        "ConstitutionRef",
+        "Deploy",
+        "Init",
+        "InitOptions",
+        "Line",
+        "Load",
+        "Station",
+        "StationSpec"
+      ],
+      "hidden_coupling_ratio": 0.333,
+      "hotspot_rank": 18,
+      "imported_by": [
+        "line/cmd/sweatshop",
+        "line/gemba",
+        "line/harness",
+        "line/kaizen",
+        "line/maker",
+        "line/station"
+      ],
+      "imports": [
+        "line/attest",
+        "line/constitution",
+        "line/gitx",
+        "line/gitx/gittest",
+        "line/guard"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package linedir creates and loads a line directory: the on-disk home of one"
+    },
+    "line/maker": {
+      "entry_point_count": 25,
+      "entry_points": [
+        "APICards",
+        "AndonEvent",
+        "Bead",
+        "BeadTrailer",
+        "Beads",
+        "BeadsCLI",
+        "BeatEveryPoll",
+        "CheckTrailers",
+        "ContainerSpec",
+        "DefaultMaxAttempts",
+        "DefaultStopPoll",
+        "DefaultTimeout"
+      ],
+      "hidden_coupling_ratio": 0.2,
+      "hotspot_rank": 7,
+      "imported_by": [
+        "line/cmd/sweatshop",
+        "line/gemba",
+        "line/heijunka",
+        "line/kaizen"
+      ],
+      "imports": [
+        "line/gitx",
+        "line/gitx/gittest",
+        "line/guard",
+        "line/guidance",
+        "line/internal/testwait",
+        "line/linedir",
+        "line/station"
+      ],
+      "lcom4": 2,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package maker runs a Maker station: a host-side loop that takes a ready"
+    },
+    "line/report": {
+      "entry_point_count": 21,
+      "entry_points": [
+        "Check",
+        "FSStore",
+        "HTML",
+        "JSONLRunStore",
+        "JSONLTestStore",
+        "JUnitXML",
+        "NewObjectStore",
+        "ObjectStore",
+        "ObjectStoreFromEnv",
+        "ParseGoTestJSON",
+        "ReadJSONL",
+        "ReadTestsJSONL"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 17,
+      "imported_by": [
+        "line/cistats",
+        "line/station",
+        "line/witness"
+      ],
+      "imports": [],
+      "lcom4": 2,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package report turns a witness check run into a JUnit XML report and a"
+    },
+    "line/runner": {
+      "entry_point_count": 10,
+      "entry_points": [
+        "CLI",
+        "Fake",
+        "HostGateway",
+        "Mount",
+        "New",
+        "Runner",
+        "Spec",
+        "State",
+        "VolumeLineRemote",
+        "Volumes"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 24,
+      "imported_by": [],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package runner is the one interface the line uses to run station and"
+    },
+    "line/station": {
+      "entry_point_count": 67,
+      "entry_points": [
+        "BeadsCards",
+        "CLIEngine",
+        "Cards",
+        "Channel",
+        "Client",
+        "CommandChoice",
+        "ConstitutionEntry",
+        "ContainerName",
+        "ContainerSpec",
+        "DefaultCheckinTimeout",
+        "DeployRequest",
+        "DeployState"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 1,
+      "imported_by": [
+        "line/andon",
+        "line/cmd/sweatshop",
+        "line/harness",
+        "line/heijunka",
+        "line/kaizen",
+        "line/maker",
+        "line/viceroy"
+      ],
+      "imports": [
+        "line/attest",
+        "line/cistats",
+        "line/constitution",
+        "line/deploy",
+        "line/gitx",
+        "line/gitx/gittest",
+        "line/guard",
+        "line/internal/testwait",
+        "line/linedir",
+        "line/report",
+        "line/witness"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package station is the station API: the only way containerized agents reach"
+    },
+    "line/testhygiene": {
+      "entry_point_count": 0,
+      "entry_points": [],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 61,
+      "imported_by": [],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": ""
+    },
+    "line/viceroy": {
+      "entry_point_count": 20,
+      "entry_points": [
+        "Agent",
+        "Charter",
+        "ClaudeCLI",
+        "Context",
+        "DefaultHeartbeat",
+        "DefaultPoll",
+        "DefaultRunLimit",
+        "Line",
+        "Loop",
+        "Marker",
+        "Message",
+        "Prompt"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 12,
+      "imported_by": [
+        "line/cmd/sweatshop"
+      ],
+      "imports": [
+        "line/station"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package viceroy is the wake loop of the viceroy container: wait for the"
+    },
+    "line/witness": {
+      "entry_point_count": 11,
+      "entry_points": [
+        "AttestResult",
+        "ContainerRunner",
+        "ExecRunner",
+        "LogRunner",
+        "MergeResult",
+        "Merger",
+        "NewRunner",
+        "ReadEvidence",
+        "RunResult",
+        "Runner",
+        "Witness"
+      ],
+      "hidden_coupling_ratio": 0.125,
+      "hotspot_rank": 10,
+      "imported_by": [
+        "agentsh/internal/daemon",
+        "line/andon",
+        "line/cmd/sweatshop",
+        "line/harness",
+        "line/station"
+      ],
+      "imports": [
+        "line/attest",
+        "line/constitution",
+        "line/gitx",
+        "line/gitx/gittest",
+        "line/guard",
+        "line/internal/testwait",
+        "line/report"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": "Package witness attests commits: it runs the constitution's required checks"
+    },
+    "packages/agentsh/pi/extensions": {
+      "entry_point_count": 0,
+      "entry_points": [],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 1,
+      "imported_by": [],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "purpose": ""
+    }
+  },
+  "schema": 1
+}

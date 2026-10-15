@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
@@ -84,6 +85,36 @@ func TestChangedPaths(t *testing.T) {
 	}
 	if none, _ := r.ChangedPaths(ctx, last, last); len(none) != 0 {
 		t.Fatalf("ChangedPaths(x, x) = %v", none)
+	}
+}
+
+func TestChangedBlobsListsAddedAndModifiedFilesOnly(t *testing.T) {
+	r, ctx := newRepo(t)
+	first := commitFile(t, r, ctx, "gone.txt", "bye")
+	commitFile(t, r, ctx, "a.bin", "\x7fELF"+strings.Repeat("x", 2000))
+	commitFile(t, r, ctx, "dir/b.txt", "hello")
+	if _, err := gittest.Git(ctx, r.Dir, "rm", "--quiet", "gone.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gittest.Git(ctx, r.Dir, "commit", "--quiet", "-m", "remove"); err != nil {
+		t.Fatal(err)
+	}
+	last, err := r.Commit(ctx, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	blobs, err := r.ChangedBlobs(ctx, first, last)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blobs) != 2 || blobs[0].Path != "a.bin" || blobs[1].Path != "dir/b.txt" {
+		t.Fatalf("ChangedBlobs = %+v", blobs)
+	}
+	if blobs[0].Size != 2004 || len(blobs[0].Head) != BlobHeadBytes || !strings.HasPrefix(string(blobs[0].Head), "\x7fELF") {
+		t.Fatalf("a.bin = size %d, head %d bytes", blobs[0].Size, len(blobs[0].Head))
+	}
+	if blobs[1].Size != 5 || string(blobs[1].Head) != "hello" {
+		t.Fatalf("dir/b.txt = %+v", blobs[1])
 	}
 }
 

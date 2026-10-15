@@ -14,7 +14,12 @@ code measurably better on a stated signal and provably unchanged in behavior.
 
 1. **Behavior preservation is non-negotiable.** Refactor only code covered by
    tests that would catch a behavior change. No coverage → write
-   characterization tests first, as their own commit, then refactor.
+   characterization tests first, as their own commit, then refactor. "Covered"
+   is measured, not guessed: `kaizen_signals.py mutation` gives the mutation
+   score of the target's package or files (Section 3). A low score means the
+   tests would not notice most behavior changes, so write characterization
+   tests first. An unavailable score (tool missing, wall-time cap hit) is not
+   a low score: check coverage by hand.
 2. **One refactoring per change.** A rename, an extraction, an inlining, a
    dedup. Never mix refactoring with behavior changes or bug fixes. If you find
    a bug, file an issue; do not fix it in the refactor.
@@ -101,7 +106,7 @@ testing where available.
 | Cognitive Complexity | ↓ | linter |
 | Dead symbols | ↓ | symbol index + reference search |
 | Typed boundary ratio | ↑ | type checker / ast-grep |
-| Mutation score | ↑ | mutation testing |
+| Mutation score | ↑ | `kaizen_signals.py mutation` on the target scope: gremlins (Go), mutmut (Python), Stryker (TypeScript); killed, survived, timed-out; unavailable when the wall-time cap is hit |
 | Stale / unverifiable comments | ↓ | review, test-execution checks |
 | Test runtime | ↓ or = | test runner |
 
@@ -134,6 +139,25 @@ plus the import graph:
   (`func Z() {}`). x and y are linked, z references nothing and nothing
   references it, so `lcom4` = 2: z does not belong with the rest; move it or
   find what should use it. A package of one file is 1.
+
+- **Module map** (`docs/modules.json`, committed): per package, a purpose
+  line (first line of its doc comment or docstring), public entry points
+  (what the language exports, first 12 plus the total), packages it imports
+  and is imported by, `lcom4`, hotspot rank and the commit it was last
+  measured at. `just ci` runs `modules-check` (through the kaizen Go test), which fails when the
+  purpose, entry points, imports or `lcom4` of any package, or the list of
+  packages, differ from the tree: change the code, then refresh the map with
+  `kaizen_signals.py modules --signals signals.json --map docs/modules.json`.
+  Hotspot rank and hidden-coupling ratio follow the git history, which every
+  commit moves, so `modules` rewrites a module's entry only when a tree field
+  changed, its rank moved by 5 or more, or its hidden-coupling ratio by 0.2 or
+  more; other entries stay byte for byte and master is not churned.
+- **Graph views** in the S3 report (`report.html`): the module dependency
+  graph (solid edges are static imports weighted by import count, dashed red
+  edges are co-change with no import, weighted by shared commits, so hidden
+  coupling shows without an import edge) and per-module cohesion graphs
+  (nodes are top-level symbols, edges are references between them, one colour
+  per connected component).
 
 LOC is **not** a target. Fewer lines is good only when it comes from deletion
 or deduplicating knowledge, not from clever compression.

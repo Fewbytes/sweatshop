@@ -7,6 +7,9 @@
   measure --root DIR --rev REV --out signals.json [--runs runs.json]
   report  --signals signals.json --out report.html [--previous p.json] [--after a.json]
           [--target PKG --category P2 --signal clones --why TEXT]
+  mutation --root DIR --language go|python|typescript --out mutation.json [--cap-seconds N] SCOPE...
+  modules --signals signals.json --map docs/modules.json
+  modules-check --root DIR --map docs/modules.json
   delta   --before b.json --after a.json --package PKG --signal NAME
 
 Run with: uv run --no-project --with-requirements line/kaizen/signals/requirements.txt \
@@ -19,6 +22,8 @@ import json
 import sys
 
 import measure
+import modules
+import mutation
 import render
 
 
@@ -34,6 +39,32 @@ def cmd_measure(args: argparse.Namespace) -> int:
     with open(args.out, "w", encoding="utf-8") as f:
         f.write(measure.dumps(signals))
     return 0
+
+
+def cmd_mutation(args: argparse.Namespace) -> int:
+    signals = mutation.mutation_signals(args.root, args.language, tuple(args.scope), args.cap_seconds)
+    with open(args.out, "w", encoding="utf-8") as f:
+        f.write(measure.dumps(signals))
+    return 0
+
+
+def cmd_modules(args: argparse.Namespace) -> int:
+    try:
+        committed = load(args.map)
+    except FileNotFoundError:
+        committed = None
+    with open(args.map, "w", encoding="utf-8") as f:
+        f.write(measure.dumps(modules.update_map(load(args.signals), committed)))
+    return 0
+
+
+def cmd_modules_check(args: argparse.Namespace) -> int:
+    problems = modules.check_map(args.root, load(args.map))
+    for problem in problems:
+        print(problem, file=sys.stderr)
+    if problems:
+        print(f"{args.map} disagrees with the tree: regenerate it with the `modules` subcommand (kaizen.md, section 3)", file=sys.stderr)
+    return 1 if problems else 0
 
 
 def cmd_report(args: argparse.Namespace) -> int:
@@ -78,6 +109,24 @@ def main(argv: list[str]) -> int:
     m.add_argument("--out", required=True)
     m.add_argument("--runs", help="GET /v1/runs saved as JSON, for CI runtime")
     m.set_defaults(func=cmd_measure)
+
+    mu = sub.add_parser("mutation", help="mutation score of the files or package a change will touch")
+    mu.add_argument("--root", required=True)
+    mu.add_argument("--language", required=True, choices=sorted(mutation.TOOLS))
+    mu.add_argument("--out", required=True)
+    mu.add_argument("--cap-seconds", type=float, default=mutation.DEFAULT_CAP_SECONDS)
+    mu.add_argument("scope", nargs="+", help="Go package directory, or Python/TypeScript files, relative to root")
+    mu.set_defaults(func=cmd_mutation)
+
+    mo = sub.add_parser("modules", help="write or refresh the committed module map")
+    mo.add_argument("--signals", required=True)
+    mo.add_argument("--map", required=True, help="the map to create, or to refresh keeping entries that are not stale")
+    mo.set_defaults(func=cmd_modules)
+
+    mc = sub.add_parser("modules-check", help="exit 1 when the committed module map disagrees with the tree")
+    mc.add_argument("--root", required=True)
+    mc.add_argument("--map", required=True)
+    mc.set_defaults(func=cmd_modules_check)
 
     r = sub.add_parser("report")
     r.add_argument("--signals", required=True)

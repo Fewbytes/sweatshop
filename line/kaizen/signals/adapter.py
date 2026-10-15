@@ -41,6 +41,7 @@ class AdapterResult:
     files: dict[str, Signals]  # repo-relative path -> its signals
     cochange_pairs: list[Signals]  # file pairs that change together, most frequent first
     hotspot_functions: list[Signals]  # riskiest functions, highest hotspot first
+    module_edges: list[Signals]  # package pairs linked by an import or by co-change
 
 
 class Adapter(Protocol):

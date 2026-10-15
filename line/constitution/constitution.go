@@ -22,7 +22,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-var Roles = []string{"maker", "andon", "kaizen", "gemba", "viceroy"}
+var Roles = []string{"maker", "andon", "kaizen", "gemba", "viceroy", "heijunka"}
 
 type Constitution struct {
 	Trust  Trust  `toml:"trust"`
@@ -322,6 +322,34 @@ func (r Runner) ID() string {
 
 type Guards struct {
 	Paths []PathGuard `toml:"paths"`
+	Blobs BlobGuard   `toml:"blobs"`
+}
+
+// DefaultBlobMaxBytes is the largest blob a commit may add or change when the
+// constitution sets no limit.
+const DefaultBlobMaxBytes int64 = 1 << 20
+
+// BlobGuard keeps built artifacts out of history: the merge guard rejects a
+// commit that adds or changes a blob over the size limit, or an executable
+// binary (ELF, Mach-O, PE), unless its path is allowed.
+type BlobGuard struct {
+	// MaxBytes is the size limit; 0 means DefaultBlobMaxBytes.
+	MaxBytes int64 `toml:"max_bytes,omitempty"`
+	// Allow lists paths exempt from both limits, in MatchPath syntax.
+	Allow []string `toml:"allow,omitempty"`
+}
+
+// MaxBytesOrDefault is the blob size limit with the default applied.
+func (b BlobGuard) MaxBytesOrDefault() int64 {
+	if b.MaxBytes > 0 {
+		return b.MaxBytes
+	}
+	return DefaultBlobMaxBytes
+}
+
+// Allows reports whether p is exempt from the blob rules.
+func (b BlobGuard) Allows(p string) bool {
+	return slices.ContainsFunc(b.Allow, func(pattern string) bool { return MatchPath(pattern, p) })
 }
 
 type PathGuard struct {
@@ -434,6 +462,16 @@ func (c Constitution) validate() error {
 		for _, role := range g.Roles {
 			if !slices.Contains(Roles, role) {
 				return fmt.Errorf("path guard %q: unknown role %q", g.Pattern, role)
+			}
+		}
+	}
+	if c.Guards.Blobs.MaxBytes < 0 {
+		return errors.New("guards.blobs.max_bytes must not be negative")
+	}
+	for _, pattern := range c.Guards.Blobs.Allow {
+		if !strings.HasSuffix(pattern, "/**") {
+			if _, err := path.Match(pattern, ""); err != nil {
+				return fmt.Errorf("guards.blobs.allow pattern %q: %w", pattern, err)
 			}
 		}
 	}
