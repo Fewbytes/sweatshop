@@ -140,6 +140,25 @@ plus the import graph:
   references it, so `lcom4` = 2: z does not belong with the rest; move it or
   find what should use it. A package of one file is 1.
 
+- **Module map** (`docs/modules.json`, committed): per package, a purpose
+  line (first line of its doc comment or docstring), public entry points
+  (what the language exports, first 12 plus the total), packages it imports
+  and is imported by, `lcom4`, hotspot rank and the commit it was last
+  measured at. `just ci` runs `modules-check` (through the kaizen Go test), which fails when the
+  purpose, entry points, imports or `lcom4` of any package, or the list of
+  packages, differ from the tree: change the code, then refresh the map with
+  `kaizen_signals.py modules --signals signals.json --map docs/modules.json`.
+  Hotspot rank and hidden-coupling ratio follow the git history, which every
+  commit moves, so `modules` rewrites a module's entry only when a tree field
+  changed, its rank moved by 5 or more, or its hidden-coupling ratio by 0.2 or
+  more; other entries stay byte for byte and master is not churned.
+- **Graph views** in the S3 report (`report.html`): the module dependency
+  graph (solid edges are static imports weighted by import count, dashed red
+  edges are co-change with no import, weighted by shared commits, so hidden
+  coupling shows without an import edge) and per-module cohesion graphs
+  (nodes are top-level symbols, edges are references between them, one colour
+  per connected component).
+
 LOC is **not** a target. Fewer lines is good only when it comes from deletion
 or deduplicating knowledge, not from clever compression.
 

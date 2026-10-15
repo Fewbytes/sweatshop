@@ -104,6 +104,17 @@ func TestSignalsScriptExistsAndItsTestsPass(t *testing.T) {
 	}
 }
 
+// docs/modules.json is the committed module map; it must agree with the tree
+// on every field that is a function of the files (kaizen.md section 3).
+func TestCommittedModuleMapAgreesWithTheTree(t *testing.T) {
+	root := filepath.Join("..", "..")
+	out, err := exec.Command("uv", "run", "--no-project", "--with-requirements", filepath.Join(root, signalsRequirements),
+		filepath.Join(root, signalsScript), "modules-check", "--root", root, "--map", filepath.Join(root, "docs", "modules.json")).CombinedOutput()
+	if err != nil {
+		t.Fatalf("module map disagrees with the tree: %v\n%s", err, out)
+	}
+}
+
 func seededRemote(t *testing.T) (bare, work gitx.Repo) {
 	t.Helper()
 	ctx := context.Background()

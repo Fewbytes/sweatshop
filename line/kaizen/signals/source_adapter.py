@@ -14,7 +14,7 @@ import os
 from collections import Counter, defaultdict
 
 from adapter import AdapterResult, History, Signals
-from file_signals import MIN_COCHANGES, cochanging_pairs, file_signals, lcom4
+from file_signals import MIN_COCHANGES, cochanging_pairs, file_signals, lcom4, symbol_edges
 from syntax import SKIP_DIRS, ImportResolver, LanguageSpec, SourceFile, module_dir, package_of, parse_source
 
 # Bump when a change to the thresholds below or to this module moves numbers
@@ -50,20 +50,21 @@ def module_dirs(spec: LanguageSpec, root: str) -> set[str]:
 
 def import_graph(
     files: dict[str, SourceFile], resolve: ImportResolver
-) -> dict[str, set[str]]:
-    """Package directory -> package directories of the same repo it imports."""
-    graph: dict[str, set[str]] = defaultdict(set)
+) -> dict[str, Counter[str]]:
+    """Package directory -> package directories of the same repo it imports,
+    each with the number of import statements that reach it."""
+    graph: dict[str, Counter[str]] = defaultdict(Counter)
     for path, f in files.items():
         pkg = package_of(path)
         graph[pkg]
         for imp in f.imports:
             target = resolve(path, imp)
             if target and target != pkg:
-                graph[pkg].add(target)
+                graph[pkg][target] += 1
     return graph
 
 
-def cyclic_packages(graph: dict[str, set[str]]) -> tuple[int, set[str]]:
+def cyclic_packages(graph: dict[str, Counter[str]]) -> tuple[int, set[str]]:
     """Tarjan's strongly connected components: (cycle count, packages in one)."""
     index: dict[str, int] = {}
     low: dict[str, int] = {}
@@ -99,6 +100,22 @@ def cyclic_packages(graph: dict[str, set[str]]) -> tuple[int, set[str]]:
         if v not in index:
             visit(v)
     return cycles, members
+
+
+def module_edges(
+    graph: dict[str, Counter[str]], cochange: Counter[tuple[str, str]], hidden: set[tuple[str, str]]
+) -> list[Signals]:
+    """One edge per package pair joined by an import (either way) or by at
+    least MIN_COCHANGES shared commits. `hidden` is co-change with no import."""
+    imports: Counter[tuple[str, str]] = Counter()
+    for importer, targets in graph.items():
+        for target, n in targets.items():
+            imports[tuple(sorted((importer, target)))] += n
+    together = {pair: n for pair, n in cochange.items() if n >= MIN_COCHANGES}
+    return [
+        {"a": a, "b": b, "imports": imports[a, b], "cochange": together.get((a, b), 0), "hidden": (a, b) in hidden}
+        for a, b in sorted(imports.keys() | together.keys())
+    ]
 
 
 def clone_fragments(files: dict[str, SourceFile]) -> Counter[str]:
@@ -205,7 +222,12 @@ class SourceAdapter:
             )
             complexity = sum(fc.complexity for fc in funcs)
             mine = {pair for pair in pairs if pkg in pair}
+            own = {p: f for p, f in source.items() if package_of(p) == pkg}
             out_packages[pkg] = {
+                "purpose": next((own[p].purpose for p in sorted(own) if own[p].purpose), ""),
+                "entry_points": sorted({n for f in own.values() for n in f.entry_points}),
+                "imports": dict(sorted(graph[pkg].items())),
+                "symbol_edges": symbol_edges(own),
                 "files": sum(1 for p in source if package_of(p) == pkg),
                 "churn": churn[pkg],
                 "complexity": complexity,
@@ -213,7 +235,7 @@ class SourceAdapter:
                 "cochange_pairs": len(mine),
                 "hidden_pairs": len(mine & hidden),
                 "hidden_coupling_ratio": round(len(mine & hidden) / len(mine), 3) if mine else 0.0,
-                "lcom4": lcom4({p: f for p, f in source.items() if package_of(p) == pkg}),
+                "lcom4": lcom4(own),
                 "clones": fragments[pkg],
                 "import_cycles": int(pkg in cyclic),
                 "dead_symbols": len(dead[pkg]),
@@ -252,4 +274,5 @@ class SourceAdapter:
             files=file_signals_by_path,
             cochange_pairs=top_pairs,
             hotspot_functions=top_functions,
+            module_edges=module_edges(graph, cochange, hidden),
         )

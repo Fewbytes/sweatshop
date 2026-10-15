@@ -17,6 +17,8 @@ import render
 import source_adapter
 import syntax
 import file_signals
+import graphs
+import modules
 from adapter import Unavailable
 
 BRANCHY = """package a
@@ -258,6 +260,12 @@ class MeasureRepo(unittest.TestCase):
         self.assertEqual((a["churn"], a["complexity"], a["hotspot"], a["hotspot_rank"]), (2, 8, 16, 1))
         self.assertEqual(s["repo"]["hotspot"], 16)
 
+    def test_module_edges_weigh_imports_and_flag_cochange_without_one(self):
+        edges = {(e["a"], e["b"]): e for e in self.measure()["module_edges"]}
+        self.assertEqual(edges["a", "b"]["imports"], 1)
+        self.assertEqual((edges["a", "b"]["cochange"], edges["a", "b"]["hidden"]), (0, False))
+        self.assertEqual((edges["a", "c"]["imports"], edges["a", "c"]["cochange"], edges["a", "c"]["hidden"]), (0, 2, True))
+
     def test_dead_symbols_are_names_used_nowhere_else_in_the_module(self):
         a = self.measure()["packages"]["a"]
         self.assertEqual((a["dead_symbols"], a["dead_symbol_names"]), (1, ["unusedHelper"]))
@@ -362,9 +370,9 @@ class MeasureRepo(unittest.TestCase):
     def test_ci_runtime_is_unavailable_with_the_reason_when_no_runs_given(self):
         self.assertEqual(measure.ci_runtime(None)["ci_median_ms"], Unavailable("no CI runs file given"))
 
-    def test_signals_record_schema_3_and_every_tool_version(self):
+    def test_signals_record_schema_4_and_every_tool_version(self):
         s = self.measure()
-        self.assertEqual(s["schema"], 3)
+        self.assertEqual(s["schema"], 4)
         self.assertEqual(sorted(s["tools"]), [
             "git", "kaizen-go-tables", "kaizen-python-tables", "kaizen-source-adapter", "kaizen-typescript-tables",
             "python", "tree-sitter", "tree-sitter-go", "tree-sitter-python", "tree-sitter-typescript",
@@ -387,12 +395,138 @@ class MeasureRepo(unittest.TestCase):
             measure.measure(self.root, "HEAD", None, (Lazy(lang_go.GO),))
 
 
+class ModuleFacts(unittest.TestCase):
+    def test_purpose_is_the_first_doc_line_in_each_language(self):
+        self.assertEqual(parse(lang_go.GO, "// Package a does things.\n// More.\npackage a\n").purpose, "Package a does things.")
+        self.assertEqual(parse(lang_python.PYTHON, '# /// script\n"""Does things.\n\nMore."""\nX = 1\n').purpose, "Does things.")
+        self.assertEqual(parse(lang_typescript.TYPESCRIPT, "/**\n * Does things.\n */\nexport const x = 1;\n").purpose, "Does things.")
+        self.assertEqual(parse(lang_go.GO, "package a\n\n// F is not the package doc.\nfunc F() {}\n").purpose, "")
+
+    def test_entry_points_are_what_each_language_exports(self):
+        self.assertEqual(parse(lang_go.GO, "package a\nfunc Pub() {}\nfunc priv() {}\n").entry_points, ["Pub"])
+        self.assertEqual(parse(lang_python.PYTHON, "def pub(): pass\ndef _priv(): pass\n").entry_points, ["pub"])
+        self.assertEqual(
+            parse(lang_typescript.TYPESCRIPT, "export function pub() {}\nfunction priv() {}\n").entry_points, ["pub"])
+
+    def test_symbol_refs_hold_the_names_a_declaration_uses_but_not_its_own(self):
+        parsed = parse(lang_go.GO, "package a\nfunc A() { B(); A() }\nfunc B() {}\n")
+        self.assertEqual(parsed.symbol_refs, {"A": frozenset({"B"}), "B": frozenset()})
+
+    def test_symbol_edges_link_symbols_across_the_files_of_a_package(self):
+        files = {
+            "a/x.go": parse(lang_go.GO, "package a\nfunc X() { Y() }\n", "a/x.go"),
+            "a/y.go": parse(lang_go.GO, "package a\nfunc Y() { fmt.Println() }\n", "a/y.go"),
+        }
+        self.assertEqual(file_signals.symbol_edges(files), [["X", "Y"]])
+
+
+class ModuleMap(unittest.TestCase):
+    def packages(self, **overrides):
+        base = {"purpose": "p", "entry_points": ["E"], "imports": {"b": 2}, "lcom4": 1,
+                "hotspot_rank": 1, "hidden_coupling_ratio": 0.0}
+        return {"a": base | overrides, "b": base | {"imports": {}, "hotspot_rank": 2}}
+
+    def signals(self, commit, **overrides):
+        return {"commit": commit, "packages": self.packages(**overrides)}
+
+    def test_entries_list_who_imports_whom_in_both_directions(self):
+        entries = modules.module_entries(self.packages(), "c1")
+        self.assertEqual((entries["a"]["imports"], entries["a"]["imported_by"]), (["b"], []))
+        self.assertEqual((entries["b"]["imports"], entries["b"]["imported_by"]), ([], ["a"]))
+
+    def test_entry_points_are_capped_with_the_total_kept(self):
+        names = [f"E{i:02d}" for i in range(modules.MAX_ENTRY_POINTS + 3)]
+        entry = modules.module_entries(self.packages(entry_points=names), "c1")["a"]
+        self.assertEqual((len(entry["entry_points"]), entry["entry_point_count"]), (modules.MAX_ENTRY_POINTS, len(names)))
+
+    def test_unchanged_modules_keep_their_committed_entry_and_revision(self):
+        first = modules.update_map(self.signals("c1"), None)
+        later = modules.update_map(self.signals("c2", hotspot_rank=3, hidden_coupling_ratio=0.1), first)
+        self.assertEqual(later, first)
+
+    def test_a_tree_change_or_a_large_history_shift_refreshes_that_module_only(self):
+        first = modules.update_map(self.signals("c1"), None)
+        for change in ({"entry_points": ["E", "F"]}, {"hotspot_rank": 1 + modules.RANK_SHIFT},
+                       {"hidden_coupling_ratio": modules.HIDDEN_RATIO_SHIFT}):
+            later = modules.update_map(self.signals("c2", **change), first)["modules"]
+            self.assertEqual(later["a"]["measured_at_commit"], "c2", change)
+            self.assertEqual(later["b"], first["modules"]["b"], change)
+
+    def test_modules_gone_from_the_tree_leave_the_map(self):
+        first = modules.update_map(self.signals("c1"), None)
+        trimmed = {"commit": "c2", "packages": {"b": self.packages()["b"]}}
+        self.assertEqual(sorted(modules.update_map(trimmed, first)["modules"]), ["b"])
+
+    def test_check_names_each_way_the_map_disagrees_with_the_tree(self):
+        with tempfile.TemporaryDirectory() as root:
+            for rel, text in (("go.mod", "module example.com/m\n"), ("a/a.go", "// Package a is A.\npackage a\n\nfunc A() {}\n")):
+                os.makedirs(os.path.dirname(os.path.join(root, rel)), exist_ok=True)
+                with open(os.path.join(root, rel), "w") as f:
+                    f.write(text)
+            fresh = modules.tree_entries(root)
+            self.assertEqual(modules.check_map(root, {"schema": modules.SCHEMA, "modules": fresh}), [])
+            stale = {"schema": modules.SCHEMA, "modules": {"a": fresh["a"] | {"entry_points": []}, "gone": fresh["a"]}}
+            self.assertEqual(modules.check_map(root, stale), [
+                "a: entry_points is [], tree has ['A']",
+                "gone: in the map but not in the tree",
+            ])
+            self.assertEqual(modules.check_map(root, {"schema": 0, "modules": {}}), ["map schema is 0, want 1"])
+
+    def test_check_command_exits_nonzero_on_drift(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "a"))
+            with open(os.path.join(root, "a/a.py"), "w") as f:
+                f.write('"""A."""\n')
+            path = os.path.join(root, "modules.json")
+            with open(path, "w") as f:
+                json.dump({"schema": modules.SCHEMA, "modules": {}}, f)
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(kaizen_signals.main(["modules-check", "--root", root, "--map", path]), 1)
+
+
+class GraphViews(unittest.TestCase):
+    def test_hidden_coupling_is_a_dashed_edge_and_imports_are_solid(self):
+        edges = [
+            {"a": "x", "b": "y", "imports": 3, "cochange": 0, "hidden": False},
+            {"a": "x", "b": "z", "imports": 0, "cochange": 4, "hidden": True},
+            {"a": "y", "b": "z", "imports": 0, "cochange": 9, "hidden": False},
+        ]
+        svg = graphs.dependency_graph(edges, ["x", "y", "z"])
+        self.assertEqual(svg.count("<line"), 2)
+        self.assertEqual(svg.count("stroke-dasharray"), 1)
+        self.assertIn("x – z: 0 imports, 4 co-changes", svg)
+
+    def test_cohesion_graph_colours_each_connected_component_apart(self):
+        svg, drawn = graphs.cohesion_graph([["A", "B"], ["C", "D"]])
+        self.assertEqual(drawn, 4)
+        self.assertEqual(len({c for c in graphs.COMPONENT_COLOURS if f'fill="{c}"' in svg}), 2)
+
+    def test_cohesion_graph_keeps_the_most_connected_symbols_past_the_cap(self):
+        edges = [["hub", f"s{i:02d}"] for i in range(graphs.MAX_GRAPH_NODES + 5)]
+        svg, drawn = graphs.cohesion_graph(edges)
+        self.assertEqual(drawn, graphs.MAX_GRAPH_NODES)
+        self.assertIn(">hub<", svg)
+
+    def test_the_same_signals_draw_the_same_picture(self):
+        edges = [["A", "B"], ["B", "C"]]
+        self.assertEqual(graphs.cohesion_graph(edges), graphs.cohesion_graph(edges))
+
+    def test_report_carries_both_graph_views(self):
+        signals = Rendering().signals("a" * 40, 1)
+        signals["packages"]["p/q"] |= {"symbol_edges": [["A", "B"]], "lcom4": 2}
+        signals["module_edges"] = [{"a": "p/q", "b": "p/r", "imports": 0, "cochange": 3, "hidden": True}]
+        page = render.render_report(signals, None, None, None)
+        self.assertIn("Module dependency graph", page)
+        self.assertIn("p/q (LCOM4 2, 2 connected symbols drawn)", page)
+        self.assertIn("<td>3</td>", page)
+
+
 class Rendering(unittest.TestCase):
     def signals(self, commit, hotspot, tools=(('git', '2'),)):
-        pkg = {s: 0 for s in render.PACKAGE_SIGNALS} | {"hotspot": hotspot, "hotspot_rank": 1}
+        pkg = {s: 0 for s in render.PACKAGE_SIGNALS} | {"hotspot": hotspot, "hotspot_rank": 1, "symbol_edges": []}
         repo = {s: 0 for s in render.REPO_SIGNALS} | {"hotspot": hotspot, "ci_median_ms": None}
         return {"commit": commit, "measured_at": "t", "window_days": 90, "tools": dict(tools),
-                "packages": {"p/q": pkg}, "repo": repo}
+                "packages": {"p/q": pkg}, "repo": repo, "module_edges": []}
 
     def test_report_shows_trend_against_previous_run_and_after_values(self):
         page = render.render_report(

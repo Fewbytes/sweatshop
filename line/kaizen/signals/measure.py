@@ -17,7 +17,7 @@ from lang_python import PYTHON
 from lang_typescript import TYPESCRIPT
 from source_adapter import SourceAdapter
 
-SCHEMA = 3
+SCHEMA = 4
 WINDOW_DAYS = 90
 CI_RUNS_CONSIDERED = 50
 # Every language adapter, run in this order. A literal table so search finds
@@ -88,6 +88,7 @@ def measure(root: str, rev: str, runs: dict | None, adapters: tuple[Adapter, ...
     files: dict[str, Signals] = {}
     cochange_pairs: list[Signals] = []
     hotspot_functions: list[Signals] = []
+    module_edges: list[Signals] = []
     for adapter in adapters:
         result = adapter.measure(root, hist)
         check_declared(adapter, result)
@@ -99,6 +100,7 @@ def measure(root: str, rev: str, runs: dict | None, adapters: tuple[Adapter, ...
         files.update(result.files)
         cochange_pairs += result.cochange_pairs
         hotspot_functions += result.hotspot_functions
+        module_edges += result.module_edges
     repo.update(ci_runtime(runs))
     return {
         "schema": SCHEMA,
@@ -110,6 +112,7 @@ def measure(root: str, rev: str, runs: dict | None, adapters: tuple[Adapter, ...
         "packages": packages,
         "files": files,
         "cochange_pairs": sorted(cochange_pairs, key=lambda p: (-p["count"], p["a"], p["b"])),
+        "module_edges": sorted(module_edges, key=lambda e: (e["a"], e["b"])),
         "hotspot_functions": sorted(hotspot_functions, key=lambda f: (-f["hotspot"], f["file"], f["name"])),
     }
 
