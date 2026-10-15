@@ -18,3 +18,6 @@
 
 # build output (just build)
 bin/
+
+# python bytecode (line/kaizen/signals)
+__pycache__/

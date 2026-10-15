@@ -251,15 +251,39 @@ below) exists, the prompt switches to filing cards and this section goes.
   *and* master differs from the master that run started on, and never while
   the andon cord is pulled. An unmoved master has no new hotspot, so Kaizen
   sleeps (no make-work). State is in memory; a restart runs once at once.
-- **Signals measured.** The agent measures, with tools in its clone, the
-  guide's table: hotspot score (churn over 90 days x complexity), co-change
-  without a static dependency, duplicated knowledge, import cycles, dead
-  symbols, and `just ci` / test duration. The structure analyzer (items 1-4)
-  will replace this self-measurement with line-computed findings.
+- **Signals measured.** Every run computes the guide's section 3 signals
+  with the repo's own scripts (`line/kaizen/signals/`, python via `uv`, stdlib
+  only, run in the station container), per Go package and for the repo:
+  hotspot score (churn over 90 days of `git log` x cognitive complexity),
+  hidden-coupling ratio (co-changing package pairs with no import edge),
+  clone count, import cycles, dead symbols, pattern entropy (error creation
+  and logging idioms) and the CI median runtime from the run store
+  (`GET /v1/runs`). Complexity and the idiom counts are lexer-based
+  approximations, comparable between runs of these scripts and not with
+  other tools. The scripts are deterministic: the clock is the history
+  revision's commit date, and a re-measure of the edited tree reads the same
+  history (`--rev $BASE`), so before and after differ only by the edit. The
+  structure analyzer (items 1-4) will replace this with line-computed
+  findings.
+- **Run order.** (1) `sweatshop line kaizen context` saves the CI runs and
+  the previous run's signals; `kaizen_signals.py measure` writes
+  `signals.json`. (2) `kaizen_signals.py report` renders `report.html` (a
+  per-module table: signals, trend against the previous run, hotspot rank)
+  and `sweatshop line kaizen publish` stores both under
+  `reports/kaizen/<commit>/` in the object store, next to the CI reports
+  (`POST /v1/kaizen/signals`), and appends the baseline to
+  `<line>/kaizen-signals.jsonl`, which `GET /v1/kaizen/signals/previous`
+  serves back as the next run's trend. (3) The agent names its target from
+  the ranked hotspots in the analysis report (category P1..P5, signal it will
+  move). (4) After the change it re-measures, `kaizen_signals.py delta` prints
+  the Signals line and exits 1 unless the signal dropped, and the report is
+  published again with `signals-after.json` and the before/after table.
+  A change whose signal did not move is not submitted.
 - **Before/after evidence.** The change report from `line/guidance/kaizen.md`
   section 6 goes in the commit message body. `sweatshop line merge` refuses a
   Kaizen commit (`SWEATSHOP_KAIZEN` set) whose message lacks any report field
-  or a `Signals: <signal>: <before> → <after>` line (`kaizen.CheckReport`).
+  or a `Signals: <signal>: <before> → <after>` line whose two values differ
+  (`kaizen.CheckReport`).
   The guard itself is unchanged: it attests `just ci` for behavior, and the
   report stays in master's history for the delta-verification loop (item 8).
   The report is agent-authored, so it is a claim, not proof (P4) until the

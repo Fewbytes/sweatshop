@@ -55,9 +55,20 @@ var kaizenRunID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 func KaizenAnalysisKey(run string) string { return "kaizen/" + run + "/analysis.md" }
 
 // routeKaizen serves the request/answer pair between Heijunka and Kaizen, and
-// the analysis reports Kaizen publishes. The line only relays requests: a request is refused while the cord is pulled or
-// another is pending, and Kaizen alone decides whether to run.
+// the analysis reports and signals Kaizen publishes. The line only relays
+// requests: a request is refused while the cord is pulled or another is
+// pending, and Kaizen alone decides whether to run.
 func (s *Server) routeKaizen(w http.ResponseWriter, r *http.Request, st *Station) (string, error) {
+	if r.URL.Path == "/v1/kaizen/signals/previous" {
+		if st.Role != kaizenRole {
+			return "", fail(http.StatusForbidden, "role %q may not read kaizen signals", st.Role)
+		}
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			return "", fail(http.StatusMethodNotAllowed, "use GET for %s", r.URL.Path)
+		}
+		return s.previousKaizenSignals(w, r)
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
 		return "", fail(http.StatusMethodNotAllowed, "use POST for %s", r.URL.Path)
@@ -78,6 +89,11 @@ func (s *Server) routeKaizen(w http.ResponseWriter, r *http.Request, st *Station
 			return "", fail(http.StatusForbidden, "role %q may not publish a kaizen analysis", st.Role)
 		}
 		return s.publishKaizenAnalysis(w, r)
+	case "/v1/kaizen/signals":
+		if st.Role != kaizenRole {
+			return "", fail(http.StatusForbidden, "role %q may not publish kaizen signals", st.Role)
+		}
+		return s.publishKaizenSignals(w, r)
 	default:
 		return "", fail(http.StatusNotFound, "no route %s", r.URL.Path)
 	}

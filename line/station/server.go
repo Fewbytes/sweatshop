@@ -69,6 +69,10 @@ type Server struct {
 	DeployToken string                   // the actuator's bearer token; "": no actuator
 	Releases    ReleaseBuilder           // nil: releases are commits only
 
+	// KaizenSignalsPath is the history of Kaizen baselines (kaizen-signals.jsonl);
+	// "": the kaizen signals routes return 503.
+	KaizenSignalsPath string
+
 	// busy admits one check-running request (attest, merge, attest-line) at a
 	// time across all stations, so several tokens cannot run checks in
 	// parallel to exhaust the host.
@@ -157,6 +161,7 @@ func NewFromLine(l linedir.Line) (*Server, error) {
 	}
 	s.Reports = objects
 	s.RunsPath = filepath.Join(l.Dir, "runs.jsonl")
+	s.KaizenSignalsPath = filepath.Join(l.Dir, "kaizen-signals.jsonl")
 	s.Deploy = &DeployState{Path: filepath.Join(l.Dir, "deploy.json")}
 	s.Epics = &EpicApprovals{Path: filepath.Join(l.Dir, "approved-epics.json")}
 	if tok, err := os.ReadFile(filepath.Join(l.Dir, "deploy.token")); err == nil {

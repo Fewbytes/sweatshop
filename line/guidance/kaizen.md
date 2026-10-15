@@ -103,6 +103,11 @@ testing where available.
 | Stale / unverifiable comments | ↓ | review, test-execution checks |
 | Test runtime | ↓ or = | test runner |
 
+Kaizen stations compute hidden-coupling ratio, clone count, pattern entropy,
+import cycles, cognitive complexity, dead symbols and test runtime with
+`line/kaizen/signals/` (`kaizen_signals.py`; see `design-docs/kaizen-agent.md`,
+"Station v1"); the rest are measured by hand.
+
 LOC is **not** a target. Fewer lines is good only when it comes from deletion
 or deduplicating knowledge, not from clever compression.
 

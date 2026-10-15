@@ -2,6 +2,8 @@ package kaizen
 
 import (
 	"context"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -66,12 +68,35 @@ func TestCheckReport(t *testing.T) {
 		"missing field":    strings.Replace(goodReport, "Safety:    go test ./pkg/..., none added\n", "", 1),
 		"no before→after":  strings.Replace(goodReport, "clones: 4 → 1", "clones improved", 1),
 		"template left in": strings.Replace(goodReport, "clones: 4 → 1", "<signal>: <before> → <after>", 1),
+		"signal unchanged": strings.Replace(goodReport, "clones: 4 → 1", "clones: 4 → 4", 1),
 		"no report":        "refactor: things\n\nBead: kaizen-x\n",
 	}
 	for name, msg := range cases {
 		if CheckReport(msg) == nil {
 			t.Errorf("%s: CheckReport accepted %q", name, msg)
 		}
+	}
+}
+
+func TestCheckReportAcceptsThePackageQualifiedLineTheScriptsPrint(t *testing.T) {
+	msg := strings.Replace(goodReport, "clones: 4 → 1", "line/station hotspot: 85573 → 61200", 1)
+	if err := CheckReport(msg); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The prompt tells the agent to run the scripts at signalsScript; the Python
+// unit tests are part of `just test` through this test.
+func TestSignalsScriptExistsAndItsTestsPass(t *testing.T) {
+	if _, err := os.Stat(filepath.Join("..", "..", signalsScript)); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(Prompt("x"), signalsScript) {
+		t.Errorf("prompt does not name %s", signalsScript)
+	}
+	out, err := exec.Command("python3", "-m", "unittest", "discover", "-s", "signals", "-t", "signals").CombinedOutput()
+	if err != nil {
+		t.Fatalf("signal script tests failed: %v\n%s", err, out)
 	}
 }
 
@@ -338,11 +363,24 @@ func TestOnceDeclinesARequestWhileAndonIsPulled(t *testing.T) {
 	}
 }
 
-func TestPromptAsksForTheAnalysisReportBeforeTheEdit(t *testing.T) {
+func TestPromptOrdersBaselineStatusPickChangeAndMeasureAgain(t *testing.T) {
 	p := Prompt("kaizen-x")
-	report := strings.Index(p, "sweatshop line kaizen report")
-	baseline := strings.Index(p, "Record the baseline")
-	if report < 0 || baseline < 0 || report > baseline {
-		t.Fatalf("report step at %d, baseline step at %d", report, baseline)
+	steps := []string{
+		"sweatshop line kaizen context",
+		"$S measure --root . --rev $BASE --runs $D/runs.json --out $D/signals.json",
+		"sweatshop line kaizen publish --commit $BASE --signals $D/signals.json --report",
+		"sweatshop line kaizen report`",
+		"--out $D/after.json",
+		"$S delta",
+		"--after $D/after.json --report",
+		"sweatshop line merge",
+	}
+	last := -1
+	for _, step := range steps {
+		at := strings.Index(p, step)
+		if at <= last {
+			t.Fatalf("step %q at %d, not after the previous step at %d", step, at, last)
+		}
+		last = at
 	}
 }

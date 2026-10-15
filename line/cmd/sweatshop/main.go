@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -78,6 +79,10 @@ const usage = `usage:
                                         work ready "gemba" beads (acceptance-test add/fix/retire) in station containers
   sweatshop line kaizen --dir D --station NAME [--once] [--engine E] [--url URL] [--timeout 2h] [--interval 24h] [--memory 4g] [--pids 1024] [--cpus 2]
                                         run one measured refactoring per interval, when master has moved, in a station container
+  sweatshop line kaizen context --commit SHA --out DIR
+                                        kaizen run: save the CI runs (runs.json) and the previous run's signals (previous.json, if any) for the signal scripts
+  sweatshop line kaizen publish --commit SHA --signals F --report F [--after F]
+                                        kaizen run: store signals.json and report.html under reports/kaizen/<commit>/ next to the CI reports
   sweatshop line kaizen report (Markdown on stdin)
                                         kaizen run: publish this run's analysis report to the line's object store (SWEATSHOP_BEAD names the run)
   sweatshop viceroy run [--heartbeat 6h]
@@ -139,6 +144,10 @@ func run(args []string, stdout io.Writer) error {
 		return lineGemba(args[2:])
 	case len(args) >= 3 && args[0] == "line" && args[1] == "kaizen" && args[2] == "report":
 		return lineKaizenReport(os.Stdin, stdout)
+	case len(args) >= 3 && args[0] == "line" && args[1] == "kaizen" && args[2] == "context":
+		return lineKaizenContext(args[3:], stdout)
+	case len(args) >= 3 && args[0] == "line" && args[1] == "kaizen" && args[2] == "publish":
+		return lineKaizenPublish(args[3:], stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "kaizen":
 		return lineKaizen(args[2:])
 	case len(args) == 3 && args[0] == "line" && args[1] == "evidence":
@@ -604,6 +613,94 @@ func lineKaizenReport(stdin io.Reader, stdout io.Writer) error {
 		return err
 	}
 	key, err := c.PublishKaizenAnalysis(context.Background(), station.KaizenAnalysis{Run: run, Markdown: string(md)})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(stdout, "published", key)
+	return nil
+}
+
+// lineKaizenContext saves what the signal scripts cannot read from the clone:
+// the CI metrics store's runs, and the signals of the previous Kaizen run.
+func lineKaizenContext(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("line kaizen context", flag.ContinueOnError)
+	commit := fs.String("commit", "", "master commit the run measures")
+	out := fs.String("out", "", "directory to write runs.json and previous.json to")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 || *commit == "" || *out == "" {
+		return errors.New(usage)
+	}
+	c, err := lineClient()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	runs, err := c.KaizenRuns(ctx)
+	if err != nil {
+		return err
+	}
+	previous, err := c.PreviousKaizenSignals(ctx, *commit)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(*out, 0o755); err != nil {
+		return err
+	}
+	runsJSON, err := json.Marshal(runs)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(*out, "runs.json"), runsJSON, 0o644); err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "wrote %s (%d runs)\n", filepath.Join(*out, "runs.json"), len(runs.Runs))
+	if previous == nil {
+		fmt.Fprintln(stdout, "no previous kaizen run: this run has no trend")
+		return nil
+	}
+	if err := os.WriteFile(filepath.Join(*out, "previous.json"), previous.Signals, 0o644); err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "wrote %s (measured at %s)\n", filepath.Join(*out, "previous.json"), previous.Commit)
+	return nil
+}
+
+// lineKaizenPublish stores a run's signals and status report next to the CI
+// reports; with --after it also stores the signals re-measured on the change.
+func lineKaizenPublish(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("line kaizen publish", flag.ContinueOnError)
+	commit := fs.String("commit", "", "master commit the baseline was measured at")
+	signals := fs.String("signals", "", "signals.json of the baseline")
+	report := fs.String("report", "", "report.html")
+	after := fs.String("after", "", "signals.json measured on the changed tree (optional)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 || *commit == "" || *signals == "" || *report == "" {
+		return errors.New(usage)
+	}
+	k := station.KaizenSignals{Commit: *commit}
+	var err error
+	if k.Signals, err = os.ReadFile(*signals); err != nil {
+		return err
+	}
+	if *after != "" {
+		if k.After, err = os.ReadFile(*after); err != nil {
+			return err
+		}
+	}
+	html, err := os.ReadFile(*report)
+	if err != nil {
+		return err
+	}
+	k.ReportHTML = string(html)
+	c, err := lineClient()
+	if err != nil {
+		return err
+	}
+	key, err := c.PublishKaizenSignals(context.Background(), k)
 	if err != nil {
 		return err
 	}
