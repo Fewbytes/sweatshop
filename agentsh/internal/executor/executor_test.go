@@ -100,13 +100,23 @@ func TestTimeoutKillsProcessGroup(t *testing.T) {
 
 func TestBackgroundReturnsBeforeCompletion(t *testing.T) {
 	exec, store, root := testExecutor(t)
-	started := time.Now()
-	inv, err := exec.Execute(context.Background(), Request{Command: `sleep .2; echo done`, CWD: root, Background: true})
+	// The command cannot finish until the test creates the release file, so a
+	// running state at return proves Execute did not wait for completion,
+	// without depending on how fast the host is. The bounded loop keeps a
+	// regression from hanging the command forever.
+	inv, err := exec.Execute(context.Background(), Request{
+		Command:    `for i in $(seq 500); do [ -e release ] && break; sleep .01; done; echo done`,
+		CWD:        root,
+		Background: true,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if time.Since(started) > 150*time.Millisecond || inv.State != storage.StateRunning {
-		t.Fatalf("background did not return promptly: %+v", inv)
+	if inv.State != storage.StateRunning {
+		t.Fatalf("background did not return while command was still running: %+v", inv)
+	}
+	if err := os.WriteFile(filepath.Join(root, "release"), nil, 0o600); err != nil {
+		t.Fatal(err)
 	}
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
