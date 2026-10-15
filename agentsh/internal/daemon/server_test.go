@@ -14,6 +14,7 @@ import (
 	"github.com/Fewbytes/sweatshop/agentsh/internal/output"
 	agentrpc "github.com/Fewbytes/sweatshop/agentsh/internal/rpc"
 	"github.com/Fewbytes/sweatshop/agentsh/internal/storage"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/testwait"
 	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
 )
 
@@ -29,7 +30,7 @@ func TestHealthAndShutdown(t *testing.T) {
 
 	client := agentrpc.Client{Socket: paths.Socket, Timeout: 10 * time.Second}
 	var health agentrpc.Health
-	pollUntil(t, 10*time.Second, "daemon to answer health", func() bool {
+	testwait.Until(t, 10*time.Second, "daemon to answer health", func() bool {
 		return client.Call(context.Background(), agentrpc.Request{ID: "test", Op: agentrpc.OpHealth}, &health) == nil
 	})
 	if health.Workspace != root || health.Status != "ok" {
@@ -66,23 +67,9 @@ func TestSecondServerDoesNotStealLiveSocket(t *testing.T) {
 	}
 }
 
-// pollUntil is the only place daemon tests wait on wall-clock time: it
-// re-evaluates condition until it holds, failing the test after timeout.
-// Tests wait on observable state through it rather than sleeping a guess.
-func pollUntil(t *testing.T, timeout time.Duration, what string, condition func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for !condition() {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out after %v waiting for %s", timeout, what)
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-}
-
 func waitForSocket(t *testing.T, path string) {
 	t.Helper()
-	pollUntil(t, time.Second, "socket to accept connections", func() bool {
+	testwait.Until(t, time.Second, "socket to accept connections", func() bool {
 		conn, err := net.Dial("unix", path)
 		if err != nil {
 			return false

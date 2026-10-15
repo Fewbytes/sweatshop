@@ -8,6 +8,7 @@ import (
 	"time"
 
 	agentrpc "github.com/Fewbytes/sweatshop/agentsh/internal/rpc"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/testwait"
 	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
 )
 
@@ -27,7 +28,7 @@ func startServing(t *testing.T, paths workspace.Paths) *Server {
 	})
 
 	client := agentrpc.Client{Socket: paths.Socket, Timeout: time.Second}
-	pollUntil(t, 3*time.Second, "daemon to begin serving", func() bool {
+	testwait.Until(t, 3*time.Second, "daemon to begin serving", func() bool {
 		var health agentrpc.Health
 		return client.Call(context.Background(), agentrpc.Request{ID: "wait", Op: agentrpc.OpHealth}, &health) == nil
 	})

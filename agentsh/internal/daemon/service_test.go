@@ -9,6 +9,7 @@ import (
 
 	"github.com/Fewbytes/sweatshop/agentsh/internal/executor"
 	agentrpc "github.com/Fewbytes/sweatshop/agentsh/internal/rpc"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/testwait"
 	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
 )
 
@@ -88,7 +89,7 @@ func waitForNoRunningInvocations(t *testing.T, server *Server) {
 	// TestServicesSurviveDaemonRestartAsStopped failure in GitHub Actions
 	// run 32249829023) — widened for headroom, not because the logic needed
 	// fixing.
-	pollUntil(t, 10*time.Second, "running invocations to drain", func() bool { return len(server.exec.Processes("")) == 0 })
+	testwait.Until(t, 10*time.Second, "running invocations to drain", func() bool { return len(server.exec.Processes("")) == 0 })
 }
 
 func TestServicesSurviveDaemonRestartAsStopped(t *testing.T) {
@@ -127,7 +128,7 @@ func TestServicesSurviveDaemonRestartAsStopped(t *testing.T) {
 	if err := syscall.Kill(-svc.PID, syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
-	pollUntil(t, 2*time.Second, "service process to die", func() bool { return !processAlive(svc.PID) })
+	testwait.Until(t, 2*time.Second, "service process to die", func() bool { return !processAlive(svc.PID) })
 	waitForNoRunningInvocations(t, first)
 
 	first.Shutdown()

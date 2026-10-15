@@ -14,12 +14,13 @@ import (
 
 	agentrpc "github.com/Fewbytes/sweatshop/agentsh/internal/rpc"
 	"github.com/Fewbytes/sweatshop/agentsh/internal/storage"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/testwait"
 	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
 )
 
 func waitForFile(t *testing.T, path string) {
 	t.Helper()
-	pollUntil(t, 2*time.Second, "file "+path, func() bool {
+	testwait.Until(t, 2*time.Second, "file "+path, func() bool {
 		_, err := os.Stat(path)
 		return err == nil
 	})
@@ -30,7 +31,7 @@ func waitForFile(t *testing.T, path string) {
 func waitForPIDFile(t *testing.T, path string) int {
 	t.Helper()
 	var pid int
-	pollUntil(t, 2*time.Second, "pid file "+path, func() bool {
+	testwait.Until(t, 2*time.Second, "pid file "+path, func() bool {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return false
@@ -80,7 +81,7 @@ func TestClientDisconnectCancelsForegroundInvocation(t *testing.T) {
 
 	// If cancellation works, the shell dies (SIGTERM/SIGKILL cuts off the
 	// sleep) before it can append "done", and the daemon still answers health.
-	pollUntil(t, 3*time.Second, "cancelled command to exit", func() bool { return !processAlive(pid) })
+	testwait.Until(t, 3*time.Second, "cancelled command to exit", func() bool { return !processAlive(pid) })
 	client := agentrpc.Client{Socket: paths.Socket, Timeout: 2 * time.Second}
 	var health agentrpc.Health
 	if err := client.Call(context.Background(), agentrpc.Request{ID: "h", Op: agentrpc.OpHealth}, &health); err != nil {

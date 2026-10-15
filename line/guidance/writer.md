@@ -29,6 +29,11 @@ Three goals, in priority order:
   pass validated types inward.
 - **Every behavior change ships with a test** that fails without it. Tests
   must be fast, deterministic, hermetic and runnable with one command.
+- **No wall-clock waits in tests.** No `time.Sleep` and no shell `sleep`. Wait
+  on something the test controls: an injected clock or ticker, a channel or
+  callback, or `testwait.Until` (`agentsh/internal/testwait`), which polls with
+  a deadline and fails with a clear message. For process tests, run a command
+  that blocks on a pipe or file the test releases.
 - **Assert behavior, not implementation.** A test that would survive a correct
   refactor but catch a wrong one. Weak assertions (`!= nil`, "no error") do
   not count.

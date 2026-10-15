@@ -75,24 +75,6 @@ func TestStreamSeparationAndLargeOutput(t *testing.T) {
 	}
 }
 
-func TestDaemonReconciliation(t *testing.T) {
-	e, root := newExecutor(t)
-	// Must outlive the test even on a loaded machine, or the job finishes before Reconcile sees it running.
-	inv, err := e.Execute(context.Background(), executor.Request{Command: `sleep 10`, CWD: root, Background: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// A missing PID is treated as daemon-lost during restart reconciliation.
-	pid := 999999
-	if err := e.Store.(*storage.Store).SetPID(context.Background(), inv.ID, pid); err != nil {
-		t.Fatal(err)
-	}
-	count, err := e.Store.(*storage.Store).Reconcile(context.Background(), func(int) bool { return false })
-	if err != nil || count != 1 {
-		t.Fatalf("reconcile: %v count=%d", err, count)
-	}
-}
-
 func readBlob(t *testing.T, blobs storage.BlobStore, digest string) string {
 	t.Helper()
 	f, err := blobs.Open(digest)

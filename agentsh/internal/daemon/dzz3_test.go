@@ -9,6 +9,7 @@ import (
 
 	"github.com/Fewbytes/sweatshop/agentsh/internal/output"
 	agentrpc "github.com/Fewbytes/sweatshop/agentsh/internal/rpc"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/testwait"
 	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
 )
 
@@ -47,7 +48,7 @@ func TestBashServiceLogsPagesByLineRange(t *testing.T) {
 		t.Fatal(err)
 	}
 	fullLogParams, _ := json.Marshal(agentrpc.BashServiceLogsRequest{Name: "counter", Lines: "1:20"})
-	pollUntil(t, 2*time.Second, "service log to reach line 20", func() bool {
+	testwait.Until(t, 2*time.Second, "service log to reach line 20", func() bool {
 		var result output.Result
 		err := client.Call(context.Background(), agentrpc.Request{ID: "logs", Op: agentrpc.OpBashServiceLogs, Params: fullLogParams}, &result)
 		return err == nil && strings.Contains(result.Text, "line 20")
@@ -78,7 +79,7 @@ func TestBashServiceLogsTailReturnsLastNLines(t *testing.T) {
 
 	var result output.Result
 	logsParams, _ := json.Marshal(agentrpc.BashServiceLogsRequest{Name: "counter", Tail: 3})
-	pollUntil(t, 2*time.Second, "service log to reach line 20", func() bool {
+	testwait.Until(t, 2*time.Second, "service log to reach line 20", func() bool {
 		err := client.Call(context.Background(), agentrpc.Request{ID: "logs", Op: agentrpc.OpBashServiceLogs, Params: logsParams}, &result)
 		return err == nil && strings.Contains(result.Text, "line 20")
 	})
