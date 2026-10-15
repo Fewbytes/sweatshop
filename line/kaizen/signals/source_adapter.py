@@ -12,19 +12,15 @@ import importlib.metadata
 import math
 import os
 from collections import Counter, defaultdict
-from itertools import combinations
 
 from adapter import AdapterResult, History, Signals
+from file_signals import MIN_COCHANGES, cochanging_pairs, file_signals, lcom4
 from syntax import SKIP_DIRS, ImportResolver, LanguageSpec, SourceFile, module_dir, package_of, parse_source
 
 # Bump when a change to the thresholds below or to this module moves numbers
 # without any code change: it marks the run as a new baseline. Changes to one
 # language's tables bump that spec's own version.
-SOURCE_ADAPTER_VERSION = "2"
-# A commit touching more packages than this is a bulk change (rename, format),
-# not evidence that the packages depend on each other.
-MAX_PACKAGES_PER_COMMIT = 20
-MIN_COCHANGES = 2
+SOURCE_ADAPTER_VERSION = "3"
 CLONE_WINDOW_TOKENS = 50
 
 
@@ -151,7 +147,7 @@ class SourceAdapter:
     other."""
 
     package_signals = (
-        "hotspot", "churn", "complexity", "hidden_coupling_ratio",
+        "hotspot", "churn", "complexity", "hidden_coupling_ratio", "lcom4",
         "clones", "import_cycles", "dead_symbols", "pattern_entropy",
     )
 
@@ -178,14 +174,11 @@ class SourceAdapter:
         cycles, cyclic = cyclic_packages(graph)
 
         churn: Counter[str] = Counter()
-        cochange: Counter[tuple[str, str]] = Counter()
-        for touched in history.commits:
-            for p in touched:
+        for commit in history.commits:
+            for p in commit.deleted_lines:
                 if p in source:
                     churn[package_of(p)] += 1
-            pkgs = sorted({package_of(p) for p in touched if p in files})
-            if 1 < len(pkgs) <= MAX_PACKAGES_PER_COMMIT:
-                cochange.update(combinations(pkgs, 2))
+        cochange, file_cochange = cochanging_pairs(history.commits, files)
         pairs = {pair for pair, n in cochange.items() if n >= MIN_COCHANGES}
         hidden = {(a, b) for a, b in pairs if b not in graph[a] and a not in graph[b]}
 
@@ -220,6 +213,7 @@ class SourceAdapter:
                 "cochange_pairs": len(mine),
                 "hidden_pairs": len(mine & hidden),
                 "hidden_coupling_ratio": round(len(mine & hidden) / len(mine), 3) if mine else 0.0,
+                "lcom4": lcom4({p: f for p, f in source.items() if package_of(p) == pkg}),
                 "clones": fragments[pkg],
                 "import_cycles": int(pkg in cyclic),
                 "dead_symbols": len(dead[pkg]),
@@ -251,4 +245,11 @@ class SourceAdapter:
             "pattern_entropy_by_concern": by_concern,
         }
         prefix = spec.repo_signal_prefix
-        return AdapterResult(packages=out_packages, repo={prefix + key: value for key, value in repo.items()})
+        file_signals_by_path, top_pairs, top_functions = file_signals(source, history.commits, file_cochange, graph)
+        return AdapterResult(
+            packages=out_packages,
+            repo={prefix + key: value for key, value in repo.items()},
+            files=file_signals_by_path,
+            cochange_pairs=top_pairs,
+            hotspot_functions=top_functions,
+        )

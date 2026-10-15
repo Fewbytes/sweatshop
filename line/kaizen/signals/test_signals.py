@@ -14,6 +14,7 @@ import measure
 import render
 import source_adapter
 import syntax
+import file_signals
 from adapter import Unavailable
 
 BRANCHY = """package a
@@ -273,6 +274,56 @@ class MeasureRepo(unittest.TestCase):
         self.assertEqual(s["packages"]["b"]["cochange_pairs"], 1)
         self.assertEqual(s["packages"]["b"]["hidden_pairs"], 0)
 
+    def test_file_pairs_cochanging_without_an_import_are_hidden_and_listed(self):
+        s = self.measure()
+        self.assertEqual(s["cochange_pairs"], [{"a": "a/a.go", "b": "c/c.go", "count": 2, "hidden": True}])
+        self.assertEqual(s["files"]["c/c.go"]["hidden_coupling_ratio"], 1.0)
+        self.assertEqual(s["files"]["b/b.go"]["cochange_pairs"], 0)
+
+    def test_file_pairs_across_importing_packages_are_not_hidden(self):
+        self.write("a/a.go", BRANCHY + "\nfunc unusedHelper() { _ = 2 }\n")
+        self.write("b/b.go", 'package b\n\nimport "example.com/m/a"\n\nvar _ = a.Branchy // touched\n')
+        self.commit("three")
+        s = self.measure()
+        self.assertEqual(s["files"]["b/b.go"]["cochange_pairs"], 1)
+        self.assertEqual(s["files"]["b/b.go"]["hidden_pairs"], 0)
+
+    def test_bulk_commits_by_file_count_make_no_file_pairs(self):
+        for i in range(file_signals.MAX_FILES_PER_COMMIT + 1):
+            self.write(f"bulk/f{i}.go", "package bulk\n")
+        self.commit("bulk one")
+        for i in range(file_signals.MAX_FILES_PER_COMMIT + 1):
+            self.write(f"bulk/f{i}.go", "package bulk\n\nvar X = 1\n")
+        self.commit("bulk two")
+        self.assertEqual(self.measure()["files"]["bulk/f0.go"]["cochange_pairs"], 0)
+
+    def test_files_and_functions_are_ranked_by_hotspot(self):
+        s = self.measure()
+        self.assertEqual(
+            (s["files"]["a/a.go"]["hotspot"], s["files"]["a/a.go"]["hotspot_rank"]), (16, 1))
+        self.assertEqual(
+            s["hotspot_functions"][0],
+            {"file": "a/a.go", "name": "Branchy", "complexity": 8, "hotspot": 16})
+
+    def test_cards_per_file_count_distinct_bead_trailers_and_rework_rate_counts_deleting_commits(self):
+        self.write("c/c.go", "package c\n\nfunc C() { _ = 2 }\n")
+        self.commit("three\n\nBead: card-1")
+        self.write("c/c.go", "package c\n\nfunc C() { _ = 2 }\nfunc D() {}\n")
+        self.commit("four\n\nBead: card-1")
+        self.write("c/c.go", "package c\n\nfunc C() { _ = 2 }\nfunc D() {}\n\nfunc E() {}\n")
+        self.commit("five\n\nBead: card-2")
+        c = self.measure()["files"]["c/c.go"]
+        # one: adds; two and three replace a line; four and five only add
+        self.assertEqual((c["churn"], c["cards"], c["rework_rate"]), (5, 2, 0.4))
+
+    def test_lcom4_counts_groups_of_files_that_never_reference_each_other(self):
+        self.write("g/x.go", "package g\n\nfunc X() { Y() }\n")
+        self.write("g/y.go", "package g\n\nfunc Y() {}\n")
+        self.write("g/z.go", "package g\n\nfunc Z() {}\n")
+        self.commit("group")
+        packages = self.measure()["packages"]
+        self.assertEqual((packages["g"]["lcom4"], packages["a"]["lcom4"]), (2, 1))
+
     def test_clones_count_duplicated_blocks_once_per_fragment(self):
         self.write("c/dup1.go", "package c\n\nfunc One() {\n" + CLONE_BODY + "}\n")
         self.write("c/dup2.go", "package c\n\nfunc Two() {\n" + CLONE_BODY + "}\n")
@@ -309,9 +360,9 @@ class MeasureRepo(unittest.TestCase):
     def test_ci_runtime_is_unavailable_with_the_reason_when_no_runs_given(self):
         self.assertEqual(measure.ci_runtime(None)["ci_median_ms"], Unavailable("no CI runs file given"))
 
-    def test_signals_record_schema_2_and_every_tool_version(self):
+    def test_signals_record_schema_3_and_every_tool_version(self):
         s = self.measure()
-        self.assertEqual(s["schema"], 2)
+        self.assertEqual(s["schema"], 3)
         self.assertEqual(sorted(s["tools"]), [
             "git", "kaizen-go-tables", "kaizen-python-tables", "kaizen-source-adapter", "kaizen-typescript-tables",
             "python", "tree-sitter", "tree-sitter-go", "tree-sitter-python", "tree-sitter-typescript",

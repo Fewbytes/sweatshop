@@ -10,6 +10,7 @@ PACKAGE_SIGNALS = {
     "churn": "Churn",
     "complexity": "Cognitive complexity",
     "hidden_coupling_ratio": "Hidden coupling",
+    "lcom4": "Cohesion (LCOM4 components)",
     "clones": "Clones",
     "import_cycles": "Import cycles",
     "dead_symbols": "Dead symbols",
