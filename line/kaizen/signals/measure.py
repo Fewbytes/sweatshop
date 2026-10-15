@@ -12,14 +12,17 @@ import subprocess
 from datetime import datetime, timedelta
 
 from adapter import Adapter, AdapterResult, History, Signals, Unavailable
-from go_adapter import GoAdapter
+from lang_go import GO
+from lang_python import PYTHON
+from lang_typescript import TYPESCRIPT
+from source_adapter import SourceAdapter
 
 SCHEMA = 2
 WINDOW_DAYS = 90
 CI_RUNS_CONSIDERED = 50
 # Every language adapter, run in this order. A literal table so search finds
 # each one; adding a language is adding a line here.
-ADAPTERS: tuple[Adapter, ...] = (GoAdapter(),)
+ADAPTERS: tuple[Adapter, ...] = (SourceAdapter(GO), SourceAdapter(PYTHON), SourceAdapter(TYPESCRIPT))
 
 
 def git(root: str, *args: str) -> str:
@@ -81,6 +84,9 @@ def measure(root: str, rev: str, runs: dict | None, adapters: tuple[Adapter, ...
     for adapter in adapters:
         result = adapter.measure(root, hist)
         check_declared(adapter, result)
+        shared = packages.keys() & result.packages.keys()
+        if shared:
+            raise ValueError(f"{adapter.language} adapter and an earlier one both claim packages {sorted(shared)}")
         packages.update(result.packages)
         repo.update(result.repo)
     repo.update(ci_runtime(runs))

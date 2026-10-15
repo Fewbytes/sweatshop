@@ -9,7 +9,9 @@
           [--target PKG --category P2 --signal clones --why TEXT]
   delta   --before b.json --after a.json --package PKG --signal NAME
 
-Run with: uv run --no-project line/kaizen/signals/kaizen_signals.py ...
+Run with: uv run --no-project --with-requirements line/kaizen/signals/requirements.txt \
+          line/kaizen/signals/kaizen_signals.py ...
+requirements.txt pins the tree-sitter grammars by checksum.
 """
 
 import argparse

@@ -27,10 +27,21 @@ the number is a change in the code.
 One adapter per language (`line/kaizen/signals/adapter.py`) declares the signals
 it computes and returns, for each, a number or `{"unavailable": reason}`.
 `tools` records every tool and rule-set version the numbers depend on (git,
-python, the Go adapter's version). Two runs with different `tools` (or a schema 1
+python, tree-sitter and each pinned grammar, each language's table version). Two runs with different `tools` (or a schema 1
 run, which recorded none) are different baselines: `delta` refuses to compare
-them and the report shows no trend across them. Bump `GO_ADAPTER_VERSION` in
-`go_adapter.py` when a change to the lexer or idiom table moves numbers.
+them and the report shows no trend across them. Bump a language's `version`
+(`lang_go.py`, `lang_python.py`, `lang_typescript.py`) when a change to its
+tables moves numbers, and `SOURCE_ADAPTER_VERSION` in `source_adapter.py` for
+the shared thresholds.
+
+Every language is parsed with tree-sitter (`syntax.py`); the grammars are pinned
+by checksum in `line/kaizen/signals/requirements.txt`, which the scripts are run
+with (`uv run --no-project --with-requirements`). A language is one table:
+function node types and their cognitive-complexity increments, import and
+declaration queries, the idiom queries for pattern entropy, and the import
+resolver. Go's repo signals keep their plain names; Python's and TypeScript's
+are prefixed (`python.clones`, `typescript.clones`). Their package signals share
+the package table, so two languages in one directory is an error.
 
 ## Hidden-coupling ratio (lower is better)
 

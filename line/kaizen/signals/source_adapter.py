@@ -1,5 +1,6 @@
-"""The Go adapter: the per-package code-health signals of kaizen.md section 3,
-computed from Go source with the lexer in golang.py.
+"""The per-language adapter over the tree-sitter substrate: the per-package
+code-health signals of kaizen.md section 3, computed from the facts syntax.py
+reads out of each file by the language's tables.
 
 History (churn and co-change) is read from the revision the orchestrator
 resolved while the tree is read from disk, so a before and an after
@@ -7,77 +8,60 @@ measurement of an edited tree differ only by the edit.
 """
 
 import hashlib
+import importlib.metadata
 import math
 import os
 from collections import Counter, defaultdict
 from itertools import combinations
 
-import golang
-from adapter import AdapterResult, History
+from adapter import AdapterResult, History, Signals
+from syntax import SKIP_DIRS, ImportResolver, LanguageSpec, SourceFile, module_dir, package_of, parse_source
 
-# Bump when a change to the lexer, the idiom table or the thresholds below
-# moves numbers without any code change: it marks the run as a new baseline.
-GO_ADAPTER_VERSION = "1"
+# Bump when a change to the thresholds below or to this module moves numbers
+# without any code change: it marks the run as a new baseline. Changes to one
+# language's tables bump that spec's own version.
+SOURCE_ADAPTER_VERSION = "2"
 # A commit touching more packages than this is a bulk change (rename, format),
 # not evidence that the packages depend on each other.
 MAX_PACKAGES_PER_COMMIT = 20
 MIN_COCHANGES = 2
-CLONE_WINDOW_LINES = 6
-CLONE_MIN_CHARS = 120
-SKIP_DIRS = {".git", "vendor", "testdata", "node_modules"}
+CLONE_WINDOW_TOKENS = 50
 
 
-def go_files(root: str) -> dict[str, golang.GoFile]:
-    files: dict[str, golang.GoFile] = {}
+def source_files(spec: LanguageSpec, root: str) -> dict[str, SourceFile]:
+    files: dict[str, SourceFile] = {}
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
         for name in sorted(filenames):
-            if not name.endswith(".go"):
+            if not name.endswith(spec.extensions):
                 continue
             path = os.path.relpath(os.path.join(dirpath, name), root)
-            with open(os.path.join(root, path), encoding="utf-8") as f:
-                files[path] = golang.parse(path, f.read())
+            with open(os.path.join(root, path), "rb") as f:
+                files[path] = parse_source(spec, path, f.read())
     return files
 
 
-def module_paths(root: str) -> dict[str, str]:
-    """Module directory (repo-relative, '' for the root) -> module path."""
-    modules = {}
+def module_dirs(spec: LanguageSpec, root: str) -> set[str]:
+    """Directories (repo-relative, '' for the root) holding the language's module marker."""
+    found = set()
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
-        if "go.mod" in filenames:
-            with open(os.path.join(dirpath, "go.mod"), encoding="utf-8") as f:
-                for line in f:
-                    if line.startswith("module "):
-                        rel = os.path.relpath(dirpath, root)
-                        modules["" if rel == "." else rel] = line.split()[1]
-                        break
-    return modules
+        if spec.module_marker in filenames:
+            rel = os.path.relpath(dirpath, root)
+            found.add("" if rel == "." else rel)
+    return found
 
 
-def module_dir(modules: dict[str, str], path: str) -> str:
-    """The directory of the innermost module containing repo-relative path."""
-    return max((m for m in modules if m == "" or path.startswith(m + "/")), key=len, default="")
-
-
-def package_of(path: str) -> str:
-    return os.path.dirname(path) or "."
-
-
-def import_graph(files: dict[str, golang.GoFile], modules: dict[str, str]) -> dict[str, set[str]]:
+def import_graph(
+    files: dict[str, SourceFile], resolve: ImportResolver
+) -> dict[str, set[str]]:
     """Package directory -> package directories of the same repo it imports."""
-    by_import_path = {}
-    for pkg in {package_of(p) for p in files}:
-        mod_dir = module_dir(modules, pkg + "/")
-        rel = pkg[len(mod_dir):].lstrip("/") if mod_dir else pkg
-        rel = "" if rel == "." else rel
-        by_import_path[modules[mod_dir] + ("/" + rel if rel else "")] = pkg
     graph: dict[str, set[str]] = defaultdict(set)
     for path, f in files.items():
         pkg = package_of(path)
         graph[pkg]
         for imp in f.imports:
-            target = by_import_path.get(imp)
+            target = resolve(path, imp)
             if target and target != pkg:
                 graph[pkg].add(target)
     return graph
@@ -121,18 +105,16 @@ def cyclic_packages(graph: dict[str, set[str]]) -> tuple[int, set[str]]:
     return cycles, members
 
 
-def clone_fragments(files: dict[str, golang.GoFile]) -> Counter[str]:
-    """Duplicated code per package: runs of consecutive CLONE_WINDOW_LINES-line
-    windows (blank and bracket-only lines ignored) that occur in 2+ places."""
+def clone_fragments(files: dict[str, SourceFile]) -> Counter[str]:
+    """Duplicated code per package: runs of consecutive CLONE_WINDOW_TOKENS-token
+    windows (comments and whitespace are not tokens) that occur in 2+ places."""
     windows: dict[str, list[tuple[str, int]]] = defaultdict(list)
     for path, f in files.items():
         if f.is_test:
             continue
-        lines = f.normalized_lines
-        for i in range(len(lines) - CLONE_WINDOW_LINES + 1):
-            text = "\n".join(lines[i:i + CLONE_WINDOW_LINES])
-            if len(text) >= CLONE_MIN_CHARS:
-                windows[hashlib.sha1(text.encode()).hexdigest()].append((path, i))
+        for i in range(len(f.tokens) - CLONE_WINDOW_TOKENS + 1):
+            text = "\x00".join(f.tokens[i:i + CLONE_WINDOW_TOKENS])
+            windows[hashlib.sha1(text.encode()).hexdigest()].append((path, i))
     duplicated: dict[str, set[int]] = defaultdict(set)
     for places in windows.values():
         if len(places) > 1:
@@ -148,37 +130,51 @@ def clone_fragments(files: dict[str, golang.GoFile]) -> Counter[str]:
 
 def entropy(counts: list[int]) -> float:
     total = sum(counts)
-    return -sum(c / total * math.log2(c / total) for c in counts if c) if total else 0.0
+    return 0.0 - sum(c / total * math.log2(c / total) for c in counts if c) if total else 0.0
 
 
-CONCERNS = sorted({i.concern for i in golang.IDIOMS})
+def concern_entropies(spec: LanguageSpec, idioms: Counter[tuple[str, str]]) -> dict[str, float]:
+    concerns = sorted({i.concern for i in spec.idioms})
+    return {c: round(entropy([n for (cc, _), n in idioms.items() if cc == c]), 3) for c in concerns}
 
 
-def concern_entropies(idioms: Counter[tuple[str, str]]) -> dict[str, float]:
-    return {c: round(entropy([n for (cc, _), n in idioms.items() if cc == c]), 3) for c in CONCERNS}
+REPO_SIGNAL_NAMES = (
+    "hotspot", "complexity", "hidden_coupling_ratio",
+    "clones", "import_cycles", "dead_symbols", "pattern_entropy",
+)
 
 
+class SourceAdapter:
+    """Measures the files of one language. Package signals are keyed by
+    directory, so two languages sharing a directory is an error in measure.py;
+    repo signals carry the spec's prefix so languages do not overwrite each
+    other."""
 
-class GoAdapter:
-    language = "go"
     package_signals = (
         "hotspot", "churn", "complexity", "hidden_coupling_ratio",
         "clones", "import_cycles", "dead_symbols", "pattern_entropy",
     )
-    repo_signals = (
-        "hotspot", "complexity", "hidden_coupling_ratio",
-        "clones", "import_cycles", "dead_symbols", "pattern_entropy",
-    )
+
+    def __init__(self, spec: LanguageSpec):
+        self.spec = spec
+        self.language = spec.name
+        self.repo_signals = tuple(spec.repo_signal_prefix + s for s in REPO_SIGNAL_NAMES)
 
     def tool_versions(self) -> dict[str, str]:
-        return {"kaizen-go-adapter": GO_ADAPTER_VERSION}
+        return {
+            "tree-sitter": importlib.metadata.version("tree-sitter"),
+            self.spec.grammar_package: importlib.metadata.version(self.spec.grammar_package),
+            self.spec.tables_tool: self.spec.version,
+            "kaizen-source-adapter": SOURCE_ADAPTER_VERSION,
+        }
 
     def measure(self, root: str, history: History) -> AdapterResult:
-        files = go_files(root)
+        spec = self.spec
+        files = source_files(spec, root)
         source = {p: f for p, f in files.items() if not f.is_test}
         packages = sorted({package_of(p) for p in files})
-        modules = module_paths(root)
-        graph = import_graph(files, modules)
+        modules = module_dirs(spec, root)
+        graph = import_graph(files, spec.import_resolver(root, set(files)))
         cycles, cyclic = cyclic_packages(graph)
 
         churn: Counter[str] = Counter()
@@ -228,7 +224,7 @@ class GoAdapter:
                 "import_cycles": int(pkg in cyclic),
                 "dead_symbols": len(dead[pkg]),
                 "dead_symbol_names": sorted(dead[pkg])[:10],
-                "pattern_entropy": round(sum(concern_entropies(pkg_idioms[pkg]).values()), 3),
+                "pattern_entropy": round(sum(concern_entropies(spec, pkg_idioms[pkg]).values()), 3),
                 "top_functions": [{"name": fc.name, "complexity": fc.complexity} for fc in funcs[:3]],
             }
         ranked = sorted(out_packages, key=lambda p: (-out_packages[p]["hotspot"], p))
@@ -238,22 +234,21 @@ class GoAdapter:
         repo_idioms: Counter[tuple[str, str]] = Counter()
         for c in pkg_idioms.values():
             repo_idioms.update(c)
-        by_concern = concern_entropies(repo_idioms)
+        by_concern = concern_entropies(spec, repo_idioms)
 
-        return AdapterResult(
-            packages=out_packages,
-            repo={
-                "packages": len(packages),
-                "hotspot": sum(p["hotspot"] for p in out_packages.values()),
-                "churn": sum(churn.values()),
-                "complexity": sum(p["complexity"] for p in out_packages.values()),
-                "cochange_pairs": len(pairs),
-                "hidden_pairs": len(hidden),
-                "hidden_coupling_ratio": round(len(hidden) / len(pairs), 3) if pairs else 0.0,
-                "clones": sum(fragments.values()),
-                "import_cycles": cycles,
-                "dead_symbols": sum(len(v) for v in dead.values()),
-                "pattern_entropy": round(sum(by_concern.values()), 3),
-                "pattern_entropy_by_concern": by_concern,
-            },
-        )
+        repo = {
+            "packages": len(packages),
+            "hotspot": sum(p["hotspot"] for p in out_packages.values()),
+            "churn": sum(churn.values()),
+            "complexity": sum(p["complexity"] for p in out_packages.values()),
+            "cochange_pairs": len(pairs),
+            "hidden_pairs": len(hidden),
+            "hidden_coupling_ratio": round(len(hidden) / len(pairs), 3) if pairs else 0.0,
+            "clones": sum(fragments.values()),
+            "import_cycles": cycles,
+            "dead_symbols": sum(len(v) for v in dead.values()),
+            "pattern_entropy": round(sum(by_concern.values()), 3),
+            "pattern_entropy_by_concern": by_concern,
+        }
+        prefix = spec.repo_signal_prefix
+        return AdapterResult(packages=out_packages, repo={prefix + key: value for key, value in repo.items()})
