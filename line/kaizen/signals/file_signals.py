@@ -6,6 +6,7 @@ import graph, never a grammar. Definitions are in kaizen.md section 3.
 """
 
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from itertools import combinations
 
 from adapter import Commit, Signals
@@ -18,6 +19,60 @@ MAX_FILES_PER_COMMIT = 50
 MIN_COCHANGES = 2
 TOP_COCHANGE_PAIRS = 50
 TOP_HOTSPOT_FUNCTIONS = 20
+
+
+@dataclass(frozen=True)
+class ViolationThresholds:
+    """When a co-changing pair with no import is reported as a modularity
+    violation. The defaults are code-maat's (min shared commits 5, min
+    confidence 30%); they are our choice, not a validated cut-off."""
+
+    min_support: int = 5
+    min_confidence: float = 0.3
+
+
+def structurally_unlinked(a: str, b: str, package_graph: dict[str, set[str]]) -> bool:
+    """True when the files are in different directories and neither directory imports the other."""
+    pa, pb = package_of(a), package_of(b)
+    return pa != pb and pb not in package_graph[pa] and pa not in package_graph[pb]
+
+
+def modularity_violations(
+    source: dict[str, SourceFile],
+    commits: list[Commit],
+    file_pairs: Counter[tuple[str, str]],
+    package_graph: dict[str, set[str]],
+    thresholds: ViolationThresholds,
+) -> list[Signals]:
+    """File pairs that co-change with no import either way (Mo et al.'s
+    modularity violations), most supported first. support is the shared
+    commits; confidence is Zimmermann's, support over the commits of the
+    pair's busier file, the weaker of the two rules a=>b and b=>a. last_card is
+    the newest shared commit that names a card, None if none does."""
+    churn = Counter(path for c in commits for path in c.deleted_lines if path in source)
+    found = {}
+    for (a, b), support in file_pairs.items():
+        if a not in source or b not in source:  # test files co-change with what they test
+            continue
+        confidence = support / max(churn[a], churn[b])
+        if (
+            support >= thresholds.min_support
+            and confidence >= thresholds.min_confidence
+            and structurally_unlinked(a, b, package_graph)
+        ):
+            found[a, b] = (support, confidence)
+    last_card: dict[tuple[str, str], str] = {}
+    for commit in commits:  # newest first, as git log gives them
+        if commit.card:
+            touched = sorted(p for p in commit.deleted_lines if p in source)
+            for pair in combinations(touched, 2):
+                if pair in found:
+                    last_card.setdefault(pair, commit.card)
+    ranked = sorted(found, key=lambda pair: (-found[pair][0], -found[pair][1], pair))
+    return [
+        {"a": a, "b": b, "support": found[a, b][0], "confidence": round(found[a, b][1], 3), "last_card": last_card.get((a, b))}
+        for a, b in ranked
+    ]
 
 
 def cochanging_pairs(
@@ -93,12 +148,7 @@ def file_signals(
                 cards[path].add(commit.card)
 
     pairs = {pair: n for pair, n in file_pairs.items() if n >= MIN_COCHANGES}
-    hidden = {
-        pair for pair in pairs
-        if package_of(pair[0]) != package_of(pair[1])
-        and package_of(pair[1]) not in package_graph[package_of(pair[0])]
-        and package_of(pair[0]) not in package_graph[package_of(pair[1])]
-    }
+    hidden = {pair for pair in pairs if structurally_unlinked(*pair, package_graph)}
     out: dict[str, Signals] = {}
     for path, f in source.items():
         complexity = sum(fc.complexity for fc in f.functions)

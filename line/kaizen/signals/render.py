@@ -11,7 +11,6 @@ PACKAGE_SIGNALS = {
     "hotspot": "Hotspot (churn × complexity)",
     "churn": "Churn",
     "complexity": "Cognitive complexity",
-    "hidden_coupling_ratio": "Hidden coupling",
     "lcom4": "Cohesion (LCOM4 components)",
     "clones": "Clones",
     "import_cycles": "Import cycles",
@@ -22,7 +21,6 @@ PACKAGE_SIGNALS = {
 REPO_SIGNALS = {
     "hotspot": "Hotspot total",
     "complexity": "Cognitive complexity",
-    "hidden_coupling_ratio": "Hidden coupling",
     "clones": "Clones",
     "import_cycles": "Import cycles",
     "dead_symbols": "Dead symbols",
@@ -123,6 +121,27 @@ def dependency_section(current: dict) -> str:
     ])
 
 
+def violations_section(current: dict) -> str:
+    parts = [
+        "<h2>Modularity violations</h2>",
+        "<p>File pairs that changed together with no import either way, most supported first: "
+        "support is shared commits, confidence the share of the busier file's commits.</p>",
+    ]
+    for language, found in sorted(current["modularity_violations"].items()):
+        parts.append(f"<h3>{html.escape(language)}</h3>")
+        if "unavailable" in found:
+            parts.append(f"<p>Not measured: {html.escape(found['unavailable'])}.</p>")
+        elif found:
+            rows = [
+                [html.escape(v["a"]), html.escape(v["b"]), str(v["support"]), f"{v['confidence']:.0%}", html.escape(v["last_card"] or "–")]
+                for v in found
+            ]
+            parts.append(_table(["File", "File", "Support", "Confidence", "Last card"], rows))
+        else:
+            parts.append("<p>None.</p>")
+    return "\n".join(parts)
+
+
 def cohesion_section(current: dict) -> str:
     chosen = [
         p for p, s in sorted(current["packages"].items(), key=lambda kv: kv[1]["hotspot_rank"])
@@ -156,6 +175,7 @@ def render_report(current: dict, previous: dict | None, after: dict | None, pick
         "<h2>Modules by hotspot rank</h2>",
         status_table(current, previous),
         dependency_section(current),
+        violations_section(current),
         cohesion_section(current),
     ]
     if pick:

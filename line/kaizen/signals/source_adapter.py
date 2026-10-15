@@ -14,7 +14,9 @@ import os
 from collections import Counter, defaultdict
 
 from adapter import AdapterResult, History, Signals, Unavailable
-from file_signals import MIN_COCHANGES, cochanging_pairs, file_signals, lcom4, symbol_edges
+from file_signals import (
+    MIN_COCHANGES, ViolationThresholds, cochanging_pairs, file_signals, lcom4, modularity_violations, symbol_edges,
+)
 from lsp import REQUEST_TIMEOUT_SECONDS, LspUnavailable
 from lsp_signals import ServerFacts, measure_with_servers
 from syntax import SKIP_DIRS, ImportResolver, LanguageSpec, SourceFile, package_of, parse_source
@@ -22,7 +24,7 @@ from syntax import SKIP_DIRS, ImportResolver, LanguageSpec, SourceFile, package_
 # Bump when a change to the thresholds below or to this module moves numbers
 # without any code change: it marks the run as a new baseline. Changes to one
 # language's tables bump that spec's own version.
-SOURCE_ADAPTER_VERSION = "4"
+SOURCE_ADAPTER_VERSION = "5"
 CLONE_WINDOW_TOKENS = 50
 
 
@@ -175,8 +177,14 @@ class SourceAdapter:
         "clones", "import_cycles", "dead_symbols", "pattern_entropy", "call_depth", "typed_boundary_ratio",
     )
 
-    def __init__(self, spec: LanguageSpec, request_timeout: float = REQUEST_TIMEOUT_SECONDS):
+    def __init__(
+        self,
+        spec: LanguageSpec,
+        request_timeout: float = REQUEST_TIMEOUT_SECONDS,
+        violation_thresholds: ViolationThresholds = ViolationThresholds(),
+    ):
         self.spec = spec
+        self.violation_thresholds = violation_thresholds
         self.request_timeout = request_timeout
         self._server_versions: list[str] = []
         self.language = spec.name
@@ -281,6 +289,12 @@ class SourceAdapter:
         }
         prefix = spec.repo_signal_prefix
         file_signals_by_path, top_pairs, top_functions = file_signals(source, history.commits, file_cochange, graph)
+        # Files that import but resolve to no package mean the resolver is not
+        # working for this tree, so "no violations" would be a false all-clear.
+        if any(f.imports for f in files.values()) and not any(graph.values()):
+            violations: list[Signals] | Unavailable = Unavailable(f"no {spec.name} import resolved: dependencies unknown")
+        else:
+            violations = modularity_violations(source, history.commits, file_cochange, graph, self.violation_thresholds)
         return AdapterResult(
             packages=out_packages,
             repo={prefix + key: value for key, value in repo.items()},
@@ -288,4 +302,5 @@ class SourceAdapter:
             cochange_pairs=top_pairs,
             hotspot_functions=top_functions,
             module_edges=module_edges(graph, cochange, hidden),
+            modularity_violations=violations,
         )

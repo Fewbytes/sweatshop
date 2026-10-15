@@ -123,7 +123,7 @@ testing where available.
 | Stale / unverifiable comments | ↓ | review, test-execution checks |
 | Test runtime | ↓ or = | test runner |
 
-Kaizen stations compute hidden-coupling ratio, clone count, pattern entropy,
+Kaizen stations compute modularity violations, clone count, pattern entropy,
 import cycles, cognitive complexity, dead symbols and test runtime with
 `line/kaizen/signals/` (`kaizen_signals.py`; see `design-docs/kaizen-agent.md`,
 "Station v1"); the rest are measured by hand.
@@ -139,6 +139,16 @@ plus the import graph:
   (a commit touching over 20 packages or 50 files is bulk and ignored). A pair
   is **hidden** when the files are in different directories and neither
   directory imports the other; same-directory pairs are never hidden.
+- **Modularity violation** (`modularity_violations` in signals.json, per
+  language, ranked): a hidden pair with at least 5 shared commits (`support`)
+  and `confidence` of at least 30%, where confidence is support over the
+  commits of the pair's busier file (Zimmermann). The thresholds
+  (`ViolationThresholds`) are code-maat's defaults, our choice rather than a
+  validated cut-off. `last_card` is the newest shared commit naming a card.
+  Most co-change has no import, so the share of hidden pairs is high by
+  construction and is not a score; the ranked list is. A language whose
+  imports resolve to nothing reports `unavailable` ("not measured"), never an
+  empty list.
 - **Cards per hotspot** (`cards`): distinct `Bead:` trailers among the commits
   touching the file. **Rework rate**: share of those commits that delete or
   replace lines (lines the file already had). Many cards with a high rework

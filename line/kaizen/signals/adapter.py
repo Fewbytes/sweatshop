@@ -42,6 +42,9 @@ class AdapterResult:
     cochange_pairs: list[Signals]  # file pairs that change together, most frequent first
     hotspot_functions: list[Signals]  # riskiest functions, highest hotspot first
     module_edges: list[Signals]  # package pairs linked by an import or by co-change
+    # file pairs co-changing with no import, most supported first; Unavailable
+    # when the language's imports do not resolve, so absence is not read as health
+    modularity_violations: list[Signals] | Unavailable
 
 
 class Adapter(Protocol):

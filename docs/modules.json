@@ -1187,8 +1187,8 @@
     "line/harness": {
       "entry_point_count": 0,
       "entry_points": [],
-      "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 60,
+      "hidden_coupling_ratio": 0.2,
+      "hotspot_rank": 64,
       "imported_by": [],
       "imports": [
         "line/andon",
@@ -1202,7 +1202,7 @@
         "line/witness"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "40b532fe3f363e9689ce9c58f6f403648fb20bd4",
       "purpose": ""
     },
     "line/heijunka": {
@@ -1284,7 +1284,7 @@
       "purpose": "Package kaizen runs a Kaizen station: a host-side loop that, on a schedule"
     },
     "line/kaizen/signals": {
-      "entry_point_count": 123,
+      "entry_point_count": 127,
       "entry_points": [
         "ADAPTERS",
         "ANONYMOUS_FUNCTION",
@@ -1304,7 +1304,7 @@
       "imported_by": [],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "daf5dd871ad0a804a9f8289ad183705fbee0b1e7",
+      "measured_at_commit": "40b532fe3f363e9689ce9c58f6f403648fb20bd4",
       "purpose": "The per-language adapter interface and the types signals travel in."
     },
     "line/linedir": {

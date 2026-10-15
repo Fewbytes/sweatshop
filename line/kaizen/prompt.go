@@ -99,9 +99,10 @@ Line protocol:
    uv run --no-project --with-requirements $R $S measure --root . --rev $BASE --runs $D/runs.json --out $D/signals.json
 
    signals.json holds, per package and for the repo: hotspot score (churn x
-   cognitive complexity over 90 days of history), hidden-coupling ratio,
-   clone count, import cycles, dead symbols, pattern entropy, and the CI
-   test runtime from the line's metrics store. $D/previous.json (absent on
+   cognitive complexity over 90 days of history),
+   clone count, import cycles, dead symbols, pattern entropy, the CI
+   test runtime from the line's metrics store, and a ranked list of modularity
+   violations per language. $D/previous.json (absent on
    the first run) is the previous run's signals.json, for the trend.
 3. Status report. Render it and publish it next to the CI reports:
 

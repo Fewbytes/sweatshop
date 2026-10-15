@@ -17,7 +17,7 @@ from lang_python import PYTHON
 from lang_typescript import TYPESCRIPT
 from source_adapter import SourceAdapter
 
-SCHEMA = 4
+SCHEMA = 5
 WINDOW_DAYS = 90
 CI_RUNS_CONSIDERED = 50
 # Every language adapter, run in this order. A literal table so search finds
@@ -89,6 +89,7 @@ def measure(root: str, rev: str, runs: dict | None, adapters: tuple[Adapter, ...
     cochange_pairs: list[Signals] = []
     hotspot_functions: list[Signals] = []
     module_edges: list[Signals] = []
+    modularity_violations: dict[str, list[Signals] | Unavailable] = {}
     for adapter in adapters:
         result = adapter.measure(root, hist)
         check_declared(adapter, result)
@@ -101,6 +102,7 @@ def measure(root: str, rev: str, runs: dict | None, adapters: tuple[Adapter, ...
         cochange_pairs += result.cochange_pairs
         hotspot_functions += result.hotspot_functions
         module_edges += result.module_edges
+        modularity_violations[adapter.language] = result.modularity_violations
     repo.update(ci_runtime(runs))
     return {
         "schema": SCHEMA,
@@ -113,6 +115,7 @@ def measure(root: str, rev: str, runs: dict | None, adapters: tuple[Adapter, ...
         "files": files,
         "cochange_pairs": sorted(cochange_pairs, key=lambda p: (-p["count"], p["a"], p["b"])),
         "module_edges": sorted(module_edges, key=lambda e: (e["a"], e["b"])),
+        "modularity_violations": modularity_violations,
         "hotspot_functions": sorted(hotspot_functions, key=lambda f: (-f["hotspot"], f["file"], f["name"])),
     }
 

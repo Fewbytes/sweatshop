@@ -23,6 +23,8 @@ import gate
 import graphs
 import modules
 from adapter import Unavailable
+from file_signals import ViolationThresholds
+from source_adapter import SourceAdapter
 
 BRANCHY = """package a
 
@@ -272,6 +274,30 @@ class MeasureRepo(RepoFixture):
         self.assertEqual((edges["a", "b"]["cochange"], edges["a", "b"]["hidden"]), (0, False))
         self.assertEqual((edges["a", "c"]["imports"], edges["a", "c"]["cochange"], edges["a", "c"]["hidden"]), (0, 2, True))
 
+    def test_modularity_violations_rank_unimported_cochange_with_support_confidence_and_card(self):
+        adapters = (SourceAdapter(lang_go.GO, violation_thresholds=ViolationThresholds(min_support=2, min_confidence=0.5)),)
+        found = measure.measure(self.root, "HEAD", None, adapters)["modularity_violations"]
+        self.assertEqual(found, {"go": [{"a": "a/a.go", "b": "c/c.go", "support": 2, "confidence": 1.0, "last_card": None}]})
+
+    def test_modularity_violations_ignore_test_files(self):
+        for n in (1, 2):
+            self.write("a/a_test.go", f"package a\n\nfunc TestA{n}() {{}}\n")
+            self.write("c/c.go", f"package c\n\nfunc C() {{ _ = {n + 5} }}\n")
+            self.commit(f"t{n}")
+        adapters = (SourceAdapter(lang_go.GO, violation_thresholds=ViolationThresholds(min_support=2, min_confidence=0.1)),)
+        found = measure.measure(self.root, "HEAD", None, adapters)["modularity_violations"]["go"]
+        self.assertEqual({(v["a"], v["b"]) for v in found}, {("a/a.go", "c/c.go")})
+
+    def test_modularity_violations_need_the_default_support_of_five(self):
+        self.assertEqual(self.measure()["modularity_violations"], {"go": [], "python": [], "typescript": []})
+
+    def test_modularity_violations_are_not_measured_when_no_import_resolves(self):
+        self.write("a/a.go", "package a\n\nimport \"example.com/elsewhere/z\"\n\nvar _ = z.Z\n")
+        self.write("b/b.go", "package b\n\nimport \"example.com/elsewhere/z\"\n\nvar _ = z.Z\n")
+        self.commit("three")
+        found = self.measure()["modularity_violations"]["go"]
+        self.assertEqual(found, Unavailable("no go import resolved: dependencies unknown"))
+
     def test_hidden_coupling_counts_cochanging_packages_without_an_import(self):
         s = self.measure()
         self.assertEqual((s["repo"]["cochange_pairs"], s["repo"]["hidden_pairs"]), (1, 1))  # only a and c changed twice
@@ -372,9 +398,9 @@ class MeasureRepo(RepoFixture):
     def test_ci_runtime_is_unavailable_with_the_reason_when_no_runs_given(self):
         self.assertEqual(measure.ci_runtime(None)["ci_median_ms"], Unavailable("no CI runs file given"))
 
-    def test_signals_record_schema_4_and_every_tool_version(self):
+    def test_signals_record_schema_5_and_every_tool_version(self):
         s = self.measure()
-        self.assertEqual(s["schema"], 4)
+        self.assertEqual(s["schema"], 5)
         self.assertEqual(sorted(s["tools"]), [
             "git", "gopls", "kaizen-go-tables", "kaizen-python-tables", "kaizen-source-adapter", "kaizen-typescript-tables",
             "pyright-langserver", "python", "tree-sitter", "tree-sitter-go", "tree-sitter-python", "tree-sitter-typescript",
@@ -649,6 +675,17 @@ class GraphViews(unittest.TestCase):
         edges = [["A", "B"], ["B", "C"]]
         self.assertEqual(graphs.cohesion_graph(edges), graphs.cohesion_graph(edges))
 
+    def test_report_lists_violations_and_says_not_measured_for_unresolved_languages(self):
+        signals = Rendering().signals("a" * 40, 1)
+        signals["modularity_violations"] = {
+            "go": [{"a": "x/a.go", "b": "y/b.go", "support": 6, "confidence": 0.5, "last_card": "c-1"}],
+            "python": {"unavailable": "no python import resolved"},
+        }
+        page = render.render_report(signals, None, None, None)
+        self.assertIn("<td>x/a.go</td><td>y/b.go</td><td>6</td><td>50%</td><td>c-1</td>", page)
+        self.assertIn("Not measured: no python import resolved.", page)
+        self.assertNotIn("Hidden coupling</th>", page)
+
     def test_report_carries_both_graph_views(self):
         signals = Rendering().signals("a" * 40, 1)
         signals["packages"]["p/q"] |= {"symbol_edges": [["A", "B"]], "lcom4": 2}
@@ -664,7 +701,7 @@ class Rendering(unittest.TestCase):
         pkg = {s: 0 for s in render.PACKAGE_SIGNALS} | {"hotspot": hotspot, "hotspot_rank": 1, "symbol_edges": []}
         repo = {s: 0 for s in render.REPO_SIGNALS} | {"hotspot": hotspot, "ci_median_ms": None}
         return {"commit": commit, "measured_at": "t", "window_days": 90, "tools": dict(tools),
-                "packages": {"p/q": pkg}, "repo": repo, "module_edges": []}
+                "packages": {"p/q": pkg}, "repo": repo, "module_edges": [], "modularity_violations": {}}
 
     def test_report_shows_trend_against_previous_run_and_after_values(self):
         page = render.render_report(
