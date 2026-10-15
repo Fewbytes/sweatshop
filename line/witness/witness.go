@@ -200,12 +200,15 @@ const lineHeadsPrefix = "refs/line/heads/"
 
 var errCheckTimeout = errors.New("check timed out")
 
-// goTestJSONEnv makes every `go test` in a check emit the JSON events that
-// report.ParseGoTestJSON reads. It rides on the command because the check
-// definition (`just ci`) is the candidate's and gated; the signed predicate
-// keeps the constitution's command unchanged. Commands that do not accept
-// -json ignore it.
-const goTestJSONEnv = `export GOFLAGS="${GOFLAGS:+$GOFLAGS }-json"; `
+// checkEnv is prepended to every check command. It rides on the command
+// because the check definition (`just ci`) is the candidate's and gated; the
+// signed predicate keeps the constitution's command unchanged.
+//   - -json makes every `go test` emit the JSON events that
+//     report.ParseGoTestJSON reads; commands that do not accept it ignore it.
+//   - -mod=readonly and GOPROXY=off make a module missing from the cache fail
+//     at once with a clear error instead of a network lookup, so a DNS blip
+//     cannot fail a check.
+const checkEnv = `export GOFLAGS="${GOFLAGS:+$GOFLAGS }-json -mod=readonly" GOPROXY=off; `
 
 // run executes the required checks in checkout and signs the outcome.
 func (w *Witness) run(ctx context.Context, commit, tree, checkout string) (AttestResult, error) {
@@ -220,7 +223,7 @@ func (w *Witness) run(ctx context.Context, commit, tree, checkout string) (Attes
 	for _, check := range w.Constitution.Checks.Required {
 		checkCtx, cancel := context.WithTimeoutCause(ctx, timeout, errCheckTimeout)
 		checkStart := w.now()
-		run, err := w.Runner.Run(checkCtx, checkout, goTestJSONEnv+check.Command)
+		run, err := w.Runner.Run(checkCtx, checkout, checkEnv+check.Command)
 		elapsed := w.now().Sub(checkStart)
 		cut := checkCtx.Err() != nil
 		cancel()

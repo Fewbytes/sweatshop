@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -386,10 +387,22 @@ func TestAttestEnablesGoTestJSONWithoutChangingTheSignedCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if runner.command != goTestJSONEnv+"sh check.sh" {
+	if runner.command != checkEnv+"sh check.sh" {
 		t.Errorf("runner got %q", runner.command)
 	}
 	if got := result.Statement.Predicate.Checks[0].Command; got != "sh check.sh" {
 		t.Errorf("signed command = %q, want the constitution's", got)
+	}
+}
+
+func TestCheckEnvForbidsNetworkModuleLookups(t *testing.T) {
+	t.Setenv("GOFLAGS", "")
+	t.Setenv("GOPROXY", "https://proxy.golang.org")
+	out, err := exec.Command("sh", "-c", checkEnv+`printf '%s|%s' "$GOFLAGS" "$GOPROXY"`).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(out), "-json -mod=readonly|off"; got != want {
+		t.Errorf("GOFLAGS|GOPROXY = %q, want %q", got, want)
 	}
 }
