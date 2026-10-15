@@ -17,6 +17,7 @@ import render
 import source_adapter
 import syntax
 import file_signals
+import gate
 import graphs
 import modules
 from adapter import Unavailable
@@ -226,7 +227,7 @@ class TypeScriptSourceFacts(unittest.TestCase):
         )
 
 
-class MeasureRepo(unittest.TestCase):
+class RepoFixture(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -251,6 +252,9 @@ class MeasureRepo(unittest.TestCase):
         git(self.root, "add", "-A")
         git(self.root, "commit", "-q", "-m", msg)
 
+
+
+class MeasureRepo(RepoFixture):
     def measure(self):
         return measure.measure(self.root, "HEAD", None)
 
@@ -393,6 +397,54 @@ class MeasureRepo(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, r"omitted repo signals \['clones'\]"):
             measure.measure(self.root, "HEAD", None, (Lazy(lang_go.GO),))
+
+
+class GateAgainstHead(RepoFixture):
+    def gate(self, limits=gate.Thresholds(), accepted=frozenset()):
+        return gate.run_gate(self.root, "HEAD", limits, set(accepted))
+
+    def test_unchanged_tree_has_no_findings(self):
+        self.assertEqual(self.gate(), ([], []))
+
+    def test_complexity_growth_in_a_changed_file_fails(self):
+        self.write("c/c.go", "package c\n\nfunc C(a, b bool) int {\n\tif a && b {\n\t\treturn 1\n\t}\n\treturn 0\n}\n")
+        report, findings = self.gate()
+        self.assertEqual([f.key for f in findings], ["complexity:c/c.go"])
+        self.assertIn("c/c.go: complexity 0 → 2, hotspot rank 3 → 2", report)
+
+    def test_threshold_allows_growth_up_to_the_limit(self):
+        self.write("c/c.go", "package c\n\nfunc C(a bool) {\n\tif a {\n\t}\n}\n")
+        self.assertEqual(self.gate(gate.Thresholds(max_complexity_increase=1))[1], [])
+
+    def test_baseline_accepts_a_known_finding(self):
+        self.write("c/c.go", "package c\n\nfunc C(a bool) {\n\tif a {\n\t}\n}\n")
+        self.assertEqual(self.gate(accepted={"complexity:c/c.go"})[1], [])
+
+    def test_new_import_cycle_fails(self):
+        self.write("a/a2.go", 'package a\n\nimport "example.com/m/b"\n\nvar _ = b.X\n')
+        findings = self.gate()[1]
+        self.assertIn("cycle:a", [f.key for f in findings])
+
+    def test_new_clone_fails_in_a_new_untracked_file(self):
+        self.write("a/c1.go", f"package a\n\nfunc One() {{\n{CLONE_BODY}}}\n")
+        self.write("c/c1.go", f"package c\n\nfunc Two() {{\n{CLONE_BODY}}}\n")
+        self.assertEqual({f.key for f in self.gate()[1]}, {"clones:a", "clones:c"})
+
+    def test_hotspot_rank_rise_fails_only_with_a_configured_limit(self):
+        self.write("c/c.go", "package c\n\n" + BRANCHY.split("\n", 2)[2].replace("Branchy", "C") * 3)
+        self.assertEqual([f.key for f in self.gate()[1] if f.key.startswith("hotspot")], [])
+        keys = [f.key for f in self.gate(gate.Thresholds(max_hotspot_rank_rise=0))[1]]
+        self.assertIn("hotspot:c/c.go", keys)
+
+    def test_thresholds_file_rejects_unknown_keys(self):
+        self.write("t.json", '{"max_complexity_incress": 3}')
+        with self.assertRaises(TypeError):
+            gate.load_thresholds(os.path.join(self.root, "t.json"))
+
+    def test_cli_exits_non_zero_on_a_finding(self):
+        self.write("c/c.go", "package c\n\nfunc C(a bool) {\n\tif a {\n\t}\n}\n")
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(kaizen_signals.main(["gate", "--root", self.root, "--base", "HEAD"]), 1)
 
 
 class ModuleFacts(unittest.TestCase):

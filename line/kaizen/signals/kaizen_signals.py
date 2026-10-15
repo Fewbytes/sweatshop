@@ -10,6 +10,7 @@
   mutation --root DIR --language go|python|typescript --out mutation.json [--cap-seconds N] SCOPE...
   modules --signals signals.json --map docs/modules.json
   modules-check --root DIR --map docs/modules.json
+  gate    --root DIR --base REV [--thresholds kaizen-gate.json] [--baseline accepted.json]
   delta   --before b.json --after a.json --package PKG --signal NAME
 
 Run with: uv run --no-project --with-requirements line/kaizen/signals/requirements.txt \
@@ -21,6 +22,7 @@ import argparse
 import json
 import sys
 
+import gate
 import measure
 import modules
 import mutation
@@ -76,6 +78,18 @@ def cmd_report(args: argparse.Namespace) -> int:
     with open(args.out, "w", encoding="utf-8") as f:
         f.write(page)
     return 0
+
+
+def cmd_gate(args: argparse.Namespace) -> int:
+    """Print the signal deltas of the files changed against --base; exit 1 on a finding over threshold."""
+    report, findings = gate.run_gate(
+        args.root, args.base, gate.load_thresholds(args.thresholds), gate.load_baseline(args.baseline)
+    )
+    for line in report:
+        print(line)
+    for finding in findings:
+        print(f"gate: {finding.message} [{finding.key}]", file=sys.stderr)
+    return 1 if findings else 0
 
 
 def cmd_delta(args: argparse.Namespace) -> int:
@@ -138,6 +152,13 @@ def main(argv: list[str]) -> int:
     r.add_argument("--signal")
     r.add_argument("--why")
     r.set_defaults(func=cmd_report)
+
+    g = sub.add_parser("gate", help="exit 1 when the working tree is worse than a revision in the files it changed")
+    g.add_argument("--root", required=True)
+    g.add_argument("--base", required=True, help="revision to compare with, normally HEAD")
+    g.add_argument("--thresholds", help="JSON of gate.Thresholds fields; defaults allow no growth")
+    g.add_argument("--baseline", help="JSON list of finding keys accepted as existing debt")
+    g.set_defaults(func=cmd_gate)
 
     d = sub.add_parser("delta")
     d.add_argument("--before", required=True)
