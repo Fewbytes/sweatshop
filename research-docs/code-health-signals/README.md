@@ -319,7 +319,7 @@ a decision before the line will work on them.
 | `sweatshop-8t5.7` (owner) | Pre-submit gate: measure the working tree against HEAD |
 | `sweatshop-8t5.8` (owner) | Validate that the signals predict anything on this repo |
 | `sweatshop-8t5.9` (owner) | Architecture trend and cycle origins |
-| `sweatshop-8t5.10` (owner) | Research follow-ups (other tools, cohesion, literature) |
+| `sweatshop-8t5.10` | Research follow-ups (other tools, cohesion, literature): section 9 |
 | `sweatshop-8t5.1`, `.2`, `.3`, `sweatshop-xjk` | Existing cards, annotated with the findings above |
 
 Papers behind the behavioral signals are summarized in
@@ -327,54 +327,138 @@ Papers behind the behavioral signals are summarized in
 
 ---
 
-## 9. Open questions and future research
+## 9. Follow-up research (card `sweatshop-8t5.10`)
+
+Run 2026-10-15 on a clean clone of `master` (`e0f064f`: 274 Go files, 18
+Python, 1 TypeScript, 9 shell). Tools installed into a scratch directory; all
+**[run]** unless marked otherwise.
+
+### 9.1 Complexity, size and clone tools
+
+| Tool (version) | Reports | Go | Python | TypeScript | Shell | Repo time |
+|---|---|---|---|---|---|---|
+| codemetrics | per-function cyclomatic and cognitive | yes | yes | yes | **no** | 0.4 s |
+| gocyclo 0.6.0 | cyclomatic | yes | no | no | no | 0.05 s |
+| gocognit | cognitive | yes | no | no | no | 0.15 s |
+| lizard 1.24.1 | cyclomatic, NLOC, tokens, params; cognitive with `-Ecognitive` | yes | yes | yes | **no** | 0.2 s (1.0 s with cognitive) |
+| radon 6.0.1 | cyclomatic, Halstead, maintainability index, raw LOC | no | yes | no | no | 0.3 s |
+| scc 3.7.0 | lines, code, comments, and a "Complexity" count | yes | yes | yes | yes | 0.1 s |
+| tokei 12.1.2 | lines, code, comments (no complexity) | yes | yes | yes | yes | 0.05 s |
+| jscpd 5.4.1 | token-based clones | yes | yes | yes | yes | 0.13 s |
+
+(tokei 14 and 15 publish no Linux binary; 12.1.2 was the newest release with one.)
+
+**Definitions, checked on a function whose answer we worked out by hand**
+(`for`, `if` with `&& ... ||`, `else if`, `else`, `switch` with two cases,
+and the equivalents in Python, TypeScript and shell):
+
+- Go: Sonar cognitive complexity is 8 and cyclomatic is 8. codemetrics, gocyclo,
+  gocognit and lizard (`-Ecognitive`) all give 8/8 (as applicable).
+- Python: cognitive 7. codemetrics 7 and lizard 7. Cyclomatic differs by
+  design: codemetrics 6, lizard and radon 8, because radon and lizard also count
+  the comprehension and its `if`, and radon counts a `BoolOp` once. Pick one
+  and record it; do not compare across tools.
+- TypeScript: codemetrics folds a nested arrow function into the enclosing
+  function (cyclomatic 7); lizard reports the arrow function separately (6 and 2).
+- scc's "Complexity" is a count of branch keywords per file, not per function:
+  14,331 for Go here against about 5,600 cyclomatic from the per-function tools.
+  Useful as a file-level size proxy only; not Sonar and not McCabe.
+
+**Agreement on this repo (non-test code).**
+
+| Quantity | Value |
+|---|---|
+| Go cyclomatic total: codemetrics / gocyclo / lizard | 5,555 / 5,518 / 5,630 |
+| Go cognitive total: codemetrics / gocognit / lizard | 5,807 / 5,808 / 5,655 |
+| Python cyclomatic total: codemetrics / lizard / radon | 552 / 714 / 735 |
+| Python cognitive total: codemetrics / lizard | 465 / 467 |
+| Go functions: codemetrics / lizard | 1,053 / 1,171 (lizard lists closures) |
+
+codemetrics and gocognit agree on Go cognitive to one point in 5,800. Lizard is
+lexical, so on the largest functions it undercounts (e.g. `formatCargo`: 92
+against 80); 37 of 456 matched Go functions differ. gocyclo is 37 below
+codemetrics, which is plausibly closures and `select` cases, not checked per
+function.
+
+**Shell is not covered by any complexity tool here.** Only scc (keyword count)
+and tokei/jscpd (size, clones) read shell. For shell, report size and
+ShellCheck-style findings, not complexity.
+
+**jscpd** found 50 clones, 594 duplicated Go lines (2.1%) in the 136 non-test Go
+files and 7 lines (0.2%) in Python at `--min-lines 6 --min-tokens 60`; it is a
+token matcher, so Type-1/2 clones only, with no similarity score for Type-3.
+
+**Conclusion.** Keep codemetrics as the complexity source; cross-check with
+gocognit for Go in the parity test (they agree to 1 in 5,800). Use lizard only
+if a language codemetrics lacks is needed. Take line counts from scc or tokei
+if the adapter does not already have them (scc is MIT, 0.1 s). jscpd is a
+candidate clone source for `8t5.3`; none of the tools gives live clones.
+
+### 9.2 CodeQL and Semgrep for call graphs
+
+- **CodeQL CLI 2.27.2** downloads as a 416 MB zip in 7 s, and `codeql pack
+  install` of `codeql/go-all` or `python-all` takes 13 s. Its libraries do model
+  call targets (`CallExpr.getTarget()` in Go; points-to in Python), so a
+  resolved call graph is a query away. **Database creation failed in this
+  sandbox for both Go (`go build -a`, 40 s, tracer saw `go`, `cc1`, `ld`) and
+  Python: "could not process any of it".** We did not find the cause, so the
+  call-graph claim is from documentation, not our run **[weak]**. It also needs a
+  build for Go, a GitHub-licensed CLI (free for open source only), and about
+  40 s per Go database before any query.
+- **Semgrep 1.181.0** (OSS) starts in 2 s but matches syntax: the pattern
+  `Compute(...)` found 0 of the 9 textual mentions in Go because the calls are
+  package-qualified (`cistats.Compute`), and nothing resolves a name to its
+  definition. Cross-file resolution is a paid product. It cannot supply a call
+  graph.
+- **Conclusion.** Neither is a cheap source of references or call depth. The
+  language servers below answer the same questions, run unchanged on a fresh
+  checkout, and are already wired in (`kaizen/signals/lsp.py`). Revisit CodeQL
+  only for data flow, which no signal needs yet.
+
+### 9.3 Language servers on a cold checkout
+
+Fresh `git clone` per run, through our own `LspSession`: initialize, open one
+file, first `textDocument/references` on a function, then repeat, then call
+hierarchy. Times are wall clock.
+
+| Server | initialize | first references | repeat | call hierarchy | Notes |
+|---|---|---|---|---|---|
+| gopls 0.24.0 | 0.02 s | 6.6 s (1.4 s with gopls cache warm) | 0.01 s | 0.01 s | module cache already downloaded; first request type-checks the package and its dependencies |
+| pyright 1.1.414 | 0.2 s | 0.8 to 1.1 s | 0.03 s | 0.00 s | no setup |
+| typescript-language-server 6.0.2 | 0.1 s | 2.1 s | 0.01 s | 0.25 s | needs `typescript` 5 in the workspace `node_modules`; with `typescript` 7.0.2 (no `tsserver.js`) it fails to start |
+
+Costs a signal run must budget: 7 s for Go on a truly cold cache, under 3 s
+elsewhere, then milliseconds per query. Two gaps to guard: the TypeScript
+server's dependency on a compatible `typescript` install must be a recorded
+precondition, and a failed start must stay `LspUnavailable`, not a number.
+
+### 9.4 Cohesion for Go packages
+
+Surveyed in `literature.md` section 9, which proposes a definition (package
+declaration graph; connected components as split candidates, density as the
+score, hub declarations reported with and without). No tool reports it. The
+worked example for `kaizen.md` is still to write once `8t5` implements the graph
+(`graphs.py` has the import graph, not the declaration graph).
+
+### 9.5 Literature
+
+Done in `literature.md` (sections 2 to 7 and 11). Still unread, after another
+attempt: Tornhill's books (paywalled), Mo et al. WICSA 2015 (publisher and
+author copies refuse), Gall et al. 2003 (no open copy). The three rework leads
+were read as abstracts: arXiv 2601.20109 (1,210 agent bug-fix PRs, SonarQube
+differential; churn only normalises counts), 2601.21276 (agents disregard reuse;
+MSR 2026) and 2603.28592 (302.6k AI-authored commits; 22.7% of introduced issues
+still present at the latest revision). Only the last tracks anything over time,
+and it tracks static-analysis issues, not rewritten lines. The gap stands: no
+study measures rework of agent code.
+
+---
+
+## 10. Open questions and future research
 
 Not yet done; each becomes a card or a note when picked up.
-
-- **Other complexity and clone tools for comparison:** lizard, scc, jscpd,
-  gocognit, gocyclo, radon, tokei. Check definitions match SonarSource
-  cognitive complexity and what each reports for Python, TypeScript and shell.
-- **Semantic analysis:** CodeQL and Semgrep for call graphs and data flow;
-  what the language servers (gopls, pyright, typescript-language-server) can
-  answer cheaply for references and call hierarchy, and how long they take on
-  a cold checkout (`8t5.4`).
 - **Mutation testing tools:** gremlins, go-mutesting (Go), mutmut (Python),
   Stryker (TypeScript): speed, determinism, scoping to changed code (`8t5.5`).
-- **Cohesion metrics:** LCOM variants and what is meaningful for Go packages
-  (no classes). Candidate definitions from the literature, then a worked
-  example in `kaizen.md`. No open-source tool found reports cohesion.
-- **The literature behind the behavioral signals,** to cite correctly in
-  `kaizen.md`: Tornhill (*Your Code as a Crime Scene*, *Software Design X-Rays*);
-  Mo, Cai and Kazman 2015 (hotspot patterns, DV8); Gall et al. 1998/2003
-  (logical coupling) and Zimmermann et al. 2005 (entity- and function-level
-  coupling; support and confidence; the codelore README attributes function
-  coupling to "Adams et al. 2006", which a reader could not confirm: the
-  nearest verified work is Adams, Jiang and Hassan, ICSE 2010, co-added calls); Bird et al.
-  2011 (ownership); Kamei et al. (just-in-time defect features); Baldwin and
-  MacCormack (propagation cost); El Emam et al. 2001 (size confounds metrics).
-  Verify each against the paper, not the codelore README.
-- **Agent-written code studies** found so far, abstracts only:
-  [AI-Generated Smells](https://huggingface.co/papers/2605.02741) (capable
-  models write bulkier, more tightly coupled code; volume predicts decay),
-  [CodeThread](https://www.emergentmind.com/papers/2606.21804) (static
-  maintainability metrics miss validation, error handling and compatibility
-  problems; costs may compound over edit chains),
-  [SANER 2025](https://conf.researchr.org/details/saner-2025/saner-2025-papers/33/Evaluating-the-Effectiveness-of-LLMs-in-Fixing-Maintainability-Issues-in-Real-World-P)
-  (LLM fixes of SonarQube findings often introduced new problems),
-  [agent-generated code and technical debt](https://arxiv.org/pdf/2609.04208)
-  (per the literature reader: a registered report accepted at ESEM 2026, no
-  results yet, so it is a protocol, not evidence),
-  [ICML 2026 maintainability experiment](https://icml.cc/virtual/2026/82761)
-  (a workshop poster, not the main conference; the same work as CodeThread above: the arXiv version is titled "Is Agent
-  Code Less Maintainable Than Human Code?"). A secondary reader reported, for
-  CodeThread, SANER 2025 and the 2603.25146 review, that none of them measures
-  churn, survival, reverts or rework of agent code, and that changes to input
-  validation, fallbacks and error handling (not complexity deltas) predicted
-  later failures; details go to `literature.md`. Unread leads for rework
-  evidence: arXiv 2601.20109, 2603.28592, 2601.21276, and GitClear's 2025
-  report (vendor).
-  Read the full texts; check whether any measures change-frequency or rework of
-  agent-written code, which the searches did not show.
 - **Do the signals predict anything here?** codelore's `calibrate-defects`
   idea: mine our own fix-commit history (bug cards and the commits that closed
   them) and test whether hotspot rank or health band predicted where bugs

@@ -1180,12 +1180,19 @@ bound for a modern agent), small numbers per rule.
 
 ### 11.6 Leads not read
 
-These turned up while searching. Check them for rework and churn evidence
-before claiming the gap is real:
-- GitClear 2025 (vendor report on code churn)
-- arXiv 2601.20109
-- arXiv 2603.28592
-- arXiv 2601.21276
+Checked 2026-10-15 (abstract pages only; full texts not read):
+- arXiv 2601.20109 (Cynthia, Muttakin, Roy): 1,210 agent bug-fix PRs, SonarQube
+  differential before and after merge. Churn only normalises issue counts. No
+  rework or survival.
+- arXiv 2603.28592 (Liu et al., Lo): 302.6k AI-authored commits, 6,299
+  repositories; 22.7% of the introduced static-analysis issues survive at the
+  latest revision. The only one that follows anything over time, and it follows
+  issues, not rewritten lines.
+- arXiv 2601.21276 (Huang et al., MSR 2026): agents disregard reuse; code
+  metrics and reviewer sentiment. No rework.
+- GitClear 2025 (vendor report on code churn): not read.
+
+The gap stands: nothing measures rework of agent-written code.
 
 ---
 
