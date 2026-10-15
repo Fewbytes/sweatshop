@@ -544,6 +544,12 @@ func (c *Channel) approveCard(ctx context.Context, id, via string) string {
 		log.Printf("channel: approve %s: %v", id, err)
 		return fmt.Sprintf("could not approve %s", id)
 	}
+	// A split child inherits its parent's LabelGaveUp, which hides it from
+	// every maker; the king's approval is the retry decision.
+	if err := c.Cards.RemoveLabel(ctx, id, LabelGaveUp); err != nil {
+		log.Printf("channel: approve %s: %v", id, err)
+		return fmt.Sprintf("could not approve %s", id)
+	}
 	if err := c.Cards.AddLabel(ctx, id, LabelLine); err != nil {
 		log.Printf("channel: approve %s: %v", id, err)
 		return fmt.Sprintf("could not approve %s", id)

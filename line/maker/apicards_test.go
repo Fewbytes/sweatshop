@@ -81,6 +81,13 @@ func (m *memCards) AddLabel(_ context.Context, id, label string) error {
 	return nil
 }
 
+func (m *memCards) RemoveLabel(_ context.Context, id, label string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.labels[id] = slices.DeleteFunc(m.labels[id], func(l string) bool { return l == label })
+	return nil
+}
+
 func (m *memCards) Create(context.Context, station.NewCard) (json.RawMessage, error) {
 	return nil, fmt.Errorf("maker may not create")
 }

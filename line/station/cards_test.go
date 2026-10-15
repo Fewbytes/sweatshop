@@ -42,6 +42,10 @@ func (f *fakeCards) AddLabel(_ context.Context, id, label string) error {
 	return f.rec("label " + id + " " + label)
 }
 
+func (f *fakeCards) RemoveLabel(_ context.Context, id, label string) error {
+	return f.rec("unlabel " + id + " " + label)
+}
+
 func (f *fakeCards) Claim(_ context.Context, id, agent string) error {
 	return f.rec("claim " + id + " " + agent)
 }

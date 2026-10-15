@@ -66,6 +66,7 @@ type Cards interface {
 	Create(ctx context.Context, c NewCard) (json.RawMessage, error)
 	Comment(ctx context.Context, id, text string) error
 	AddLabel(ctx context.Context, id, label string) error
+	RemoveLabel(ctx context.Context, id, label string) error
 	// Claim, Release and Close act as the named agent: bd lets only the
 	// claim holder release a claim. Show reports the assignee.
 	Claim(ctx context.Context, id, agent string) error
@@ -173,6 +174,11 @@ func (b BeadsCards) Comment(ctx context.Context, id, text string) error {
 
 func (b BeadsCards) AddLabel(ctx context.Context, id, label string) error {
 	_, err := b.bd(ctx, "label", "add", id, label)
+	return err
+}
+
+func (b BeadsCards) RemoveLabel(ctx context.Context, id, label string) error {
+	_, err := b.bd(ctx, "label", "remove", id, label)
 	return err
 }
 
