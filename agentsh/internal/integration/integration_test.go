@@ -52,12 +52,11 @@ func TestFailureClassFixtures(t *testing.T) {
 
 func TestDefaultStdinDoesNotBlock(t *testing.T) {
 	e, root := newExecutor(t)
-	started := time.Now()
 	inv, err := e.Execute(context.Background(), executor.Request{Command: `read value; echo "$value"`, CWD: root, Timeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if time.Since(started) > 500*time.Millisecond || inv.State != storage.StateExited {
+	if inv.State != storage.StateExited {
 		t.Fatalf("default stdin blocked: %+v", inv)
 	}
 }

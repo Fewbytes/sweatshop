@@ -12,12 +12,11 @@ import (
 )
 
 func TestWaitReadyZeroPredicatesIsInstant(t *testing.T) {
-	start := time.Now()
-	if err := WaitReady(context.Background(), nil, time.Second, 0); err != nil {
+	// An already-cancelled context proves WaitReady returns without waiting.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := WaitReady(ctx, nil, time.Second, 0); err != nil {
 		t.Fatal(err)
-	}
-	if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
-		t.Fatalf("zero predicates took %v, want near-instant", elapsed)
 	}
 }
 
@@ -58,7 +57,14 @@ func TestWaitReadyStdoutRegexPredicate(t *testing.T) {
 	var buf atomic.Pointer[[]byte]
 	empty := []byte(nil)
 	buf.Store(&empty)
-	tail := func() ([]byte, error) { return *buf.Load(), nil }
+	polled := make(chan struct{}, 1)
+	tail := func() ([]byte, error) {
+		select {
+		case polled <- struct{}{}:
+		default:
+		}
+		return *buf.Load(), nil
+	}
 	predicates, err := BuildPredicates(ReadinessSpec{StdoutRegex: `listening on \d+`}, tail)
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +74,7 @@ func TestWaitReadyStdoutRegexPredicate(t *testing.T) {
 	go func() {
 		done <- WaitReady(context.Background(), predicates, time.Second, 10*time.Millisecond)
 	}()
-	time.Sleep(30 * time.Millisecond)
+	<-polled // the predicate has seen the empty tail
 	data := []byte("starting up\nlistening on 8080\n")
 	buf.Store(&data)
 	if err := <-done; err != nil {
@@ -100,7 +106,12 @@ func TestWaitReadyMixedPredicatesAreANDed(t *testing.T) {
 	port := ln.Addr().(*net.TCPAddr).Port
 
 	var ready atomic.Bool
+	polled := make(chan struct{}, 2)
 	tail := func() ([]byte, error) {
+		select {
+		case polled <- struct{}{}:
+		default:
+		}
 		if !ready.Load() {
 			return nil, nil
 		}
@@ -117,10 +128,12 @@ func TestWaitReadyMixedPredicatesAreANDed(t *testing.T) {
 	}()
 	// Port is open from the start, but the regex predicate isn't satisfied
 	// yet — WaitReady must not report ready until both are true.
+	<-polled
+	<-polled
 	select {
 	case err := <-done:
 		t.Fatalf("WaitReady returned early (%v) before the regex predicate was satisfied", err)
-	case <-time.After(60 * time.Millisecond):
+	default:
 	}
 	ready.Store(true)
 	if err := <-done; err != nil {
@@ -146,13 +159,28 @@ func TestBuildPredicatesEmptySpecIsEmpty(t *testing.T) {
 
 func TestWaitReadyCtxCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	predicates := []Predicate{PortPredicate{Host: "127.0.0.1", Port: 1}} // nothing listens on port 1
+	polled := make(chan struct{}, 1)
+	predicates := []Predicate{notReadyPredicate{polled: polled}}
 	go func() {
-		time.Sleep(20 * time.Millisecond)
+		<-polled
 		cancel()
 	}()
 	err := WaitReady(ctx, predicates, time.Minute, 10*time.Millisecond)
 	if err == nil {
 		t.Fatal("expected error from cancellation")
 	}
+}
+
+// notReadyPredicate never becomes ready and reports each Check on polled, so a
+// test can act once WaitReady is demonstrably mid-wait.
+type notReadyPredicate struct{ polled chan<- struct{} }
+
+func (p notReadyPredicate) Describe() string { return "never ready" }
+
+func (p notReadyPredicate) Check(ctx context.Context) (bool, error) {
+	select {
+	case p.polled <- struct{}{}:
+	default:
+	}
+	return false, nil
 }
