@@ -9,6 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -38,7 +41,13 @@ func (r Repo) open(ctx context.Context) (*git.Repository, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return git.PlainOpen(r.Dir)
+	_, err := os.Stat(filepath.Join(r.Dir, git.GitDirName))
+	bare := errors.Is(err, fs.ErrNotExist)
+	if err != nil && !bare {
+		return nil, err
+	}
+	dot, wt := repoFilesystems(r.Dir, bare)
+	return git.Open(newStorage(dot), wt)
 }
 
 // Init creates an empty repository at r.Dir; HEAD points at refs/heads/master.
@@ -46,7 +55,8 @@ func (r Repo) Init(ctx context.Context, bare bool) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	_, err := git.PlainInit(r.Dir, bare)
+	dot, wt := repoFilesystems(r.Dir, bare)
+	_, err := git.Init(newStorage(dot), wt)
 	return err
 }
 
