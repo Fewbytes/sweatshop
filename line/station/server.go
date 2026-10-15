@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -138,6 +139,40 @@ type Status struct {
 	Stations []StationStatus `json:"stations"`
 	// KaizenRequest is the latest request for a Kaizen run; nil if none was made.
 	KaizenRequest *KaizenRequest `json:"kaizen_request,omitempty"`
+	// Held is every open line card that makers are not offered, with why.
+	Held []HeldCard `json:"held,omitempty"`
+}
+
+// HeldCard is an open line card hidden from makers by Reason.
+type HeldCard struct {
+	ID     string `json:"id"`
+	Reason string `json:"reason"`
+}
+
+// heldCards lists open line cards carrying LabelGaveUp, which the ready query
+// excludes. It returns nil when the server has no card tracker.
+func (s *Server) heldCards(ctx context.Context) ([]HeldCard, error) {
+	if s.Cards == nil {
+		return nil, nil
+	}
+	out, err := s.Cards.List(ctx, ListFilter{Status: "open", Label: LabelLine})
+	if err != nil {
+		return nil, fmt.Errorf("list open line cards: %w", err)
+	}
+	var rows []struct {
+		ID     string   `json:"id"`
+		Labels []string `json:"labels"`
+	}
+	if err := json.Unmarshal(out, &rows); err != nil {
+		return nil, fmt.Errorf("parse open line cards: %w", err)
+	}
+	var held []HeldCard
+	for _, r := range rows {
+		if slices.Contains(r.Labels, LabelGaveUp) {
+			held = append(held, HeldCard{ID: r.ID, Reason: "labelled " + LabelGaveUp + "; remove it to offer the card to makers"})
+		}
+	}
+	return held, nil
 }
 
 // NewFromLine builds the server for a line directory: one witness per
@@ -474,7 +509,13 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	writeJSON(w, http.StatusOK, Status{Master: master, Event: id, Andon: event, Stations: s.liveness.snapshot(s.Stations, time.Now()), KaizenRequest: s.latestKaizenRequest()})
+	// Status carries andon state makers depend on, so a card tracker failure
+	// is logged rather than failing the route.
+	held, err := s.heldCards(r.Context())
+	if err != nil {
+		log.Printf("status: held cards: %v", err)
+	}
+	writeJSON(w, http.StatusOK, Status{Master: master, Event: id, Andon: event, Stations: s.liveness.snapshot(s.Stations, time.Now()), KaizenRequest: s.latestKaizenRequest(), Held: held})
 	return "master=" + master + " event=" + id, nil
 }
 

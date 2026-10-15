@@ -2,6 +2,7 @@ package station
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http/httptest"
 	"strings"
@@ -199,5 +200,29 @@ func TestHeartbeatCarriesRunScheduleToStatus(t *testing.T) {
 	got := srv.liveness.snapshot(srv.Stations, time.Now())[0]
 	if got.LastRun == nil || !got.LastRun.Equal(last) || got.NextRun == nil || !got.NextRun.Equal(next) {
 		t.Fatalf("schedule = %v / %v, want %v / %v", got.LastRun, got.NextRun, last, next)
+	}
+}
+
+type heldCardsFake struct {
+	fakeCards
+	list string
+}
+
+func (f *heldCardsFake) List(_ context.Context, l ListFilter) (json.RawMessage, error) {
+	if l.Status != "open" || l.Label != LabelLine {
+		return nil, errors.New("unexpected filter")
+	}
+	return json.RawMessage(f.list), nil
+}
+
+func TestStatusReportsLineGaveUpCardsAsHeld(t *testing.T) {
+	r := newRig(t)
+	r.srv.Cards = &heldCardsFake{list: `[{"id":"x-1","labels":["line","line-gave-up"]},{"id":"x-2","labels":["line"]}]`}
+	st, err := r.andon.Status(r.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Held) != 1 || st.Held[0].ID != "x-1" || !strings.Contains(st.Held[0].Reason, LabelGaveUp) {
+		t.Fatalf("held = %+v", st.Held)
 	}
 }

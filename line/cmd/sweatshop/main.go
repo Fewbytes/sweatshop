@@ -922,6 +922,9 @@ func lineStatus(stdout io.Writer) error {
 	for _, s := range st.Stations {
 		fmt.Fprintln(stdout, stationLine(s))
 	}
+	for _, h := range st.Held {
+		fmt.Fprintf(stdout, "held %s: %s\n", h.ID, h.Reason)
+	}
 	if st.Event == "" {
 		fmt.Fprintln(stdout, "andon clear")
 		return nil
