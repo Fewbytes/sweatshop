@@ -254,7 +254,7 @@ below) exists, the prompt switches to filing cards and this section goes.
 - **Signals measured.** Every run computes the guide's section 3 signals
   with the repo's own scripts (`line/kaizen/signals/`, python via `uv`, stdlib
   only, run in the station container), per Go package and for the repo:
-  hotspot score (churn over 90 days of `git log` x cognitive complexity),
+  hotspot score (decayed churn over 90 days of `git log` x cognitive complexity),
   hidden-coupling ratio (co-changing package pairs with no import edge),
   clone count, import cycles, dead symbols, pattern entropy (error creation
   and logging idioms) and the CI median runtime from the run store

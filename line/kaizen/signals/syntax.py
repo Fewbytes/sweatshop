@@ -108,6 +108,7 @@ class SourceFile:
     identifiers: list[str]
     idioms: dict[tuple[str, str], int]
     tokens: list[str]  # leaf tokens without comments, for clone windows
+    lines: int  # physical lines, the size that per-LOC signals divide by
 
     @property
     def symbols(self) -> list[str]:
@@ -259,4 +260,5 @@ def parse_source(spec: LanguageSpec, path: str, source: bytes) -> SourceFile:
         identifiers=[_text(n) for n in nodes if n.type in spec.identifier_types],
         idioms=idioms,
         tokens=[_text(n) for n in nodes if n.child_count == 0 and n.type not in _COMMENT_TYPES and n.start_byte < n.end_byte],
+        lines=len(source.splitlines()),
     )

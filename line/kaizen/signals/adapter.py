@@ -24,6 +24,8 @@ Signals = dict[str, SignalValue]
 class Commit:
     card: str | None  # the Bead trailer, None when the commit names no card
     deleted_lines: dict[str, int]  # every file touched -> lines it removed or replaced
+    changed_lines: dict[str, int]  # every file touched -> lines it added plus lines it removed
+    age_years: float  # how long before the measured revision's clock the commit was made
 
 
 @dataclass(frozen=True)

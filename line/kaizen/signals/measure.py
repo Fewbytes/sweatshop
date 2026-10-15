@@ -17,9 +17,10 @@ from lang_python import PYTHON
 from lang_typescript import TYPESCRIPT
 from source_adapter import SourceAdapter
 
-SCHEMA = 5
+SCHEMA = 6
 WINDOW_DAYS = 90
 CI_RUNS_CONSIDERED = 50
+SECONDS_PER_YEAR = 365.25 * 24 * 3600
 # Every language adapter, run in this order. A literal table so search finds
 # each one; adding a language is adding a line here.
 ADAPTERS: tuple[Adapter, ...] = (SourceAdapter(GO), SourceAdapter(PYTHON), SourceAdapter(TYPESCRIPT))
@@ -33,18 +34,23 @@ def git(root: str, *args: str) -> str:
 
 def history(root: str, rev: str) -> History:
     head_date = git(root, "log", "-1", "--format=%cI", rev).strip()
-    since = (datetime.fromisoformat(head_date) - timedelta(days=WINDOW_DAYS)).isoformat()
+    head = datetime.fromisoformat(head_date)
+    since = (head - timedelta(days=WINDOW_DAYS)).isoformat()
     out = git(
         root, "log", rev, f"--since={since}", "--numstat", "--no-renames",
-        "--format=@@%(trailers:key=Bead,valueonly,separator=%x2C)",
+        "--format=@@%cI @%(trailers:key=Bead,valueonly,separator=%x2C)",
     )
     commits: list[Commit] = []
     for line in out.splitlines():
         if line.startswith("@@"):
-            commits.append(Commit(line[2:].strip() or None, {}))
+            date, card = line[2:].split(" @", 1)
+            age_years = (head - datetime.fromisoformat(date)).total_seconds() / SECONDS_PER_YEAR
+            commits.append(Commit(card.strip() or None, {}, {}, age_years))
         elif line:
-            _, deleted, path = line.split("\t", 2)
-            commits[-1].deleted_lines[path] = 0 if deleted == "-" else int(deleted)  # "-" is a binary file
+            added, deleted, path = line.split("\t", 2)
+            # "-" is a binary file
+            commits[-1].deleted_lines[path] = 0 if deleted == "-" else int(deleted)
+            commits[-1].changed_lines[path] = 0 if added == "-" else int(added) + int(deleted)
     return History(head_date, commits)
 
 

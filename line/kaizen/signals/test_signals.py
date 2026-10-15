@@ -2,6 +2,7 @@ import contextlib
 import dataclasses
 import io
 import json
+import math
 import os
 import subprocess
 import sys
@@ -22,7 +23,7 @@ import file_signals
 import gate
 import graphs
 import modules
-from adapter import Unavailable
+from adapter import Commit, Unavailable
 from file_signals import ViolationThresholds
 from source_adapter import SourceAdapter
 
@@ -262,11 +263,30 @@ class MeasureRepo(RepoFixture):
     def measure(self):
         return measure.measure(self.root, "HEAD", None)
 
-    def test_hotspot_is_churn_times_complexity_and_ranks_packages(self):
+    def test_hotspot_is_decayed_churn_times_complexity_and_ranks_packages(self):
         s = self.measure()
         a = s["packages"]["a"]
-        self.assertEqual((a["churn"], a["complexity"], a["hotspot"], a["hotspot_rank"]), (2, 8, 16, 1))
-        self.assertEqual(s["repo"]["hotspot"], 16)
+        a_lines = len((BRANCHY + "\nfunc unusedHelper() {}\n").splitlines())
+        decayed = math.log1p(a_lines) + math.log1p(2)  # commits made now: no decay
+        self.assertEqual((a["churn"], a["complexity"], a["hotspot_rank"]), (2, 8, 1))
+        self.assertAlmostEqual(a["hotspot"], decayed * 8, places=2)
+        self.assertAlmostEqual(a["hotspot_per_loc"], decayed * 8 / a_lines, places=3)
+        self.assertAlmostEqual(s["repo"]["hotspot"], decayed * 8, places=2)
+
+    def test_relative_churn_is_changed_lines_over_current_lines(self):
+        c = self.measure()["files"]["c/c.go"]
+        self.assertEqual((c["loc"], c["relative_churn"]), (3, round((3 + 2) / 3, 3)))  # add 3 lines, then replace 1
+
+    def test_per_loc_signals_do_not_rank_a_file_for_being_large(self):
+        a = self.measure()["files"]["a/a.go"]
+        self.assertEqual(a["complexity_per_loc"], round(a["complexity"] / a["loc"], 3))
+        self.assertLess(a["hotspot_per_loc"], a["hotspot"])
+
+    def test_older_changes_weigh_exp_minus_alpha_age_less(self):
+        source = {"x.go": parse(lang_go.GO, "package x\n")}
+        commits = [Commit(None, {"x.go": 0}, {"x.go": 9}, 0.0), Commit(None, {"x.go": 0}, {"x.go": 9}, 2.0)]
+        score = file_signals.decayed_changes(commits, source)["x.go"]
+        self.assertAlmostEqual(score, math.log(10) * (1 + math.exp(-file_signals.DECAY_PER_YEAR * 2)))
 
     def test_module_edges_weigh_imports_and_flag_cochange_without_one(self):
         edges = {(e["a"], e["b"]): e for e in self.measure()["module_edges"]}
@@ -338,10 +358,10 @@ class MeasureRepo(RepoFixture):
     def test_files_and_functions_are_ranked_by_hotspot(self):
         s = self.measure()
         self.assertEqual(
-            (s["files"]["a/a.go"]["hotspot"], s["files"]["a/a.go"]["hotspot_rank"]), (16, 1))
+            s["files"]["a/a.go"]["hotspot_rank"], 1)
         self.assertEqual(
             s["hotspot_functions"][0],
-            {"file": "a/a.go", "name": "Branchy", "complexity": 8, "hotspot": 16})
+            {"file": "a/a.go", "name": "Branchy", "complexity": 8, "hotspot": s["files"]["a/a.go"]["hotspot"]})
 
     def test_cards_per_file_count_distinct_bead_trailers_and_rework_rate_counts_deleting_commits(self):
         self.write("c/c.go", "package c\n\nfunc C() { _ = 2 }\n")
@@ -398,9 +418,9 @@ class MeasureRepo(RepoFixture):
     def test_ci_runtime_is_unavailable_with_the_reason_when_no_runs_given(self):
         self.assertEqual(measure.ci_runtime(None)["ci_median_ms"], Unavailable("no CI runs file given"))
 
-    def test_signals_record_schema_5_and_every_tool_version(self):
+    def test_signals_record_schema_6_and_every_tool_version(self):
         s = self.measure()
-        self.assertEqual(s["schema"], 5)
+        self.assertEqual(s["schema"], 6)
         self.assertEqual(sorted(s["tools"]), [
             "git", "gopls", "kaizen-go-tables", "kaizen-python-tables", "kaizen-source-adapter", "kaizen-typescript-tables",
             "pyright-langserver", "python", "tree-sitter", "tree-sitter-go", "tree-sitter-python", "tree-sitter-typescript",

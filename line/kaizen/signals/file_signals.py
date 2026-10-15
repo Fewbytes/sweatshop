@@ -5,6 +5,7 @@ All of it is language-agnostic: it reads SourceFile facts and the package
 import graph, never a grammar. Definitions are in kaizen.md section 3.
 """
 
+import math
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from itertools import combinations
@@ -19,6 +20,8 @@ MAX_FILES_PER_COMMIT = 50
 MIN_COCHANGES = 2
 TOP_COCHANGE_PAIRS = 50
 TOP_HOTSPOT_FUNCTIONS = 20
+# Graves et al. 2000 weight a change by exp(-alpha * age), alpha 0.75 per year.
+DECAY_PER_YEAR = 0.75
 
 
 @dataclass(frozen=True)
@@ -29,6 +32,19 @@ class ViolationThresholds:
 
     min_support: int = 5
     min_confidence: float = 0.3
+
+
+def decayed_changes(commits: list[Commit], source: dict[str, SourceFile]) -> Counter[str]:
+    """Per source file, the sum over its commits of exp(-DECAY_PER_YEAR * age) *
+    log(1 + lines changed): Graves et al.'s decayed change count, with the log
+    of the change size. The 1 keeps a one-line change from weighing nothing."""
+    score: Counter[str] = Counter()
+    for commit in commits:
+        weight = math.exp(-DECAY_PER_YEAR * commit.age_years)
+        for path, lines in commit.changed_lines.items():
+            if path in source:
+                score[path] += weight * math.log1p(lines)
+    return score
 
 
 def structurally_unlinked(a: str, b: str, package_graph: dict[str, set[str]]) -> bool:
@@ -133,9 +149,14 @@ def file_signals(
     package_graph: dict[str, set[str]],
 ) -> tuple[dict[str, Signals], list[Signals], list[Signals]]:
     """Per-file signals, the most frequent co-changing file pairs, and the
-    highest-hotspot functions. A function's hotspot is its complexity times
-    the churn of its file: git attributes changes to files, not functions."""
+    highest-hotspot functions. A file's hotspot is its decayed change count
+    times its complexity, a ranking key only. A function's hotspot is its
+    complexity times the decayed change count of its file: git attributes
+    changes to files, not functions. Size-dependent signals also come per
+    line, so a large file does not top every list for being large."""
+    decayed = decayed_changes(commits, source)
     churn: Counter[str] = Counter()
+    changed: Counter[str] = Counter()
     reworked: Counter[str] = Counter()
     cards: dict[str, set[str]] = defaultdict(set)
     for commit in commits:
@@ -143,6 +164,7 @@ def file_signals(
             if path not in source:
                 continue
             churn[path] += 1
+            changed[path] += commit.changed_lines[path]
             reworked[path] += deleted > 0
             if commit.card:
                 cards[path].add(commit.card)
@@ -153,10 +175,16 @@ def file_signals(
     for path, f in source.items():
         complexity = sum(fc.complexity for fc in f.functions)
         mine = {pair for pair in pairs if path in pair}
+        lines = max(f.lines, 1)
         out[path] = {
             "churn": churn[path],
+            "decayed_churn": round(decayed[path], 3),
+            "relative_churn": round(changed[path] / lines, 3),
             "complexity": complexity,
-            "hotspot": churn[path] * complexity,
+            "complexity_per_loc": round(complexity / lines, 3),
+            "hotspot": round(decayed[path] * complexity, 3),
+            "hotspot_per_loc": round(decayed[path] * complexity / lines, 4),
+            "loc": f.lines,
             "cards": len(cards[path]),
             "rework_rate": round(reworked[path] / churn[path], 3) if churn[path] else 0.0,
             "cochange_pairs": len(mine),
@@ -170,7 +198,7 @@ def file_signals(
     cochange = [{"a": a, "b": b, "count": pairs[a, b], "hidden": (a, b) in hidden} for a, b in top_pairs]
 
     functions = [
-        {"file": path, "name": fc.name, "complexity": fc.complexity, "hotspot": churn[path] * fc.complexity}
+        {"file": path, "name": fc.name, "complexity": fc.complexity, "hotspot": round(decayed[path] * fc.complexity, 3)}
         for path, f in source.items() for fc in f.functions
     ]
     functions.sort(key=lambda fn: (-fn["hotspot"], fn["file"], fn["name"]))

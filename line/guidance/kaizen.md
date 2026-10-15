@@ -41,10 +41,11 @@ code measurably better on a stated signal and provably unchanged in behavior.
 
 ## 2. What to look for (priority order)
 
-Prioritize by **hotspot score = churn × complexity**, using git history over
-the last ~90 days. No source defines this product or this window; the window
-is our choice. The literature supports churn as the predictor: cite Graves et
-al. 2000 (decayed change count) and relative churn (Nagappan and Ball 2005).
+Prioritize by **hotspot score = decayed change count × complexity**, using git
+history over the last ~90 days. No source defines this product or this window;
+the window and the join with complexity (for ranking only) are our choice. The
+literature supports churn as the predictor: Graves et al. 2000 (decayed change
+count) and relative churn (Nagappan and Ball 2005).
 Static complexity barely changes between releases, so churn does most of the
 work. Size confounds most signals: report them per LOC or within size bands
 (`research-docs/code-health-signals/literature.md`). Within a hotspot, fix in
@@ -132,9 +133,23 @@ File-level and function-level signals (`files`, `cochange_pairs`,
 `hotspot_functions` in signals.json) work for every language, from git history
 plus the import graph:
 
-- **Hotspot** = commits touching the file in the window × its cognitive
-  complexity; ranked per file (`hotspot_rank`). A function's hotspot is its
-  complexity × the churn of its file, because git records changes per file.
+- **Decayed churn** (`decayed_churn`) = the sum over the file's commits in the
+  window of exp(−α · age) · log(1 + lines changed), α = 0.75 per year, age in
+  years before the measured revision. The decay and α are Graves et al. 2000
+  (decayed change count). Weighting by the log of the change size is ours;
+  the 1 keeps a one-line change from weighing nothing. Lines
+  changed are lines added plus lines removed.
+- **Relative churn** (`relative_churn`) = lines changed in the window ÷ the
+  file's current lines (Nagappan and Ball 2005, M1). Packages report it too.
+- **Hotspot** = decayed churn × the file's cognitive complexity, ranked per
+  file (`hotspot_rank`). The product is our choice, used to rank only; no
+  source defines it. A function's hotspot is its complexity × the decayed
+  churn of its file, because git records changes per file.
+- **Per LOC** (`loc`, `complexity_per_loc`, `hotspot_per_loc`; packages have
+  `hotspot_per_loc`): size confounds almost every metric (El Emam et al. 2001;
+  Gil and Lalouche 2017), so a large file would top every list for being
+  large. Compare files by the per-LOC figure before concluding that one is a
+  worse hotspot than another; `churn` and `hotspot` stay as counts.
 - **Co-change pair**: two files changed together in at least 2 non-bulk commits
   (a commit touching over 20 packages or 50 files is bulk and ignored). A pair
   is **hidden** when the files are in different directories and neither

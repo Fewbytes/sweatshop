@@ -8,8 +8,10 @@ import graphs
 
 # Package-level signals, all "lower is better", with their column titles.
 PACKAGE_SIGNALS = {
-    "hotspot": "Hotspot (churn × complexity)",
+    "hotspot": "Hotspot (decayed churn × complexity)",
+    "hotspot_per_loc": "Hotspot per LOC",
     "churn": "Churn",
+    "relative_churn": "Relative churn (changed LOC / LOC)",
     "complexity": "Cognitive complexity",
     "lcom4": "Cohesion (LCOM4 components)",
     "clones": "Clones",

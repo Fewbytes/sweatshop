@@ -15,7 +15,7 @@ from collections import Counter, defaultdict
 
 from adapter import AdapterResult, History, Signals, Unavailable
 from file_signals import (
-    MIN_COCHANGES, ViolationThresholds, cochanging_pairs, file_signals, lcom4, modularity_violations, symbol_edges,
+    MIN_COCHANGES, ViolationThresholds, cochanging_pairs, decayed_changes, file_signals, lcom4, modularity_violations, symbol_edges,
 )
 from lsp import REQUEST_TIMEOUT_SECONDS, LspUnavailable
 from lsp_signals import ServerFacts, measure_with_servers
@@ -24,7 +24,7 @@ from syntax import SKIP_DIRS, ImportResolver, LanguageSpec, SourceFile, package_
 # Bump when a change to the thresholds below or to this module moves numbers
 # without any code change: it marks the run as a new baseline. Changes to one
 # language's tables bump that spec's own version.
-SOURCE_ADAPTER_VERSION = "5"
+SOURCE_ADAPTER_VERSION = "6"
 CLONE_WINDOW_TOKENS = 50
 
 
@@ -173,7 +173,7 @@ class SourceAdapter:
     other."""
 
     package_signals = (
-        "hotspot", "churn", "complexity", "hidden_coupling_ratio", "lcom4",
+        "hotspot", "hotspot_per_loc", "churn", "relative_churn", "complexity", "hidden_coupling_ratio", "lcom4",
         "clones", "import_cycles", "dead_symbols", "pattern_entropy", "call_depth", "typed_boundary_ratio",
     )
 
@@ -209,10 +209,15 @@ class SourceAdapter:
         cycles, cyclic = cyclic_packages(graph)
 
         churn: Counter[str] = Counter()
+        changed: Counter[str] = Counter()
         for commit in history.commits:
             for p in commit.deleted_lines:
                 if p in source:
                     churn[package_of(p)] += 1
+                    changed[package_of(p)] += commit.changed_lines[p]
+        decayed: Counter[str] = Counter()
+        for p, score in decayed_changes(history.commits, source).items():
+            decayed[package_of(p)] += score
         cochange, file_cochange = cochanging_pairs(history.commits, files)
         pairs = {pair for pair, n in cochange.items() if n >= MIN_COCHANGES}
         hidden = {(a, b) for a, b in pairs if b not in graph[a] and a not in graph[b]}
@@ -238,6 +243,7 @@ class SourceAdapter:
                 key=lambda fc: (-fc.complexity, fc.name),
             )
             complexity = sum(fc.complexity for fc in funcs)
+            loc = max(sum(f.lines for p, f in source.items() if package_of(p) == pkg), 1)
             mine = {pair for pair in pairs if pkg in pair}
             own = {p: f for p, f in source.items() if package_of(p) == pkg}
             out_packages[pkg] = {
@@ -247,8 +253,10 @@ class SourceAdapter:
                 "symbol_edges": symbol_edges(own),
                 "files": sum(1 for p in source if package_of(p) == pkg),
                 "churn": churn[pkg],
+                "relative_churn": round(changed[pkg] / loc, 3),
                 "complexity": complexity,
-                "hotspot": churn[pkg] * complexity,
+                "hotspot": round(decayed[pkg] * complexity, 3),
+                "hotspot_per_loc": round(decayed[pkg] * complexity / loc, 4),
                 "cochange_pairs": len(mine),
                 "hidden_pairs": len(mine & hidden),
                 "hidden_coupling_ratio": round(len(mine & hidden) / len(mine), 3) if mine else 0.0,
@@ -273,7 +281,7 @@ class SourceAdapter:
 
         repo = {
             "packages": len(packages),
-            "hotspot": sum(p["hotspot"] for p in out_packages.values()),
+            "hotspot": round(sum(p["hotspot"] for p in out_packages.values()), 3),
             "churn": sum(churn.values()),
             "complexity": sum(p["complexity"] for p in out_packages.values()),
             "cochange_pairs": len(pairs),

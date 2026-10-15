@@ -368,13 +368,13 @@
         "Until"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 50,
+      "hotspot_rank": 55,
       "imported_by": [
         "agentsh/internal/daemon"
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "96da24bc59d97926a914586077287c786d3424ff",
       "purpose": "Package testwait is the one place tests wait on wall-clock time."
     },
     "agentsh/internal/version": {
@@ -404,7 +404,7 @@
         "Resolve"
       ],
       "hidden_coupling_ratio": 0.8,
-      "hotspot_rank": 39,
+      "hotspot_rank": 44,
       "imported_by": [
         "agentsh/cmd/agentsh",
         "agentsh/cmd/agentsh-analytics",
@@ -415,7 +415,7 @@
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "96da24bc59d97926a914586077287c786d3424ff",
       "purpose": ""
     },
     "bughunt/cmd/bughunt": {
@@ -937,7 +937,7 @@
         "Summary"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 35,
+      "hotspot_rank": 28,
       "imported_by": [
         "line/station"
       ],
@@ -945,7 +945,7 @@
         "line/report"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "96da24bc59d97926a914586077287c786d3424ff",
       "purpose": "Package cistats answers questions about CI health from the line's stored"
     },
     "line/cmd/sweatshop": {
@@ -1284,7 +1284,7 @@
       "purpose": "Package kaizen runs a Kaizen station: a host-side loop that, on a schedule"
     },
     "line/kaizen/signals": {
-      "entry_point_count": 127,
+      "entry_point_count": 130,
       "entry_points": [
         "ADAPTERS",
         "ANONYMOUS_FUNCTION",
@@ -1296,15 +1296,15 @@
         "COMPONENT_COLOURS",
         "CallItem",
         "Commit",
-        "DEFAULT_CAP_SECONDS",
-        "Declaration"
+        "DECAY_PER_YEAR",
+        "DEFAULT_CAP_SECONDS"
       ],
       "hidden_coupling_ratio": 0.0,
       "hotspot_rank": 1,
       "imported_by": [],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "40b532fe3f363e9689ce9c58f6f403648fb20bd4",
+      "measured_at_commit": "96da24bc59d97926a914586077287c786d3424ff",
       "purpose": "The per-language adapter interface and the types signals travel in."
     },
     "line/linedir": {
@@ -1353,7 +1353,7 @@
         "Store"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 30,
+      "hotspot_rank": 24,
       "imported_by": [
         "line/heijunka",
         "line/station"
@@ -1362,7 +1362,7 @@
         "line/report"
       ],
       "lcom4": 1,
-      "measured_at_commit": "58bcbe362fd664b1630fbaa9b5913596a6c43131",
+      "measured_at_commit": "96da24bc59d97926a914586077287c786d3424ff",
       "purpose": "Package linestore is the line's master database: witness runs, per-test"
     },
     "line/maker": {
