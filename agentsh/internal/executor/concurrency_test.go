@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -40,7 +41,7 @@ func TestConcurrentExecuteInspectAndRead(t *testing.T) {
 					_ = reader.Close()
 				}
 			}
-			time.Sleep(time.Millisecond)
+			runtime.Gosched()
 		}
 	}()
 

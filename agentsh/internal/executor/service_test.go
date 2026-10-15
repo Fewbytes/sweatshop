@@ -17,14 +17,23 @@ import (
 // race t.TempDir()'s cleanup after the test returns.
 func waitForNoProcesses(t *testing.T, exec *Executor) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if len(exec.Processes("")) == 0 {
-			return
+	pollUntil(t, 2*time.Second, "no running processes", func() bool {
+		return len(exec.Processes("")) == 0
+	})
+}
+
+// pollUntil is the only place executor tests wait on wall-clock time: it
+// re-evaluates condition until it holds, failing the test after timeout.
+// Tests wait on observable state through it rather than sleeping a guess.
+func pollUntil(t *testing.T, timeout time.Duration, what string, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for !condition() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out after %v waiting for %s", timeout, what)
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatal("processes still running after deadline")
 }
 
 func TestStartServiceReturnsRunningRecordWithInvocationID(t *testing.T) {
@@ -85,13 +94,7 @@ func TestServiceStatusReportsCrashedWhenProcessDiesUnexpectedly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if len(exec.Processes("")) == 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitForNoProcesses(t, exec)
 
 	status, err := exec.ServiceStatus(context.Background(), svc.Name)
 	if err != nil {

@@ -87,25 +87,22 @@ func TestTimeoutKillsProcessGroup(t *testing.T) {
 	if _, err := fmt.Sscanf(string(data), "%d", &pid); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		err = syscall.Kill(pid, 0)
-		if err == syscall.ESRCH {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("child %d survived timeout", pid)
+	pollUntil(t, time.Second, fmt.Sprintf("child %d to die after timeout", pid), func() bool {
+		return syscall.Kill(pid, 0) == syscall.ESRCH
+	})
 }
 
 func TestBackgroundReturnsBeforeCompletion(t *testing.T) {
 	exec, store, root := testExecutor(t)
-	// The command cannot finish until the test creates the release file, so a
-	// running state at return proves Execute did not wait for completion,
-	// without depending on how fast the host is. The bounded loop keeps a
-	// regression from hanging the command forever.
+	// The command blocks reading a FIFO until the test opens it for writing, so
+	// a running state at return proves Execute did not wait for completion,
+	// without depending on how fast the host is.
+	release := filepath.Join(root, "release")
+	if err := syscall.Mkfifo(release, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	inv, err := exec.Execute(context.Background(), Request{
-		Command:    `for i in $(seq 500); do [ -e release ] && break; sleep .01; done; echo done`,
+		Command:    `read -r _ < release; echo done`,
 		CWD:        root,
 		Background: true,
 	})
@@ -115,18 +112,17 @@ func TestBackgroundReturnsBeforeCompletion(t *testing.T) {
 	if inv.State != storage.StateRunning {
 		t.Fatalf("background did not return while command was still running: %+v", inv)
 	}
-	if err := os.WriteFile(filepath.Join(root, "release"), nil, 0o600); err != nil {
+	writer, err := os.OpenFile(release, os.O_WRONLY, 0)
+	if err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		got, getErr := store.GetInvocation(context.Background(), inv.ID)
-		if getErr == nil && got.State == storage.StateExited {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
 	}
-	t.Fatal("background invocation did not complete")
+	pollUntil(t, time.Second, "background invocation to exit", func() bool {
+		got, getErr := store.GetInvocation(context.Background(), inv.ID)
+		return getErr == nil && got.State == storage.StateExited
+	})
 }
 
 func TestExecuteDerivesStructuredSummary(t *testing.T) {

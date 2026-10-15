@@ -37,19 +37,16 @@ func TestInteractivePromptTransitionsToWaitingOnInput(t *testing.T) {
 	}
 
 	// Poll until exited
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		got, err := store.GetInvocation(context.Background(), inv.ID)
-		if err == nil && got.State == storage.StateExited {
-			out := readBlob(t, exec.Blobs, got.Stdout.SHA256)
-			if !strings.Contains(out, "got:yes") {
-				t.Fatalf("output missing input response: %q", out)
-			}
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
+	var got storage.Invocation
+	pollUntil(t, 2*time.Second, "interactive command to exit after input", func() bool {
+		var err error
+		got, err = store.GetInvocation(context.Background(), inv.ID)
+		return err == nil && got.State == storage.StateExited
+	})
+	out := readBlob(t, exec.Blobs, got.Stdout.SHA256)
+	if !strings.Contains(out, "got:yes") {
+		t.Fatalf("output missing input response: %q", out)
 	}
-	t.Fatal("interactive command did not exit after input")
 }
 
 func TestInteractivePromptCanBeKilled(t *testing.T) {
@@ -75,13 +72,8 @@ func TestInteractivePromptCanBeKilled(t *testing.T) {
 	// to actually finish before the test returns, or its async I/O can race
 	// t.TempDir()'s cleanup (flaked as exactly that in CI — GitHub Actions
 	// run 32247405015: "TempDir RemoveAll cleanup: ... directory not empty").
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if got, err := store.GetInvocation(context.Background(), inv.ID); err == nil &&
-			(got.State == storage.StateKilled || got.State == storage.StateExited) {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatal("invocation did not finish after kill")
+	pollUntil(t, 10*time.Second, "invocation to finish after kill", func() bool {
+		got, err := store.GetInvocation(context.Background(), inv.ID)
+		return err == nil && (got.State == storage.StateKilled || got.State == storage.StateExited)
+	})
 }

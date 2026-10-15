@@ -3,6 +3,7 @@
 package executor
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,15 +34,14 @@ func TestCgroupKillsSetsidDescendant(t *testing.T) {
 	defer cgroup.Cleanup(id)
 	pidFile := filepath.Join(cmd.Dir, "escaped.pid")
 	var child int
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
+	pollUntil(t, 2*time.Second, "escaped child to write its pid", func() bool {
 		data, readErr := os.ReadFile(pidFile)
-		if readErr == nil {
-			child, _ = strconv.Atoi(strings.TrimSpace(string(data)))
-			break
+		if readErr != nil {
+			return false
 		}
-		time.Sleep(10 * time.Millisecond)
-	}
+		child, _ = strconv.Atoi(strings.TrimSpace(string(data)))
+		return child != 0
+	})
 	if child == 0 {
 		t.Fatal("escaped child did not start")
 	}
@@ -49,15 +49,10 @@ func TestCgroupKillsSetsidDescendant(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = cmd.Wait()
-	deadline = time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
+	pollUntil(t, time.Second, fmt.Sprintf("cgroup to depopulate after killing setsid descendant %d", child), func() bool {
 		events, err := os.ReadFile(filepath.Join(cgroup.path(id), "cgroup.events"))
-		if err == nil && strings.Contains(string(events), "populated 0") {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("cgroup remained populated after killing setsid descendant %d", child)
+		return err == nil && strings.Contains(string(events), "populated 0")
+	})
 }
 
 func TestCgroupReadsOOMEvent(t *testing.T) {
