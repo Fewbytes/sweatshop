@@ -627,16 +627,18 @@
       "entry_point_count": 0,
       "entry_points": [],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 44,
+      "hotspot_rank": 43,
       "imported_by": [],
       "imports": [
         "depmaint/internal/cli",
         "depmaint/internal/goexpander",
+        "depmaint/internal/jvmexpander",
+        "depmaint/internal/nodeexpander",
         "depmaint/internal/pyexpander",
         "depmaint/internal/version"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "4266c9bc31f6ebfe160ca7af9f46071ca949406a",
       "purpose": "Command depmaint expands, caches, and drives dependency-maintenance campaigns."
     },
     "depmaint/internal/cli": {
@@ -686,10 +688,12 @@
         "Register"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 57,
+      "hotspot_rank": 59,
       "imported_by": [
         "depmaint/internal/cli",
         "depmaint/internal/goexpander",
+        "depmaint/internal/jvmexpander",
+        "depmaint/internal/nodeexpander",
         "depmaint/internal/project",
         "depmaint/internal/pyexpander",
         "depmaint/internal/snapshot",
@@ -697,7 +701,7 @@
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "4266c9bc31f6ebfe160ca7af9f46071ca949406a",
       "purpose": "Package expander defines the contract ecosystem expanders implement"
     },
     "depmaint/internal/goexpander": {
@@ -719,6 +723,42 @@
       "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
       "purpose": "Package goexpander implements the depmaint Go expander: it reads resolved"
     },
+    "depmaint/internal/jvmexpander": {
+      "entry_point_count": 1,
+      "entry_points": [
+        "Expander"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 49,
+      "imported_by": [
+        "depmaint/cmd/depmaint"
+      ],
+      "imports": [
+        "depmaint/internal/expander"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "4266c9bc31f6ebfe160ca7af9f46071ca949406a",
+      "purpose": "Package jvmexpander implements the depmaint JVM expander for Gradle"
+    },
+    "depmaint/internal/nodeexpander": {
+      "entry_point_count": 2,
+      "entry_points": [
+        "Expander",
+        "MainModulePath"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 40,
+      "imported_by": [
+        "depmaint/cmd/depmaint",
+        "depmaint/internal/project"
+      ],
+      "imports": [
+        "depmaint/internal/expander"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "4266c9bc31f6ebfe160ca7af9f46071ca949406a",
+      "purpose": "Package nodeexpander implements the depmaint Node expander: it reads"
+    },
     "depmaint/internal/project": {
       "entry_point_count": 3,
       "entry_points": [
@@ -727,15 +767,16 @@
         "RootGraph"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 40,
+      "hotspot_rank": 41,
       "imported_by": [],
       "imports": [
         "depmaint/internal/expander",
         "depmaint/internal/goexpander",
+        "depmaint/internal/nodeexpander",
         "depmaint/internal/pyexpander"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "4266c9bc31f6ebfe160ca7af9f46071ca949406a",
       "purpose": "Package project derives projects from per-root dependency graphs: roots"
     },
     "depmaint/internal/pyexpander": {
