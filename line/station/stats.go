@@ -5,14 +5,13 @@ import (
 	"time"
 
 	"github.com/Fewbytes/sweatshop/line/cistats"
-	"github.com/Fewbytes/sweatshop/line/report"
 )
 
 // ciStats serves GET /v1/stats?since= (a cistats.Summary as JSON) and GET
 // /metrics (the same numbers over cistats.MetricsWindow, as Prometheus text for
 // the host's VictoriaMetrics to scrape with a station bearer token).
 func (s *Server) ciStats(w http.ResponseWriter, r *http.Request, metrics bool) (string, error) {
-	if s.RunsPath == "" || s.TestsPath == "" {
+	if s.Store == nil {
 		return "", fail(http.StatusServiceUnavailable, "no run store")
 	}
 	now := time.Now()
@@ -23,11 +22,11 @@ func (s *Server) ciStats(w http.ResponseWriter, r *http.Request, metrics bool) (
 			return "", fail(http.StatusBadRequest, "%v", err)
 		}
 	}
-	runs, err := report.ReadJSONL(s.RunsPath)
+	runs, err := s.Store.Runs(r.Context())
 	if err != nil {
 		return "", err
 	}
-	tests, err := report.ReadTestsJSONL(s.TestsPath)
+	tests, err := s.Store.Tests(r.Context())
 	if err != nil {
 		return "", err
 	}

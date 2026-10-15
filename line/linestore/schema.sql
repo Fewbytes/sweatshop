@@ -1,0 +1,51 @@
+-- seq orders rows in the order they were saved, run_id joins test_result to run
+-- and is empty on rows imported from before per-test results.
+CREATE TABLE IF NOT EXISTS run (
+  seq         INTEGER PRIMARY KEY,
+  run_id      TEXT NOT NULL,
+  commit_sha  TEXT NOT NULL,
+  tree        TEXT NOT NULL,
+  role        TEXT NOT NULL,
+  agent_id    TEXT NOT NULL,
+  runner      TEXT NOT NULL,
+  started_at  TEXT NOT NULL,
+  duration_ms INTEGER NOT NULL,
+  checks      INTEGER NOT NULL,
+  failures    INTEGER NOT NULL,
+  passed      INTEGER NOT NULL,
+  outcome     TEXT NOT NULL,
+  report_key  TEXT NOT NULL,
+  html_key    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS test_result (
+  seq         INTEGER PRIMARY KEY,
+  run_id      TEXT NOT NULL,
+  commit_sha  TEXT NOT NULL,
+  tree        TEXT NOT NULL,
+  role        TEXT NOT NULL,
+  started_at  TEXT NOT NULL,
+  check_name  TEXT NOT NULL,
+  package     TEXT NOT NULL,
+  test        TEXT NOT NULL,
+  outcome     TEXT NOT NULL,
+  duration_ms INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS kaizen_baseline (
+  seq        INTEGER PRIMARY KEY,
+  commit_sha TEXT NOT NULL UNIQUE,
+  signals    TEXT NOT NULL
+);
+
+-- levels holds the one row of the latest published heijunka levels.
+CREATE TABLE IF NOT EXISTS levels (
+  id        INTEGER PRIMARY KEY CHECK (id = 1),
+  agents    INTEGER NOT NULL,
+  wip_limit INTEGER NOT NULL
+);
+
+-- imported names each legacy file already copied in (see Store.ImportLegacy).
+CREATE TABLE IF NOT EXISTS imported (
+  file TEXT PRIMARY KEY
+);

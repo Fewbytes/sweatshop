@@ -9,7 +9,7 @@ After=network-online.target
 # Station token (role with read access to the line) as SWEATSHOP_LINE_TOKEN=...
 EnvironmentFile=%h/.sweatshop/lines/sweatshop/stations/heijunka-1/env
 Environment=SWEATSHOP_LINE_URL=http://127.0.0.1:7468
-ExecStart=%h/.local/bin/sweatshop line heijunka --dir %h/.sweatshop/lines/sweatshop --beads %h/sweatshop --interval 5m
+ExecStart=%h/.local/bin/sweatshop line heijunka --beads %h/sweatshop --interval 5m
 # SIGUSR1 pokes an immediate wake: systemctl --user kill -s USR1 sweatshop-heijunka
 Restart=always
 RestartSec=10

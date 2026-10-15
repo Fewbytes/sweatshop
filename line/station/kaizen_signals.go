@@ -1,15 +1,14 @@
 package station
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
+
+	"github.com/Fewbytes/sweatshop/line/linestore"
 )
 
 // maxKaizenSignalsBody bounds a signals publish: signals.json grows with the
@@ -46,66 +45,13 @@ type KaizenPreviousSignals struct {
 // signals, next to the witness reports under reports/<commit>/.
 func KaizenSignalsPrefix(commit string) string { return "reports/kaizen/" + commit }
 
-// readKaizenSignals returns the stored baselines, oldest first. A missing file
-// is no history.
-func readKaizenSignals(path string) ([]KaizenSignalsRecord, error) {
-	f, err := os.Open(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	var out []KaizenSignalsRecord
-	sc := bufio.NewScanner(f)
-	sc.Buffer(nil, 16<<20)
-	for sc.Scan() {
-		var rec KaizenSignalsRecord
-		if json.Unmarshal(sc.Bytes(), &rec) == nil {
-			out = append(out, rec)
-		}
-	}
-	return out, sc.Err()
-}
-
-// appendKaizenSignals records a baseline unless its commit already has one:
-// publishing again after the change must not double the history.
-func appendKaizenSignals(path string, rec KaizenSignalsRecord) error {
-	existing, err := readKaizenSignals(path)
-	if err != nil {
-		return err
-	}
-	for _, e := range existing {
-		if e.Commit == rec.Commit {
-			return nil
-		}
-	}
-	line, err := json.Marshal(rec)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(append(line, '\n')); err != nil {
-		f.Close()
-		return err
-	}
-	return f.Close()
-}
-
 type kaizenObject struct {
 	contentType string
 	data        []byte
 }
 
 func (s *Server) publishKaizenSignals(w http.ResponseWriter, r *http.Request) (string, error) {
-	if s.Reports == nil || s.KaizenSignalsPath == "" {
+	if s.Reports == nil || s.Store == nil {
 		return "", fail(http.StatusServiceUnavailable, "no object store or signals history configured")
 	}
 	var k KaizenSignals
@@ -144,9 +90,7 @@ func (s *Server) publishKaizenSignals(w http.ResponseWriter, r *http.Request) (s
 			return "", err
 		}
 	}
-	s.kaizenMu.Lock()
-	defer s.kaizenMu.Unlock()
-	if err := appendKaizenSignals(s.KaizenSignalsPath, KaizenSignalsRecord{Commit: k.Commit, Signals: bytes.Clone(k.Signals)}); err != nil {
+	if err := s.Store.AddKaizenBaseline(r.Context(), linestore.KaizenBaseline{Commit: k.Commit, Signals: bytes.Clone(k.Signals)}); err != nil {
 		return "", err
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"key": prefix})
@@ -156,24 +100,20 @@ func (s *Server) publishKaizenSignals(w http.ResponseWriter, r *http.Request) (s
 // previousKaizenSignals serves GET /v1/kaizen/signals/previous?commit=: the
 // newest stored baseline measured at a commit other than the given one.
 func (s *Server) previousKaizenSignals(w http.ResponseWriter, r *http.Request) (string, error) {
-	if s.KaizenSignalsPath == "" {
+	if s.Store == nil {
 		return "", fail(http.StatusServiceUnavailable, "no signals history configured")
 	}
 	commit, err := commitParam(r)
 	if err != nil {
 		return "", err
 	}
-	s.kaizenMu.Lock()
-	records, err := readKaizenSignals(s.KaizenSignalsPath)
-	s.kaizenMu.Unlock()
+	prev, err := s.Store.PreviousKaizenBaseline(r.Context(), commit)
 	if err != nil {
 		return "", err
 	}
 	var res KaizenPreviousSignals
-	for i := len(records) - 1; i >= 0 && res.Previous == nil; i-- {
-		if records[i].Commit != commit {
-			res.Previous = &records[i]
-		}
+	if prev != nil {
+		res.Previous = &KaizenSignalsRecord{Commit: prev.Commit, Signals: prev.Signals}
 	}
 	writeJSON(w, http.StatusOK, res)
 	return "kaizen previous signals", nil

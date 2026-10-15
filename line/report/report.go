@@ -20,7 +20,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -370,59 +369,12 @@ func testRows(r Run) []TestRow {
 	return rows
 }
 
-// JSONLRunStore appends each run's statistics as one JSON line to Path. It is
-// the dependency-free RunStore until the line has a database driver; Kaizen
-// and andon workers (or an importer into the master database) read the file.
-type JSONLRunStore struct {
-	Path string
-	mu   sync.Mutex
-}
-
-func (s *JSONLRunStore) RecordRun(_ context.Context, st Stats) error {
-	return appendJSONL(&s.mu, s.Path, []Stats{st})
-}
-
-// JSONLTestStore appends each test result as one JSON line to Path, next to
-// the runs file, for the same reason JSONLRunStore exists.
-type JSONLTestStore struct {
-	Path string
-	mu   sync.Mutex
-}
-
-func (s *JSONLTestStore) RecordTests(_ context.Context, rows []TestRow) error {
-	return appendJSONL(&s.mu, s.Path, rows)
-}
-
-func appendJSONL[T any](mu *sync.Mutex, path string, rows []T) error {
-	var buf bytes.Buffer
-	for _, row := range rows {
-		line, err := json.Marshal(row)
-		if err != nil {
-			return err
-		}
-		buf.Write(append(line, '\n'))
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(buf.Bytes()); err != nil {
-		f.Close()
-		return err
-	}
-	return f.Close()
-}
-
-// ReadJSONL returns the runs saved by a JSONLRunStore, oldest first. A missing
-// file is no runs; a torn or malformed line is skipped.
+// ReadJSONL returns the runs in a legacy runs.jsonl, oldest first, for the
+// one-time import into the line database. A missing file is no runs; a torn or
+// malformed line is skipped.
 func ReadJSONL(path string) ([]Stats, error) { return readJSONL[Stats](path) }
 
-// ReadTestsJSONL returns the test results saved by a JSONLTestStore, oldest
+// ReadTestsJSONL returns the test results in a legacy tests.jsonl, oldest
 // first, with the same tolerance as ReadJSONL.
 func ReadTestsJSONL(path string) ([]TestRow, error) { return readJSONL[TestRow](path) }
 

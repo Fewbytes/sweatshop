@@ -11,13 +11,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/Fewbytes/sweatshop/line/linestore"
 	"github.com/Fewbytes/sweatshop/line/maker"
 	"github.com/Fewbytes/sweatshop/line/station"
 )
@@ -239,14 +238,19 @@ func (w *Worker) Run(ctx context.Context) error {
 // StatusAPI is the slice of the station client the observer needs.
 type StatusAPI interface {
 	Status(ctx context.Context) (station.Status, error)
+	HeijunkaLevels(ctx context.Context) (linestore.Levels, error)
+}
+
+// LevelsAPI is the slice of the station client that publishes levels.
+type LevelsAPI interface {
+	PublishHeijunkaLevels(ctx context.Context, l linestore.Levels) error
 }
 
 // BeadsObserver counts cards with bd and the andon state from the station.
 type BeadsObserver struct {
-	API    StatusAPI
-	Dir    string     // beads database directory
-	Label  string     // label of cards on the line
-	Levels LevelsFile // where the current levels are published
+	API   StatusAPI
+	Dir   string // beads database directory
+	Label string // label of cards on the line
 }
 
 // Observe implements Observer.
@@ -288,12 +292,12 @@ func (b BeadsObserver) Observe(ctx context.Context) (Snapshot, error) {
 			flowCards = append(flowCards, c)
 		}
 	}
-	cur, err := b.Levels.Read()
+	published, err := b.API.HeijunkaLevels(ctx)
 	if err != nil {
 		return Snapshot{}, err
 	}
 	snap := Snapshot{
-		Ready: len(ready), InProgress: len(inProgress), Stopped: st.Event != "", MakersAlive: st.MakersAlive(), Current: cur,
+		Ready: len(ready), InProgress: len(inProgress), Stopped: st.Event != "", MakersAlive: st.MakersAlive(), Current: Levels(published),
 		Now: now, Flow: AnalyzeFlow(flowCards, now), Master: st.Master, KaizenRequest: st.KaizenRequest,
 	}
 	for _, s := range st.Stations {
@@ -344,43 +348,11 @@ func parseFlowCards(out []byte) ([]FlowCard, error) {
 	return cards, nil
 }
 
-// LevelsFile publishes the levels as JSON for the actuators that run makers
-// (supervisor, deployer) to read. A missing file means no levels set yet.
-type LevelsFile struct{ Path string }
+// LevelsPublisher is the Actuator that publishes levels through the station
+// API, where the line database keeps them for whatever runs makers.
+type LevelsPublisher struct{ API LevelsAPI }
 
-// Read returns the published levels, or zero Levels when none were published.
-func (f LevelsFile) Read() (Levels, error) {
-	data, err := os.ReadFile(f.Path)
-	if os.IsNotExist(err) {
-		return Levels{}, nil
-	}
-	if err != nil {
-		return Levels{}, err
-	}
-	var l Levels
-	if err := json.Unmarshal(data, &l); err != nil {
-		return Levels{}, fmt.Errorf("%s: %w", f.Path, err)
-	}
-	return l, nil
-}
-
-// Apply implements Actuator: it replaces the file atomically.
-func (f LevelsFile) Apply(_ context.Context, l Levels) error {
-	data, err := json.Marshal(l)
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(f.Path), ".heijunka-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(append(data, '\n')); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), f.Path)
+// Apply implements Actuator.
+func (p LevelsPublisher) Apply(ctx context.Context, l Levels) error {
+	return p.API.PublishHeijunkaLevels(ctx, linestore.Levels(l))
 }

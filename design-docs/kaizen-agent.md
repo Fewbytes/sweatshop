@@ -271,8 +271,8 @@ below) exists, the prompt switches to filing cards and this section goes.
   per-module table: signals, trend against the previous run, hotspot rank)
   and `sweatshop line kaizen publish` stores both under
   `reports/kaizen/<commit>/` in the object store, next to the CI reports
-  (`POST /v1/kaizen/signals`), and appends the baseline to
-  `<line>/kaizen-signals.jsonl`, which `GET /v1/kaizen/signals/previous`
+  (`POST /v1/kaizen/signals`), and records the baseline in
+  the line database `<line>/line.db`, which `GET /v1/kaizen/signals/previous`
   serves back as the next run's trend. (3) The agent names its target from
   the ranked hotspots in the analysis report (category P1..P5, signal it will
   move). (4) After the change it re-measures, `kaizen_signals.py delta` prints

@@ -414,6 +414,14 @@ container runtime in dev, Nomad / Kubernetes / ECS when shared. VMs are a later
 sandbox option; the macOS sandbox is out. agentshd runs per container host,
 outside the sandbox.
 
+**M1 storage:** the master database is the embedded Turso file
+`<line dir>/line.db`, opened only by `sweatshop line serve` (the single
+writer); stations and workers read and publish through the station API. It
+holds witness runs, per-test results, Kaizen signal baselines and heijunka
+levels (`line/linestore`). The older flat files (`runs.jsonl`, `tests.jsonl`,
+`kaizen-signals.jsonl`, `heijunka.json`) are imported once at startup. Agent
+state, spend and andon events move in as their features land.
+
 **M1:** the line runs on one host. `sweatshop line serve` hosts the witnesses
 and the merge guard; station runners (`line maker`, `line andon`) start worker
 containers with the engine CLI. The line remote and attestation store are

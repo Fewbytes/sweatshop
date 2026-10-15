@@ -49,7 +49,7 @@ func newDeployRig(t *testing.T) *deployRig {
 	dir := t.TempDir()
 	srv.Deploy = &DeployState{Path: filepath.Join(dir, "deploy.json")}
 	srv.DeployToken = "dep-secret"
-	srv.RunsPath = filepath.Join(dir, "runs.jsonl")
+	srv.Store = openTestStore(t)
 	b := &fakeBuilder{}
 	srv.Releases = b
 	ch.Deploy = srv.ApproveDeploy
@@ -60,7 +60,7 @@ func newDeployRig(t *testing.T) *deployRig {
 
 func (r *deployRig) attest(t *testing.T, commit string, passed bool) {
 	t.Helper()
-	err := (&report.JSONLRunStore{Path: r.srv.RunsPath}).RecordRun(context.Background(), report.Stats{Commit: commit, Passed: passed})
+	err := r.srv.Store.RecordRun(context.Background(), report.Stats{Commit: commit, Passed: passed})
 	if err != nil {
 		t.Fatal(err)
 	}

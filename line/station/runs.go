@@ -5,8 +5,6 @@ import (
 	"sort"
 	"strconv"
 	"time"
-
-	"github.com/Fewbytes/sweatshop/line/report"
 )
 
 const (
@@ -56,7 +54,7 @@ type RunsResponse struct {
 // runs serves GET /v1/runs?limit=&role=&commit=&passed=: stored run stats,
 // read-only, for Kaizen and andon workers.
 func (s *Server) runs(w http.ResponseWriter, r *http.Request) (string, error) {
-	if s.RunsPath == "" {
+	if s.Store == nil {
 		return "", fail(http.StatusServiceUnavailable, "no run store")
 	}
 	q := r.URL.Query()
@@ -76,7 +74,7 @@ func (s *Server) runs(w http.ResponseWriter, r *http.Request) (string, error) {
 		}
 		wantPassed = &b
 	}
-	stored, err := report.ReadJSONL(s.RunsPath)
+	stored, err := s.Store.Runs(r.Context())
 	if err != nil {
 		return "", err
 	}

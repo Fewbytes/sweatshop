@@ -22,6 +22,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/linedir"
+	"github.com/Fewbytes/sweatshop/line/linestore"
 	"github.com/Fewbytes/sweatshop/line/report"
 	"github.com/Fewbytes/sweatshop/line/witness"
 )
@@ -47,6 +48,18 @@ type rig struct {
 	ts           *httptest.Server
 	agent        gitx.Repo
 	maker, andon Client
+}
+
+// openTestStore opens a line database in a temp directory for a Server built
+// by hand rather than by NewFromLine.
+func openTestStore(t *testing.T) *linestore.Store {
+	t.Helper()
+	s, err := linestore.Open(context.Background(), filepath.Join(t.TempDir(), linestore.FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return s
 }
 
 func newRig(t *testing.T) *rig {
@@ -85,6 +98,10 @@ func newRig(t *testing.T) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := srv.OpenStore(ctx, l.Dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { srv.Close() })
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
 
@@ -529,7 +546,7 @@ func TestRunsStats(t *testing.T) {
 	if code != http.StatusOK || !strings.Contains(body, `"runs":[]`) {
 		t.Fatalf("empty: %d %s", code, body)
 	}
-	store := &report.JSONLRunStore{Path: r.srv.RunsPath}
+	store := r.srv.Store
 	for _, st := range []report.Stats{
 		{Commit: "a", Tree: "t1", Role: "maker", DurationMS: 1000, Checks: 2, Failures: 1, Passed: false},
 		{Commit: "b", Tree: "t1", Role: "maker", DurationMS: 3000, Checks: 2, Passed: true, ReportKey: "reports/b/junit.xml"},
@@ -614,13 +631,12 @@ func TestStatsAndMetricsRoutesServeStoredRunsAndTests(t *testing.T) {
 	if code, _ := r.raw("GET", "/metrics", "", nil); code != http.StatusUnauthorized {
 		t.Fatalf("metrics without a token: %d", code)
 	}
-	r.srv.TestsPath = filepath.Join(filepath.Dir(r.srv.RunsPath), "tests.jsonl")
 	now := time.Now()
-	if err := (&report.JSONLRunStore{Path: r.srv.RunsPath}).RecordRun(r.ctx,
+	if err := r.srv.Store.RecordRun(r.ctx,
 		report.Stats{RunID: "r1", Commit: "a", Tree: "t", Role: "maker", StartedAt: now, DurationMS: 4000, Outcome: report.RunFailed}); err != nil {
 		t.Fatal(err)
 	}
-	if err := (&report.JSONLTestStore{Path: r.srv.TestsPath}).RecordTests(r.ctx, []report.TestRow{
+	if err := r.srv.Store.RecordTests(r.ctx, []report.TestRow{
 		{RunID: "r1", Commit: "a", Tree: "t", StartedAt: now, Package: "p", Test: "TestBroken", Outcome: report.TestFailed}}); err != nil {
 		t.Fatal(err)
 	}

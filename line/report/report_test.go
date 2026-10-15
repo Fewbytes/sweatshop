@@ -23,6 +23,27 @@ type memRuns []Stats
 
 func (m *memRuns) RecordRun(_ context.Context, s Stats) error { *m = append(*m, s); return nil }
 
+type memTests []TestRow
+
+func (m *memTests) RecordTests(_ context.Context, rows []TestRow) error {
+	*m = append(*m, rows...)
+	return nil
+}
+
+func TestReadJSONLSkipsTornLinesAndTreatsMissingFileAsEmpty(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runs.jsonl")
+	if runs, err := ReadJSONL(path); err != nil || runs != nil {
+		t.Fatalf("missing file: %+v, %v", runs, err)
+	}
+	if err := os.WriteFile(path, []byte(`{"Commit":"a"}`+"\n"+`{"Comm`+"\n"+`{"Commit":"b"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := ReadJSONL(path)
+	if err != nil || len(runs) != 2 || runs[0].Commit != "a" || runs[1].Commit != "b" {
+		t.Fatalf("runs = %+v, %v", runs, err)
+	}
+}
+
 type failRuns struct{}
 
 func (failRuns) RecordRun(context.Context, Stats) error { return errors.New("db down") }
@@ -104,22 +125,6 @@ func TestFSStore(t *testing.T) {
 	}
 }
 
-func TestJSONLRunStoreAppends(t *testing.T) {
-	s := &JSONLRunStore{Path: filepath.Join(t.TempDir(), "sub", "runs.jsonl")}
-	for i := 0; i < 2; i++ {
-		if err := s.RecordRun(context.Background(), Stats{Commit: "abc", Checks: i}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	b, err := os.ReadFile(s.Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n := strings.Count(string(b), "\n"); n != 2 {
-		t.Fatalf("want 2 lines, got %d: %q", n, b)
-	}
-}
-
 const goTestJSON = `lint noise
 {"Action":"run","Package":"p","Test":"TestA"}
 {"Action":"output","Package":"p","Test":"TestA","Output":"x"}
@@ -151,14 +156,11 @@ func TestPublishRecordsPerTestRowsAndJUnitCases(t *testing.T) {
 	r := sample()
 	r.Checks[1].Tests = ParseGoTestJSON([]byte(goTestJSON))
 	objs, runs := memObjects{}, &memRuns{}
-	tests := &JSONLTestStore{Path: filepath.Join(t.TempDir(), "tests.jsonl")}
+	tests := &memTests{}
 	if err := (Reporter{Objects: objs, Runs: runs, Tests: tests}).Publish(context.Background(), r); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := ReadTestsJSONL(tests.Path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	rows := *tests
 	if len(rows) != 3 || rows[1].Test != "TestB" || rows[1].Outcome != TestFailed || rows[1].DurationMS != 1500 ||
 		rows[1].RunID != (*runs)[0].RunID || rows[1].Commit != r.Commit || rows[1].Check != "test" {
 		t.Fatalf("rows = %+v, run = %+v", rows, (*runs)[0])

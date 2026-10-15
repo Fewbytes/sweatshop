@@ -27,6 +27,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/gitx"
 	"github.com/Fewbytes/sweatshop/line/guard"
 	"github.com/Fewbytes/sweatshop/line/linedir"
+	"github.com/Fewbytes/sweatshop/line/linestore"
 	"github.com/Fewbytes/sweatshop/line/report"
 	"github.com/Fewbytes/sweatshop/line/witness"
 )
@@ -64,16 +65,11 @@ type Server struct {
 	Channel     *Channel                 // nil: the channel routes return 503
 	Viceroy     *Supervisor              // nil: the viceroy routes return 503, no generation guard
 	Reports     report.ObjectStore       // object store for kaizen analysis reports; nil: that route returns 503
-	RunsPath    string                   // runs.jsonl written by the Reporter; "": the runs route returns 503
-	TestsPath   string                   // tests.jsonl written by the Reporter; "": the stats and metrics routes return 503
+	Store       *linestore.Store         // the line database (see OpenStore); nil: the runs, stats, kaizen signals and heijunka levels routes return 503
 	Deploy      *DeployState             // nil: the deploy routes return 503
 	Epics       *EpicApprovals           // nil: no epic is approved, so nothing inherits
 	DeployToken string                   // the actuator's bearer token; "": no actuator
 	Releases    ReleaseBuilder           // nil: releases are commits only
-
-	// KaizenSignalsPath is the history of Kaizen baselines (kaizen-signals.jsonl);
-	// "": the kaizen signals routes return 503.
-	KaizenSignalsPath string
 
 	// busy admits one check-running request (attest, merge, attest-line) at a
 	// time across all stations, so several tokens cannot run checks in
@@ -86,6 +82,9 @@ type Server struct {
 	queueOnce sync.Once
 
 	liveness liveness
+
+	// reporter is shared by every station's witness; OpenStore points it at the database.
+	reporter *report.Reporter
 
 	// kaizenRequest is the latest request for a Kaizen run, in memory: after
 	// a restart of line serve Heijunka simply asks again.
@@ -190,15 +189,13 @@ func NewFromLine(l linedir.Line) (*Server, error) {
 		},
 	}
 	// Every run's JUnit/HTML go to the object store (S3 when SWEATSHOP_S3_BUCKET
-	// is set, else <line>/reports) its stats to <line>/runs.jsonl and its per-test results to <line>/tests.jsonl.
+	// is set, else <line>/reports); OpenStore adds the line database for its
+	// stats and per-test results.
 	objects, err := report.ObjectStoreFromEnv(filepath.Join(l.Dir, "reports"))
 	if err != nil {
 		return nil, err
 	}
 	s.Reports = objects
-	s.RunsPath = filepath.Join(l.Dir, "runs.jsonl")
-	s.KaizenSignalsPath = filepath.Join(l.Dir, "kaizen-signals.jsonl")
-	s.TestsPath = filepath.Join(l.Dir, "tests.jsonl")
 	s.Deploy = &DeployState{Path: filepath.Join(l.Dir, "deploy.json")}
 	s.Epics = &EpicApprovals{Path: filepath.Join(l.Dir, "approved-epics.json")}
 	if tok, err := os.ReadFile(filepath.Join(l.Dir, "deploy.token")); err == nil {
@@ -206,7 +203,7 @@ func NewFromLine(l linedir.Line) (*Server, error) {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
-	reporter := &report.Reporter{Objects: objects, Runs: &report.JSONLRunStore{Path: s.RunsPath}, Tests: &report.JSONLTestStore{Path: s.TestsPath}}
+	s.reporter = &report.Reporter{Objects: objects}
 	tokens := map[string]string{}
 	for _, ls := range l.Stations {
 		key, err := attest.LoadPrivateKey(ls.KeyFile)
@@ -234,11 +231,38 @@ func NewFromLine(l linedir.Line) (*Server, error) {
 				Runner:   witness.NewRunner(c.Runner, witness.LogRunner{Dir: filepath.Join(ls.StateDir, "evidence")}),
 				CacheDir: filepath.Join(ls.StateDir, "cache.git"),
 				Upstream: l.Remote,
-				Reporter: reporter,
+				Reporter: s.reporter,
 			},
 		})
 	}
 	return s, nil
+}
+
+// OpenStore opens the line database in dir (importing the flat files an older
+// line kept), serves the run, stats, kaizen signals and heijunka levels routes
+// from it and records every witness run in it. `line serve` calls it once: it
+// is the database's only writer, so commands that merely load the server
+// (viceroy start) must not.
+func (s *Server) OpenStore(ctx context.Context, dir string) error {
+	store, err := linestore.Open(ctx, filepath.Join(dir, linestore.FileName))
+	if err != nil {
+		return err
+	}
+	if err := store.ImportLegacy(ctx, dir); err != nil {
+		store.Close()
+		return err
+	}
+	s.Store = store
+	s.reporter.Runs, s.reporter.Tests = store, store
+	return nil
+}
+
+// Close releases the line database. Call it after the server has stopped serving.
+func (s *Server) Close() error {
+	if s.Store == nil {
+		return nil
+	}
+	return s.Store.Close()
 }
 
 // httpError carries the status code a handler wants for a failure.
@@ -366,6 +390,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 		return s.routeConstitution(w, r, st)
 	case path == "/v1/testament":
 		return s.routeTestament(w, r, st)
+	case path == "/v1/heijunka/levels":
+		return s.routeHeijunkaLevels(w, r, st)
 	case strings.HasPrefix(path, "/v1/kaizen/"):
 		return s.routeKaizen(w, r, st)
 	case strings.HasPrefix(path, "/v1/deploy/"):

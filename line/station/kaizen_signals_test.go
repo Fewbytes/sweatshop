@@ -17,7 +17,7 @@ const (
 func newSignalsRig(t *testing.T) *kaizenRig {
 	t.Helper()
 	r := newKaizenRig(t)
-	r.srv.KaizenSignalsPath = filepath.Join(t.TempDir(), "kaizen-signals.jsonl")
+	r.srv.Store = openTestStore(t)
 	return r
 }
 
@@ -62,9 +62,8 @@ func TestKaizenPreviousSignalsAreTheNewestBaselineOfAnotherCommit(t *testing.T) 
 	if prev, err = r.kaizen.PreviousKaizenSignals(ctx, signalsCommitA); err != nil || prev == nil || prev.Commit != signalsCommitB {
 		t.Fatalf("previous of A: %+v, %v", prev, err)
 	}
-	history, err := readKaizenSignals(r.srv.KaizenSignalsPath)
-	if err != nil || len(history) != 2 {
-		t.Fatalf("history has %d records, %v; want one per commit", len(history), err)
+	if prev, err := r.kaizen.PreviousKaizenSignals(ctx, "c"+signalsCommitA[1:]); err != nil || prev == nil || prev.Commit != signalsCommitB || string(prev.Signals) != `{"n":2}` {
+		t.Fatalf("history after republishing B: %+v, %v; want B once, with its first signals", prev, err)
 	}
 }
 
@@ -98,7 +97,7 @@ func TestKaizenSignalsAreKaizenOnlyAndNeedAStore(t *testing.T) {
 	if _, err := r.mkr.PreviousKaizenSignals(ctx, signalsCommitA); err == nil || !strings.Contains(err.Error(), "403") {
 		t.Fatalf("maker read: %v", err)
 	}
-	r.srv.KaizenSignalsPath = ""
+	r.srv.Store = nil
 	if _, err := r.kaizen.PublishKaizenSignals(ctx, k); err == nil || !strings.Contains(err.Error(), "503") {
 		t.Fatalf("no history: %v", err)
 	}

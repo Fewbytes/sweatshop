@@ -60,10 +60,13 @@ events and is follow-up work.
 
 ## Actuation
 
-Levels are published atomically to `<line dir>/heijunka.json`
-(`{"agents":N,"wip_limit":M}`). Whatever runs makers (supervisor, k8s
-deployer scaling a Deployment) reads it; wiring those consumers is follow-up
-work.
+Levels are published through the station API (`POST /v1/heijunka/levels`,
+heijunka role) and kept in the line database `<line dir>/line.db`. Whatever
+runs makers (supervisor, k8s deployer scaling a Deployment) reads them with
+`GET /v1/heijunka/levels` (`{"agents":N,"wip_limit":M}`); wiring those
+consumers is follow-up work. No `heijunka.json` is written; an actuator that
+cannot call the API would need an export from `line serve`. A `heijunka.json`
+left by an older line is imported into the database once.
 
 ## Running as a service
 
@@ -83,7 +86,7 @@ On the server, with systemd (`line/deploy/systemd/sweatshop-heijunka.service`):
    `systemctl --user daemon-reload && systemctl --user enable --now sweatshop-heijunka`.
    `loginctl enable-linger $USER` keeps it running without a login session.
 4. Check: `journalctl --user -u sweatshop-heijunka` shows level changes, and
-   `<line dir>/heijunka.json` holds the current levels.
+   `GET /v1/heijunka/levels` returns the current levels.
 
 `Restart=always` restarts it on failure; state is re-read on every wake, so a
 restart loses nothing. Poke with

@@ -74,6 +74,10 @@ func TestAndonStopFixClear(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := srv.OpenStore(context.Background(), l.Dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { srv.Close() })
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
 

@@ -134,7 +134,7 @@ the duty by hand: keeping the flame lit and sizing the maker pool.
 | **Station runner** (maker loop) | Takes a ready card, starts a station container with resource limits and a timeout, retries up to the attempt limit, and releases the claim on failure. | `sweatshop line maker`, podman service | running |
 | **Station image** | The single toolchain for agents and the witness (`sweatshop-station`): git, Go, uv, just, node and Claude Code. Gated to gemba. | `station/Dockerfile` | running |
 | **Maker service image** | `sweatshop-maker`: the maker loop with git and podman-remote; no bd and no Claude Code. | `station/Dockerfile` target `maker`; `just maker-image`, `just maker-service` | built (landing under `sweatshop-0mw.7`) |
-| **Heijunka worker** | Reads the backlog and run statistics, then publishes a target maker count and WIP limit. | `sweatshop line heijunka` → `heijunka.json` | built; nothing acts on its output |
+| **Heijunka worker** | Reads the backlog and run statistics, then publishes a target maker count and WIP limit. | `sweatshop line heijunka` → line database (`GET /v1/heijunka/levels`) | built; nothing acts on its output |
 | **Deployer** | The privileged actuator: applies a release the king approved by restarting line services through a backend. The viceroy can only ask for one. | `sweatshop line deployer` (launchd and k8s backends) | built; deploys are done by hand today |
 | **Watchers** | Post-merge suites, telemetry and scans that emit cards or pull the andon. | — | designed |
 | **Analyzers** | Structure analyzer (Kaizen), field analyzer (Gemba), test value analyzer (both). Each emits findings as cards. | — | designed |

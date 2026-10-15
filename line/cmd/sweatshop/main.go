@@ -72,8 +72,8 @@ const usage = `usage:
                                         the privileged actuator: apply the king-approved release with backend launchd or k8s (line.toml [deploy])
   sweatshop line andon --beads DIR [--interval 30s]
                                         watch master; pull/clear the andon cord (andon station token)
-  sweatshop line heijunka --dir D --beads DIR [--interval 5m] [--min-agents 1] [--max-agents 4]
-                                        level flow: publish agent and WIP-limit levels to D/heijunka.json (SIGUSR1 wakes it now)
+  sweatshop line heijunka --beads DIR [--interval 5m] [--min-agents 1] [--max-agents 4]
+                                        level flow: publish agent and WIP-limit levels to the line (SIGUSR1 wakes it now)
   sweatshop line maker --dir D --station NAME (--beads DIR | --cards api) [--once] [--engine E] [--url URL] [--timeout 2h] [--max-attempts 3] [--memory 4g] [--pids 1024] [--cpus 2]
                                         work ready "line" beads in station containers
   sweatshop line gemba --dir D --station NAME --beads DIR [--once] [--engine E] [--url URL] [--timeout 2h] [--max-attempts 3] [--memory 4g] [--pids 1024] [--cpus 2]
@@ -273,6 +273,10 @@ func lineServe(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if err := srv.OpenStore(context.Background(), l.Dir); err != nil {
+		return err
+	}
+	defer srv.Close()
 	if *beads != "" {
 		srv.Cards = station.BeadsCards{Dir: *beads}
 	}
@@ -388,7 +392,6 @@ func lineAndon(args []string) error {
 // interval and on SIGUSR1 (the manual trigger).
 func lineHeijunka(args []string) error {
 	fs := flag.NewFlagSet("line heijunka", flag.ContinueOnError)
-	dir := fs.String("dir", "", "line directory; levels are published to heijunka.json in it")
 	beads := fs.String("beads", "", "directory whose beads database holds the cards")
 	interval := fs.Duration("interval", 5*time.Minute, "periodic wake")
 	policy := heijunka.DefaultPolicy
@@ -397,7 +400,7 @@ func lineHeijunka(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *dir == "" || *beads == "" {
+	if fs.NArg() != 0 || *beads == "" {
 		return errors.New(usage)
 	}
 	c, err := lineClient()
@@ -426,14 +429,13 @@ func lineHeijunka(args []string) error {
 		return fmt.Errorf("constitution: %w", err)
 	}
 	logger := log.New(os.Stderr, "heijunka: ", log.LstdFlags)
-	levels := heijunka.LevelsFile{Path: filepath.Join(*dir, "heijunka.json")}
 	w := &heijunka.Worker{
 		Needs:    &heijunka.NeedsTriager{Cards: heijunka.BeadsNeeds{Dir: *beads}, Timeout: needsTimeout, Log: logger},
 		Reaper:   &heijunka.Reaper{Cards: heijunka.BeadsReap{BeadsNeeds: heijunka.BeadsNeeds{Dir: *beads}}, Log: logger},
 		Status:   c,
-		Observer: heijunka.BeadsObserver{API: c, Dir: *beads, Label: station.LabelLine, Levels: levels},
+		Observer: heijunka.BeadsObserver{API: c, Dir: *beads, Label: station.LabelLine},
 		Kaizen:   c,
-		Actuator: levels, Policy: policy, Interval: *interval, Poke: poke, Log: logger,
+		Actuator: heijunka.LevelsPublisher{API: c}, Policy: policy, Interval: *interval, Poke: poke, Log: logger,
 	}
 	return w.Run(ctx)
 }

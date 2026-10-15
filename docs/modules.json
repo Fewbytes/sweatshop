@@ -1206,7 +1206,7 @@
       "purpose": ""
     },
     "line/heijunka": {
-      "entry_point_count": 39,
+      "entry_point_count": 40,
       "entry_points": [
         "AbandonedReason",
         "Actuator",
@@ -1222,17 +1222,18 @@
         "FlowCard"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 15,
+      "hotspot_rank": 14,
       "imported_by": [
         "line/cmd/sweatshop"
       ],
       "imports": [
         "line/constitution",
+        "line/linestore",
         "line/maker",
         "line/station"
       ],
       "lcom4": 1,
-      "measured_at_commit": "a4cf8f41f72237cfe0658a5889d1a8e7b7cd866e",
+      "measured_at_commit": "58bcbe362fd664b1630fbaa9b5913596a6c43131",
       "purpose": "Package heijunka is the host-side worker that levels the line's flow. It is"
     },
     "line/internal/testwait": {
@@ -1342,6 +1343,28 @@
       "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
       "purpose": "Package linedir creates and loads a line directory: the on-disk home of one"
     },
+    "line/linestore": {
+      "entry_point_count": 5,
+      "entry_points": [
+        "FileName",
+        "KaizenBaseline",
+        "Levels",
+        "Open",
+        "Store"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 30,
+      "imported_by": [
+        "line/heijunka",
+        "line/station"
+      ],
+      "imports": [
+        "line/report"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "58bcbe362fd664b1630fbaa9b5913596a6c43131",
+      "purpose": "Package linestore is the line's master database: witness runs, per-test"
+    },
     "line/maker": {
       "entry_point_count": 26,
       "entry_points": [
@@ -1380,31 +1403,32 @@
       "purpose": "Package maker runs a Maker station: a host-side loop that takes a ready"
     },
     "line/report": {
-      "entry_point_count": 21,
+      "entry_point_count": 19,
       "entry_points": [
         "Check",
         "FSStore",
         "HTML",
-        "JSONLRunStore",
-        "JSONLTestStore",
         "JUnitXML",
         "NewObjectStore",
         "ObjectStore",
         "ObjectStoreFromEnv",
         "ParseGoTestJSON",
         "ReadJSONL",
-        "ReadTestsJSONL"
+        "ReadTestsJSONL",
+        "Reporter",
+        "Run"
       ],
-      "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 17,
+      "hidden_coupling_ratio": 0.333,
+      "hotspot_rank": 18,
       "imported_by": [
         "line/cistats",
+        "line/linestore",
         "line/station",
         "line/witness"
       ],
       "imports": [],
       "lcom4": 2,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "58bcbe362fd664b1630fbaa9b5913596a6c43131",
       "purpose": "Package report turns a witness check run into a JUnit XML report and a"
     },
     "line/runner": {
@@ -1466,11 +1490,12 @@
         "line/guard",
         "line/internal/testwait",
         "line/linedir",
+        "line/linestore",
         "line/report",
         "line/witness"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "58bcbe362fd664b1630fbaa9b5913596a6c43131",
       "purpose": "Package station is the station API: the only way containerized agents reach"
     },
     "line/testhygiene": {

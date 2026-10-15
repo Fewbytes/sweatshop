@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/Fewbytes/sweatshop/line/deploy"
-	"github.com/Fewbytes/sweatshop/line/report"
 )
 
 const (
@@ -111,17 +110,11 @@ func (s *Server) post(ctx context.Context, text string) error {
 }
 
 // attested reports whether a witness run passed on commit.
-func (s *Server) attested(commit string) (bool, error) {
-	runs, err := report.ReadJSONL(s.RunsPath)
-	if err != nil {
-		return false, err
+func (s *Server) attested(ctx context.Context, commit string) (bool, error) {
+	if s.Store == nil {
+		return false, fail(http.StatusServiceUnavailable, "no run store")
 	}
-	for _, r := range runs {
-		if r.Commit == commit && r.Passed {
-			return true, nil
-		}
-	}
-	return false, nil
+	return s.Store.CommitPassed(ctx, commit)
 }
 
 // RequestDeploy records a request to redeploy the line to commit and asks the
@@ -140,7 +133,7 @@ func (s *Server) RequestDeploy(ctx context.Context, commit, by string) (DeployRe
 	} else if id != "" {
 		return DeployRequest{}, fail(http.StatusConflict, "the line is stopped (andon event %s)", id)
 	}
-	if ok, err := s.attested(commit); err != nil {
+	if ok, err := s.attested(ctx, commit); err != nil {
 		return DeployRequest{}, err
 	} else if !ok {
 		return DeployRequest{}, fail(http.StatusConflict, "%s has no passing attestation", commit)

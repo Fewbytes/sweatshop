@@ -3,8 +3,8 @@ package heijunka
 import (
 	"context"
 	"errors"
+	"github.com/Fewbytes/sweatshop/line/linestore"
 	"github.com/Fewbytes/sweatshop/line/station"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -105,24 +105,17 @@ func TestRunWakesOnPoke(t *testing.T) {
 	}
 }
 
-func TestLevelsFileRoundTrip(t *testing.T) {
-	f := LevelsFile{Path: filepath.Join(t.TempDir(), "heijunka.json")}
-	if l, err := f.Read(); err != nil || l != (Levels{}) {
-		t.Fatalf("missing file: %+v, %v", l, err)
-	}
-	want := Levels{Agents: 3, WIPLimit: 3}
-	if err := f.Apply(context.Background(), want); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := f.Read(); err != nil || got != want {
-		t.Fatalf("got %+v, %v; want %+v", got, err, want)
-	}
+type fakeLevelsAPI struct{ published []linestore.Levels }
+
+func (f *fakeLevelsAPI) PublishHeijunkaLevels(_ context.Context, l linestore.Levels) error {
+	f.published = append(f.published, l)
+	return nil
 }
 
 func TestStepPublishesBalancedLevelsFromBacklog(t *testing.T) {
-	levels := LevelsFile{Path: filepath.Join(t.TempDir(), "heijunka.json")}
+	levels := &fakeLevelsAPI{}
 	obs := &fakeObserver{snap: Snapshot{Ready: 5, InProgress: 1, Current: Levels{1, 1}}}
-	w := &Worker{Observer: obs, Actuator: levels, Policy: DefaultPolicy}
+	w := &Worker{Observer: obs, Actuator: LevelsPublisher{API: levels}, Policy: DefaultPolicy}
 	got, err := w.Step(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -131,8 +124,8 @@ func TestStepPublishesBalancedLevelsFromBacklog(t *testing.T) {
 	if got != want {
 		t.Fatalf("Step returned %+v, want %+v", got, want)
 	}
-	if published, err := levels.Read(); err != nil || published != want {
-		t.Fatalf("published %+v, %v; want %+v", published, err, want)
+	if len(levels.published) != 1 || Levels(levels.published[0]) != want {
+		t.Fatalf("published %+v; want [%+v]", levels.published, want)
 	}
 }
 
