@@ -119,3 +119,77 @@ func TestJSONLRunStoreAppends(t *testing.T) {
 		t.Fatalf("want 2 lines, got %d: %q", n, b)
 	}
 }
+
+const goTestJSON = `lint noise
+{"Action":"run","Package":"p","Test":"TestA"}
+{"Action":"output","Package":"p","Test":"TestA","Output":"x"}
+{"Action":"pass","Package":"p","Test":"TestA","Elapsed":0.25}
+{"Action":"fail","Package":"p","Test":"TestB","Elapsed":1.5}
+{"Action":"skip","Package":"p","Test":"TestC","Elapsed":0}
+{"Action":"fail","Package":"p","Elapsed":2}
+{"Action":"pass","Pack
+`
+
+func TestParseGoTestJSONKeepsOnlyTestVerdicts(t *testing.T) {
+	got := ParseGoTestJSON([]byte(goTestJSON))
+	want := []TestResult{
+		{Package: "p", Name: "TestA", Outcome: TestPassed, Duration: 250 * time.Millisecond},
+		{Package: "p", Name: "TestB", Outcome: TestFailed, Duration: 1500 * time.Millisecond},
+		{Package: "p", Name: "TestC", Outcome: TestSkipped},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("result %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestPublishRecordsPerTestRowsAndJUnitCases(t *testing.T) {
+	r := sample()
+	r.Checks[1].Tests = ParseGoTestJSON([]byte(goTestJSON))
+	objs, runs := memObjects{}, &memRuns{}
+	tests := &JSONLTestStore{Path: filepath.Join(t.TempDir(), "tests.jsonl")}
+	if err := (Reporter{Objects: objs, Runs: runs, Tests: tests}).Publish(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := ReadTestsJSONL(tests.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 3 || rows[1].Test != "TestB" || rows[1].Outcome != TestFailed || rows[1].DurationMS != 1500 ||
+		rows[1].RunID != (*runs)[0].RunID || rows[1].Commit != r.Commit || rows[1].Check != "test" {
+		t.Fatalf("rows = %+v, run = %+v", rows, (*runs)[0])
+	}
+	xmlData := string(objs[(*runs)[0].ReportKey])
+	for _, want := range []string{`name="TestB" classname="p"`, "<skipped>", `name="test tests"`} {
+		if !strings.Contains(xmlData, want) {
+			t.Errorf("junit lacks %q:\n%s", want, xmlData)
+		}
+	}
+}
+
+func TestInfraRunIsNeitherPassNorTestFailure(t *testing.T) {
+	r := sample()
+	r.Infra = "run check test: timed out after 1h"
+	runs := &memRuns{}
+	objs := memObjects{}
+	if err := (Reporter{Objects: objs, Runs: runs}).Publish(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	s := (*runs)[0]
+	if s.Passed || s.Outcome != RunInfra || s.Result() != RunInfra {
+		t.Fatalf("stats = %+v", s)
+	}
+	if xmlData := string(objs[s.ReportKey]); !strings.Contains(xmlData, "<error") || !strings.Contains(xmlData, "timed out") {
+		t.Fatalf("junit has no <error> for the infra failure:\n%s", xmlData)
+	}
+}
+
+func TestStatsResultDerivesOutcomeForRowsSavedBeforeOutcomeExisted(t *testing.T) {
+	if (Stats{Passed: true}).Result() != RunPassed || (Stats{}).Result() != RunFailed {
+		t.Fatal("legacy rows must map Passed to passed and !Passed to failed")
+	}
+}

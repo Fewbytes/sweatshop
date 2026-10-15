@@ -320,3 +320,76 @@ func TestAttestSweepsRefsLeftByEarlierProcess(t *testing.T) {
 		}
 	}
 }
+
+// jsonOutputRunner is a check that prints go test -json events and fails.
+type jsonOutputRunner struct{}
+
+func (jsonOutputRunner) Run(context.Context, string, string) (RunResult, error) {
+	out := `{"Action":"pass","Package":"p","Test":"TestA","Elapsed":0.5}` + "\n" +
+		`{"Action":"fail","Package":"p","Test":"TestB","Elapsed":1}` + "\n"
+	return RunResult{ExitCode: 1, EvidenceID: "inv_x", Output: []byte(out)}, nil
+}
+
+type testRows []report.TestRow
+
+func (m *testRows) RecordTests(_ context.Context, rows []report.TestRow) error {
+	*m = append(*m, rows...)
+	return nil
+}
+
+func TestAttestRecordsPerTestResultsFromCheckOutput(t *testing.T) {
+	s := newSource(t)
+	w, _ := newWitness(t)
+	w.Runner = jsonOutputRunner{}
+	rows := &testRows{}
+	w.Reporter = &report.Reporter{Tests: rows}
+	head := s.commit("src/a.go", "package a")
+	if _, err := w.Attest(s.ctx, s.repo.Dir, "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+	if len(*rows) != 2 || (*rows)[0].Test != "TestA" || (*rows)[0].Outcome != report.TestPassed ||
+		(*rows)[1].Test != "TestB" || (*rows)[1].Outcome != report.TestFailed || (*rows)[1].Commit != head {
+		t.Fatalf("rows = %+v", *rows)
+	}
+}
+
+func TestAttestTimeoutIsReportedAsInfraRun(t *testing.T) {
+	s := newSource(t)
+	w, _ := newWitness(t)
+	w.Constitution.Checks.Timeout = "100ms"
+	w.Runner = blockingRunner{}
+	runs := &reportRuns{}
+	w.Reporter = &report.Reporter{Runs: runs}
+	if _, err := w.Attest(s.ctx, s.repo.Dir, "HEAD"); err == nil {
+		t.Fatal("want a timeout error")
+	}
+	if len(*runs) != 1 || (*runs)[0].Outcome != report.RunInfra || (*runs)[0].Passed {
+		t.Fatalf("runs = %+v, want one infra run", *runs)
+	}
+}
+
+// commandRecordingRunner remembers the command line it was given.
+type commandRecordingRunner struct{ command string }
+
+func (r *commandRecordingRunner) Run(_ context.Context, _, command string) (RunResult, error) {
+	r.command = command
+	return RunResult{EvidenceID: "inv_x"}, nil
+}
+
+func TestAttestEnablesGoTestJSONWithoutChangingTheSignedCommand(t *testing.T) {
+	s := newSource(t)
+	w, _ := newWitness(t)
+	runner := &commandRecordingRunner{}
+	w.Runner = runner
+	s.commit("src/a.go", "package a")
+	result, err := w.Attest(s.ctx, s.repo.Dir, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runner.command != goTestJSONEnv+"sh check.sh" {
+		t.Errorf("runner got %q", runner.command)
+	}
+	if got := result.Statement.Predicate.Checks[0].Command; got != "sh check.sh" {
+		t.Errorf("signed command = %q, want the constitution's", got)
+	}
+}

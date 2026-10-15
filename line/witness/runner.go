@@ -17,6 +17,9 @@ import (
 type RunResult struct {
 	ExitCode   int
 	EvidenceID string
+	// Output is the check's combined output, for per-test results; nil when
+	// the runner does not keep it.
+	Output []byte
 }
 
 // Runner executes one check command with dir as its working directory. A

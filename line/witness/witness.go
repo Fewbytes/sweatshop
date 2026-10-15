@@ -200,6 +200,13 @@ const lineHeadsPrefix = "refs/line/heads/"
 
 var errCheckTimeout = errors.New("check timed out")
 
+// goTestJSONEnv makes every `go test` in a check emit the JSON events that
+// report.ParseGoTestJSON reads. It rides on the command because the check
+// definition (`just ci`) is the candidate's and gated; the signed predicate
+// keeps the constitution's command unchanged. Commands that do not accept
+// -json ignore it.
+const goTestJSONEnv = `export GOFLAGS="${GOFLAGS:+$GOFLAGS }-json"; `
+
 // run executes the required checks in checkout and signs the outcome.
 func (w *Witness) run(ctx context.Context, commit, tree, checkout string) (AttestResult, error) {
 	predicate := attest.ChecksPredicate{
@@ -213,28 +220,36 @@ func (w *Witness) run(ctx context.Context, commit, tree, checkout string) (Attes
 	for _, check := range w.Constitution.Checks.Required {
 		checkCtx, cancel := context.WithTimeoutCause(ctx, timeout, errCheckTimeout)
 		checkStart := w.now()
-		run, err := w.Runner.Run(checkCtx, checkout, check.Command)
+		run, err := w.Runner.Run(checkCtx, checkout, goTestJSONEnv+check.Command)
 		elapsed := w.now().Sub(checkStart)
 		cut := checkCtx.Err() != nil
 		cancel()
 		// A check that timed out or was cancelled is a runner error, never a
 		// signed failure: otherwise starving a check would let an agent mint
-		// signed evidence that master fails (and pull the cord at will).
-		if cut && ctx.Err() == nil {
-			return AttestResult{}, fmt.Errorf("run check %s: timed out after %s", check.Name, timeout)
-		}
-		if cut {
-			return AttestResult{}, fmt.Errorf("run check %s: %w", check.Name, ctx.Err())
+		// signed evidence that master fails (and pull the cord at will). The
+		// run is still reported, as infra, so it shows in the CI metrics
+		// without counting against any test.
+		switch {
+		case cut && ctx.Err() == nil:
+			err = fmt.Errorf("run check %s: timed out after %s", check.Name, timeout)
+		case cut:
+			err = fmt.Errorf("run check %s: %w", check.Name, ctx.Err())
+		case err != nil:
+			err = fmt.Errorf("run check %s: %w", check.Name, err)
 		}
 		if err != nil {
-			return AttestResult{}, fmt.Errorf("run check %s: %w", check.Name, err)
+			w.publish(ctx, report.Run{
+				Commit: commit, Tree: tree, Role: w.Role, AgentID: w.AgentID, Runner: predicate.Runner,
+				StartedAt: started, FinishedAt: w.now().UTC(), Checks: timings, Infra: err.Error(),
+			})
+			return AttestResult{}, err
 		}
 		predicate.Checks = append(predicate.Checks, attest.CheckResult{
 			Name: check.Name, Command: check.Command, ExitCode: run.ExitCode, EvidenceID: run.EvidenceID,
 		})
 		timings = append(timings, report.Check{
 			Name: check.Name, Command: check.Command, ExitCode: run.ExitCode,
-			Duration: elapsed, EvidenceID: run.EvidenceID,
+			Duration: elapsed, EvidenceID: run.EvidenceID, Tests: report.ParseGoTestJSON(run.Output),
 		})
 		if run.ExitCode != 0 {
 			passed = false

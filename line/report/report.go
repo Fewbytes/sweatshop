@@ -1,6 +1,6 @@
 // Package report turns a witness check run into a JUnit XML report and a
-// rendered HTML page for the object store, and records the run's duration and
-// statistics in the master database (see design-docs/assembly-line-spec.md,
+// rendered HTML page for the object store, and records the run's duration,
+// statistics and per-test results in the master database (see design-docs/assembly-line-spec.md,
 // storage table).
 //
 // Both destinations are interfaces: the object store (S3, MinIO, R2; the
@@ -31,8 +31,36 @@ type Check struct {
 	ExitCode   int
 	Duration   time.Duration
 	EvidenceID string
-	Output     string // evidence log, included in the failure body
+	Output     string       // evidence log, included in the failure body
+	Tests      []TestResult // per-test results parsed from the check's `go test -json` output
 }
+
+// TestOutcome is how one test ended.
+type TestOutcome string
+
+const (
+	TestPassed  TestOutcome = "pass"
+	TestFailed  TestOutcome = "fail"
+	TestSkipped TestOutcome = "skip"
+)
+
+// TestResult is one test of one package, as reported by `go test -json`.
+type TestResult struct {
+	Package  string
+	Name     string
+	Outcome  TestOutcome
+	Duration time.Duration
+}
+
+// RunOutcome separates a run that judged the commit from one that could not:
+// an infra run (container, timeout, cord) says nothing about any test.
+type RunOutcome string
+
+const (
+	RunPassed RunOutcome = "passed"
+	RunFailed RunOutcome = "failed"
+	RunInfra  RunOutcome = "infra"
+)
 
 // Run is one witness run over a commit.
 type Run struct {
@@ -44,9 +72,14 @@ type Run struct {
 	StartedAt  time.Time
 	FinishedAt time.Time
 	Checks     []Check
+	// Infra is why the run could not judge the commit ("" when it did).
+	Infra string
 }
 
 func (r Run) Passed() bool {
+	if r.Infra != "" {
+		return false
+	}
 	for _, c := range r.Checks {
 		if c.ExitCode != 0 {
 			return false
@@ -57,8 +90,22 @@ func (r Run) Passed() bool {
 
 func (r Run) Duration() time.Duration { return r.FinishedAt.Sub(r.StartedAt) }
 
+func (r Run) Outcome() RunOutcome {
+	switch {
+	case r.Infra != "":
+		return RunInfra
+	case r.Passed():
+		return RunPassed
+	}
+	return RunFailed
+}
+
+// ID names the run in the stores; it is unique per commit and finish time.
+func (r Run) ID() string { return fmt.Sprintf("%s/%d", r.Commit, r.FinishedAt.UTC().UnixNano()) }
+
 // Stats is the row saved to the run database for Kaizen and andon workers.
 type Stats struct {
+	RunID      string `json:"run_id,omitempty"` // joins TestRow.RunID; "" on rows saved before per-test results
 	Commit     string
 	Tree       string
 	Role       string
@@ -69,8 +116,35 @@ type Stats struct {
 	Checks     int
 	Failures   int
 	Passed     bool
-	ReportKey  string // object-store key of the XML report
-	HTMLKey    string // object-store key of the HTML report
+	Outcome    RunOutcome `json:"outcome,omitempty"` // "" on rows saved before infra runs were recorded; see Result
+	ReportKey  string     // object-store key of the XML report
+	HTMLKey    string     // object-store key of the HTML report
+}
+
+// Result is the run's outcome, derived from Passed for rows saved before
+// Outcome existed.
+func (s Stats) Result() RunOutcome {
+	switch {
+	case s.Outcome != "":
+		return s.Outcome
+	case s.Passed:
+		return RunPassed
+	}
+	return RunFailed
+}
+
+// TestRow is one test result of one run, as saved to the test store.
+type TestRow struct {
+	RunID      string      `json:"run_id"`
+	Commit     string      `json:"commit"`
+	Tree       string      `json:"tree"`
+	Role       string      `json:"role"`
+	StartedAt  time.Time   `json:"started_at"`
+	Check      string      `json:"check"`
+	Package    string      `json:"package"`
+	Test       string      `json:"test"`
+	Outcome    TestOutcome `json:"outcome"`
+	DurationMS int64       `json:"duration_ms"`
 }
 
 // ObjectStore holds report blobs.
@@ -81,6 +155,11 @@ type ObjectStore interface {
 // RunStore saves run duration and statistics to the master database.
 type RunStore interface {
 	RecordRun(ctx context.Context, s Stats) error
+}
+
+// TestStore saves per-test results to the master database.
+type TestStore interface {
+	RecordTests(ctx context.Context, rows []TestRow) error
 }
 
 type testsuites struct {
@@ -95,17 +174,20 @@ type testsuite struct {
 	Name      string     `xml:"name,attr"`
 	Tests     int        `xml:"tests,attr"`
 	Failures  int        `xml:"failures,attr"`
+	Errors    int        `xml:"errors,attr"`
 	Time      string     `xml:"time,attr"`
 	Timestamp string     `xml:"timestamp,attr"`
 	Cases     []testcase `xml:"testcase"`
 }
 
 type testcase struct {
-	Name      string   `xml:"name,attr"`
-	ClassName string   `xml:"classname,attr"`
-	Time      string   `xml:"time,attr"`
-	Failure   *failure `xml:"failure,omitempty"`
-	SystemOut string   `xml:"system-out,omitempty"`
+	Name      string    `xml:"name,attr"`
+	ClassName string    `xml:"classname,attr"`
+	Time      string    `xml:"time,attr"`
+	Failure   *failure  `xml:"failure,omitempty"`
+	Error     *failure  `xml:"error,omitempty"`
+	Skipped   *struct{} `xml:"skipped,omitempty"`
+	SystemOut string    `xml:"system-out,omitempty"`
 }
 
 type failure struct {
@@ -115,7 +197,10 @@ type failure struct {
 
 func seconds(d time.Duration) string { return fmt.Sprintf("%.3f", d.Seconds()) }
 
-// JUnitXML renders the run as JUnit XML: one testcase per check.
+// JUnitXML renders the run as JUnit XML: one testcase per check in the first
+// suite, then one suite per check that reported tests, one testcase per test.
+// A run that could not judge the commit carries an <error> testcase, which
+// JUnit consumers tell apart from a <failure>.
 func JUnitXML(r Run) ([]byte, error) {
 	suite := testsuite{
 		Name: r.Commit, Tests: len(r.Checks), Time: seconds(r.Duration()),
@@ -129,7 +214,34 @@ func JUnitXML(r Run) ([]byte, error) {
 		}
 		suite.Cases = append(suite.Cases, tc)
 	}
+	if r.Infra != "" {
+		suite.Tests++
+		suite.Errors++
+		suite.Cases = append(suite.Cases, testcase{Name: "infrastructure", ClassName: "checks", Time: "0.000",
+			Error: &failure{Message: "run could not judge the commit", Body: xmlSafe(r.Infra)}})
+	}
 	doc := testsuites{Tests: suite.Tests, Failures: suite.Failures, Time: suite.Time, Suite: []testsuite{suite}}
+	for _, c := range r.Checks {
+		if len(c.Tests) == 0 {
+			continue
+		}
+		ts := testsuite{Name: c.Name + " tests", Tests: len(c.Tests), Timestamp: suite.Timestamp}
+		var total time.Duration
+		for _, t := range c.Tests {
+			total += t.Duration
+			tc := testcase{Name: t.Name, ClassName: t.Package, Time: seconds(t.Duration)}
+			switch t.Outcome {
+			case TestFailed:
+				ts.Failures++
+				tc.Failure = &failure{Message: t.Package + " " + t.Name + " failed"}
+			case TestSkipped:
+				tc.Skipped = &struct{}{}
+			}
+			ts.Cases = append(ts.Cases, tc)
+		}
+		ts.Time = seconds(total)
+		doc.Suite = append(doc.Suite, ts)
+	}
 	out, err := xml.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return nil, err
@@ -184,15 +296,16 @@ func shortCommit(c string) string {
 type Reporter struct {
 	Objects ObjectStore
 	Runs    RunStore
+	Tests   TestStore
 }
 
 // Publish uploads the XML and HTML reports (keyed by commit and finish time so
 // repeated runs of one commit do not overwrite each other), then records the
 // run. It tries every step and returns the joined errors.
 func (p Reporter) Publish(ctx context.Context, r Run) error {
-	prefix := fmt.Sprintf("reports/%s/%d", r.Commit, r.FinishedAt.UTC().UnixNano())
+	prefix := "reports/" + r.ID()
 	stats := Stats{
-		Commit: r.Commit, Tree: r.Tree, Role: r.Role, AgentID: r.AgentID, Runner: r.Runner,
+		RunID: r.ID(), Outcome: r.Outcome(), Commit: r.Commit, Tree: r.Tree, Role: r.Role, AgentID: r.AgentID, Runner: r.Runner,
 		StartedAt: r.StartedAt.UTC(), DurationMS: r.Duration().Milliseconds(),
 		Checks: len(r.Checks), Passed: r.Passed(),
 	}
@@ -202,6 +315,11 @@ func (p Reporter) Publish(ctx context.Context, r Run) error {
 		}
 	}
 	var errs []error
+	if p.Tests != nil {
+		if err := p.Tests.RecordTests(ctx, testRows(r)); err != nil {
+			errs = append(errs, fmt.Errorf("record tests: %w", err))
+		}
+	}
 	if p.Objects != nil {
 		if xmlData, err := JUnitXML(r); err != nil {
 			errs = append(errs, err)
@@ -239,6 +357,19 @@ func (s FSStore) Put(_ context.Context, key, _ string, data []byte) error {
 	return os.WriteFile(path, data, 0o600)
 }
 
+func testRows(r Run) []TestRow {
+	var rows []TestRow
+	for _, c := range r.Checks {
+		for _, t := range c.Tests {
+			rows = append(rows, TestRow{
+				RunID: r.ID(), Commit: r.Commit, Tree: r.Tree, Role: r.Role, StartedAt: r.StartedAt.UTC(),
+				Check: c.Name, Package: t.Package, Test: t.Name, Outcome: t.Outcome, DurationMS: t.Duration.Milliseconds(),
+			})
+		}
+	}
+	return rows
+}
+
 // JSONLRunStore appends each run's statistics as one JSON line to Path. It is
 // the dependency-free RunStore until the line has a database driver; Kaizen
 // and andon workers (or an importer into the master database) read the file.
@@ -248,20 +379,39 @@ type JSONLRunStore struct {
 }
 
 func (s *JSONLRunStore) RecordRun(_ context.Context, st Stats) error {
-	line, err := json.Marshal(st)
+	return appendJSONL(&s.mu, s.Path, []Stats{st})
+}
+
+// JSONLTestStore appends each test result as one JSON line to Path, next to
+// the runs file, for the same reason JSONLRunStore exists.
+type JSONLTestStore struct {
+	Path string
+	mu   sync.Mutex
+}
+
+func (s *JSONLTestStore) RecordTests(_ context.Context, rows []TestRow) error {
+	return appendJSONL(&s.mu, s.Path, rows)
+}
+
+func appendJSONL[T any](mu *sync.Mutex, path string, rows []T) error {
+	var buf bytes.Buffer
+	for _, row := range rows {
+		line, err := json.Marshal(row)
+		if err != nil {
+			return err
+		}
+		buf.Write(append(line, '\n'))
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := os.MkdirAll(filepath.Dir(s.Path), 0o700); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(s.Path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(append(line, '\n')); err != nil {
+	if _, err := f.Write(buf.Bytes()); err != nil {
 		f.Close()
 		return err
 	}
@@ -270,7 +420,13 @@ func (s *JSONLRunStore) RecordRun(_ context.Context, st Stats) error {
 
 // ReadJSONL returns the runs saved by a JSONLRunStore, oldest first. A missing
 // file is no runs; a torn or malformed line is skipped.
-func ReadJSONL(path string) ([]Stats, error) {
+func ReadJSONL(path string) ([]Stats, error) { return readJSONL[Stats](path) }
+
+// ReadTestsJSONL returns the test results saved by a JSONLTestStore, oldest
+// first, with the same tolerance as ReadJSONL.
+func ReadTestsJSONL(path string) ([]TestRow, error) { return readJSONL[TestRow](path) }
+
+func readJSONL[T any](path string) ([]T, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -278,13 +434,13 @@ func ReadJSONL(path string) ([]Stats, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []Stats
+	var out []T
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	sc.Buffer(nil, 1<<20)
 	for sc.Scan() {
-		var st Stats
-		if json.Unmarshal(sc.Bytes(), &st) == nil {
-			out = append(out, st)
+		var row T
+		if json.Unmarshal(sc.Bytes(), &row) == nil {
+			out = append(out, row)
 		}
 	}
 	return out, sc.Err()

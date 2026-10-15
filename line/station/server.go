@@ -64,6 +64,7 @@ type Server struct {
 	Viceroy     *Supervisor              // nil: the viceroy routes return 503, no generation guard
 	Reports     report.ObjectStore       // object store for kaizen analysis reports; nil: that route returns 503
 	RunsPath    string                   // runs.jsonl written by the Reporter; "": the runs route returns 503
+	TestsPath   string                   // tests.jsonl written by the Reporter; "": the stats and metrics routes return 503
 	Deploy      *DeployState             // nil: the deploy routes return 503
 	Epics       *EpicApprovals           // nil: no epic is approved, so nothing inherits
 	DeployToken string                   // the actuator's bearer token; "": no actuator
@@ -154,7 +155,7 @@ func NewFromLine(l linedir.Line) (*Server, error) {
 		},
 	}
 	// Every run's JUnit/HTML go to the object store (S3 when SWEATSHOP_S3_BUCKET
-	// is set, else <line>/reports) and its stats to <line>/runs.jsonl.
+	// is set, else <line>/reports) its stats to <line>/runs.jsonl and its per-test results to <line>/tests.jsonl.
 	objects, err := report.ObjectStoreFromEnv(filepath.Join(l.Dir, "reports"))
 	if err != nil {
 		return nil, err
@@ -162,6 +163,7 @@ func NewFromLine(l linedir.Line) (*Server, error) {
 	s.Reports = objects
 	s.RunsPath = filepath.Join(l.Dir, "runs.jsonl")
 	s.KaizenSignalsPath = filepath.Join(l.Dir, "kaizen-signals.jsonl")
+	s.TestsPath = filepath.Join(l.Dir, "tests.jsonl")
 	s.Deploy = &DeployState{Path: filepath.Join(l.Dir, "deploy.json")}
 	s.Epics = &EpicApprovals{Path: filepath.Join(l.Dir, "approved-epics.json")}
 	if tok, err := os.ReadFile(filepath.Join(l.Dir, "deploy.token")); err == nil {
@@ -169,7 +171,7 @@ func NewFromLine(l linedir.Line) (*Server, error) {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
-	reporter := &report.Reporter{Objects: objects, Runs: &report.JSONLRunStore{Path: s.RunsPath}}
+	reporter := &report.Reporter{Objects: objects, Runs: &report.JSONLRunStore{Path: s.RunsPath}, Tests: &report.JSONLTestStore{Path: s.TestsPath}}
 	tokens := map[string]string{}
 	for _, ls := range l.Stations {
 		key, err := attest.LoadPrivateKey(ls.KeyFile)
@@ -318,6 +320,11 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 			return "", err
 		}
 		return s.runs(w, r)
+	case path == "/v1/stats" || path == "/metrics":
+		if err := method(http.MethodGet); err != nil {
+			return "", err
+		}
+		return s.ciStats(w, r, path == "/metrics")
 	case path == "/v1/cards" || strings.HasPrefix(path, "/v1/cards/"):
 		return s.routeCards(w, r, st)
 	case path == "/v1/constitution" || strings.HasPrefix(path, "/v1/constitution/"):

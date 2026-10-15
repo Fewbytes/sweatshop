@@ -68,7 +68,7 @@ func (r LogRunner) Run(ctx context.Context, dir, command string) (RunResult, err
 	if err := os.WriteFile(filepath.Join(r.Dir, id+".log"), data, 0o600); err != nil {
 		return RunResult{}, err
 	}
-	return RunResult{ExitCode: code, EvidenceID: id}, nil
+	return RunResult{ExitCode: code, EvidenceID: id, Output: data}, nil
 }
 
 // tailBuffer keeps only the last max bytes written, so agent-authored checks

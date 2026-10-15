@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Fewbytes/sweatshop/line/cistats"
 	"io"
 	"net/http"
 	"net/url"
@@ -219,6 +220,14 @@ func (c Client) PassingRuns(ctx context.Context, commit string) ([]RunInfo, erro
 	var res RunsResponse
 	_, err := c.do(ctx, http.MethodGet, "/v1/runs", url.Values{"commit": {commit}, "passed": {"true"}}, nil, &res)
 	return res.Runs, err
+}
+
+// Stats returns the CI statistics of the runs since the given --since value
+// ("" for all history).
+func (c Client) Stats(ctx context.Context, since string) (cistats.Summary, error) {
+	var sum cistats.Summary
+	_, err := c.do(ctx, http.MethodGet, "/v1/stats", url.Values{"since": {since}}, nil, &sum)
+	return sum, err
 }
 
 func (c Client) Status(ctx context.Context) (Status, error) {

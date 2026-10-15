@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/Fewbytes/sweatshop/line/cistats"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -604,5 +606,35 @@ func TestMergeFromShallowCloneAfterRebase(t *testing.T) {
 	}
 	if res.Guard.Status != guard.Merged || r.master() != head {
 		t.Fatalf("result = %+v, master = %s, want %s", res, r.master(), head)
+	}
+}
+
+func TestStatsAndMetricsRoutesServeStoredRunsAndTests(t *testing.T) {
+	r := newRig(t)
+	if code, _ := r.raw("GET", "/metrics", "", nil); code != http.StatusUnauthorized {
+		t.Fatalf("metrics without a token: %d", code)
+	}
+	r.srv.TestsPath = filepath.Join(filepath.Dir(r.srv.RunsPath), "tests.jsonl")
+	now := time.Now()
+	if err := (&report.JSONLRunStore{Path: r.srv.RunsPath}).RecordRun(r.ctx,
+		report.Stats{RunID: "r1", Commit: "a", Tree: "t", Role: "maker", StartedAt: now, DurationMS: 4000, Outcome: report.RunFailed}); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&report.JSONLTestStore{Path: r.srv.TestsPath}).RecordTests(r.ctx, []report.TestRow{
+		{RunID: "r1", Commit: "a", Tree: "t", StartedAt: now, Package: "p", Test: "TestBroken", Outcome: report.TestFailed}}); err != nil {
+		t.Fatal(err)
+	}
+	code, body := r.raw("GET", "/v1/stats?since=1d", r.token("maker-1"), nil)
+	var sum cistats.Summary
+	if code != http.StatusOK || json.Unmarshal([]byte(body), &sum) != nil || sum.Failed != 1 || sum.TestFailureRates[0].Test != "p.TestBroken" {
+		t.Fatalf("stats: %d %s", code, body)
+	}
+	if code, _ := r.raw("GET", "/v1/stats?since=soon", r.token("maker-1"), nil); code != http.StatusBadRequest {
+		t.Fatalf("bad since: %d", code)
+	}
+	code, body = r.raw("GET", "/metrics", r.token("maker-1"), nil)
+	if code != http.StatusOK || !strings.Contains(body, `sweatshop_ci_runs_total{outcome="failed"} 1`) ||
+		!strings.Contains(body, `sweatshop_ci_test_failure_ratio{test="p.TestBroken"} 1`) {
+		t.Fatalf("metrics: %d %s", code, body)
 	}
 }
