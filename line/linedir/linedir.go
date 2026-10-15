@@ -200,9 +200,11 @@ func Init(ctx context.Context, opts InitOptions) (Line, error) {
 	// station image it runs in). Gate those paths so a maker cannot weaken
 	// the check in the same commit it is judged by. M1 has no gemba station,
 	// so in practice only the owner changes them, directly on the host.
-	// Tests themselves stay agent-editable until acceptance paths exist.
+	// acceptance/** holds the black-box tests that define "works"; only gemba
+	// changes them, so makers cannot edit a test to match their code.
 	cons.WriteString("\n[[guards.paths]]\npattern = \"justfile\"\nroles = [\"gemba\"]\n")
 	cons.WriteString("\n[[guards.paths]]\npattern = \"station/**\"\nroles = [\"gemba\"]\n")
+	cons.WriteString("\n[[guards.paths]]\npattern = \"acceptance/**\"\nroles = [\"gemba\"]\n")
 	if opts.SovereignName != "" {
 		fmt.Fprintf(&cons, "\n[sovereign]\nname = %q\ndiscord = %q\n", opts.SovereignName, opts.SovereignDiscord)
 	}

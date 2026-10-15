@@ -95,7 +95,7 @@ func TestInitCreatesLayout(t *testing.T) {
 	// The check definition lives in the candidate; makers must not be able to
 	// weaken it (ruling R13). Only gemba may change it, and M1 has no gemba
 	// station, so in practice only the owner, directly on the host.
-	for _, p := range []string{"justfile", "station/Dockerfile", "station/entrypoint.sh"} {
+	for _, p := range []string{"justfile", "station/Dockerfile", "station/entrypoint.sh", "acceptance/smoke_test.go"} {
 		roles, covered := c.AllowedRoles(p)
 		if !covered || len(roles) != 1 || roles[0] != "gemba" {
 			t.Errorf("AllowedRoles(%q) = %v %v, want [gemba]", p, roles, covered)

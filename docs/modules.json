@@ -1,5 +1,16 @@
 {
   "modules": {
+    "acceptance": {
+      "entry_point_count": 0,
+      "entry_points": [],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 62,
+      "imported_by": [],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "",
+      "purpose": ""
+    },
     "agentsh/cmd/agentsh": {
       "entry_point_count": 0,
       "entry_points": [],
