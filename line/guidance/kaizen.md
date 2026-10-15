@@ -159,6 +159,17 @@ plus the import graph:
   (nodes are top-level symbols, edges are references between them, one colour
   per connected component).
 
+- **Pre-submit gate**: `kaizen_signals.py gate --root . --base HEAD` measures
+  the working tree and `--base` the same way and, for the files the change
+  touched (modified or untracked) and their packages, prints complexity, import
+  cycle, clone and hotspot-rank changes. It exits 1 when one grows past a
+  threshold. `--thresholds FILE` (JSON; fields
+  `max_complexity_increase`, `max_new_import_cycles`, `max_new_clones` all 0, and
+  `max_hotspot_rank_rise`, unset: reported only) sets the limits. `--baseline FILE` is a JSON list of finding
+  keys printed by the gate (`complexity:PATH`, `cycle:PKG`, `clones:PKG`,
+  `hotspot:PATH`) accepted as existing debt, so only new findings fail. Run it after
+  the change (Section 5, step 6); Makers may run it before committing.
+
 LOC is **not** a target. Fewer lines is good only when it comes from deletion
 or deduplicating knowledge, not from clever compression.
 
@@ -188,7 +199,7 @@ or deduplicating knowledge, not from clever compression.
    (LSP rename, ast-grep rewrite) over hand edits where possible.
 5. **Verify.** Type checker, linters, full relevant test suite. Behavior and
    public API unchanged.
-6. **Re-measure** and confirm the signal moved in the right direction with no
+6. **Re-measure** (`gate` for the touched files) and confirm the signal moved in the right direction with no
    regression in others (especially call depth, context closure, test
    runtime).
 7. **Commit** with a message naming the refactoring, the signal and
