@@ -14,6 +14,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/Fewbytes/sweatshop/line/maker"
@@ -42,6 +44,8 @@ type Snapshot struct {
 	KaizenLastRun time.Time
 	// KaizenRequest is the line's latest request for a Kaizen run, nil if none.
 	KaizenRequest *station.KaizenRequest
+	// Flow is where cards wait and for how long.
+	Flow FlowReport
 }
 
 // Policy bounds and shapes the levels. Zero values are invalid; use
@@ -52,14 +56,17 @@ type Policy struct {
 	WIPPerAgent          int           // kanban slots each agent gets
 	MaxStep              int           // most agents added or removed per wake
 	KaizenMinGap         time.Duration // least time from one Kaizen run's start to the next request
+	// QueueLatencyTarget is the longest a ready card should wait for a maker;
+	// beyond it the fleet grows even when the backlog alone would not.
+	QueueLatencyTarget time.Duration
 }
 
 // DefaultPolicy keeps one agent warm, caps at four, and moves one at a time.
-var DefaultPolicy = Policy{MinAgents: 1, MaxAgents: 4, CardsPerAgent: 2, WIPPerAgent: 1, MaxStep: 1, KaizenMinGap: 6 * time.Hour}
+var DefaultPolicy = Policy{MinAgents: 1, MaxAgents: 4, CardsPerAgent: 2, WIPPerAgent: 1, MaxStep: 1, KaizenMinGap: 6 * time.Hour, QueueLatencyTarget: time.Hour}
 
 // Validate rejects policies that would divide by zero or never converge.
 func (p Policy) Validate() error {
-	if p.MinAgents < 0 || p.MaxAgents < p.MinAgents || p.CardsPerAgent < 1 || p.WIPPerAgent < 1 || p.MaxStep < 1 || p.KaizenMinGap < 0 {
+	if p.MinAgents < 0 || p.MaxAgents < p.MinAgents || p.CardsPerAgent < 1 || p.WIPPerAgent < 1 || p.MaxStep < 1 || p.KaizenMinGap < 0 || p.QueueLatencyTarget < 1 {
 		return fmt.Errorf("invalid heijunka policy %+v", p)
 	}
 	return nil
@@ -72,6 +79,8 @@ func (p Policy) Validate() error {
 //   - Otherwise the target agent count covers the backlog (ready plus in
 //     progress) at CardsPerAgent each, within [MinAgents, MaxAgents]; an empty
 //     backlog therefore falls back to MinAgents.
+//   - A ready card waiting past QueueLatencyTarget asks for one more agent
+//     than are running: latency, not backlog size, is what flow cares about.
 //   - Agents move at most MaxStep per wake, so a burst of cards does not flap
 //     the fleet; the WIP limit follows the agent count.
 func Decide(s Snapshot, p Policy) Levels {
@@ -80,6 +89,9 @@ func Decide(s Snapshot, p Policy) Levels {
 	}
 	backlog := s.Ready + s.InProgress
 	target := (backlog + p.CardsPerAgent - 1) / p.CardsPerAgent
+	if s.Flow.Wait(StageQueued) > p.QueueLatencyTarget {
+		target = max(target, s.Current.Agents+1)
+	}
 	target = min(max(target, p.MinAgents), p.MaxAgents)
 	agents := s.Current.Agents
 	switch {
@@ -164,6 +176,12 @@ func (w *Worker) Step(ctx context.Context) (Levels, error) {
 			w.Log.Printf("requested a kaizen run on master %s", snap.Master)
 		}
 	}
+	if w.Log != nil && snap.Flow.Bottleneck != nil {
+		b := snap.Flow.Bottleneck
+		w.Log.Printf("bottleneck: %s holds %d cards, %s total wait, oldest %s waiting %s (mean lead time %s, mean queue latency %s over %d closed)",
+			b.Stage, b.WIP, b.TotalWait.Round(time.Minute), b.OldestID, b.OldestWait.Round(time.Minute),
+			snap.Flow.MeanLeadTime.Round(time.Minute), snap.Flow.MeanQueueLatency.Round(time.Minute), snap.Flow.Closed)
+	}
 	want := Decide(snap, w.Policy)
 	if want == snap.Current {
 		return want, nil
@@ -226,23 +244,42 @@ func (b BeadsObserver) Observe(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	cmd := exec.CommandContext(ctx, "bd", "list", "--label", b.Label, "--status", "in_progress", "--limit", "0", "--json")
-	cmd.Dir = b.Dir
-	out, err := cmd.Output()
+	inProgress, err := b.listCards(ctx, "in_progress")
 	if err != nil {
-		return Snapshot{}, fmt.Errorf("bd list: %w", err)
+		return Snapshot{}, err
 	}
-	var rows []json.RawMessage
-	if err := json.Unmarshal(out, &rows); err != nil {
-		return Snapshot{}, fmt.Errorf("bd list: parse output: %w", err)
+	open, err := b.listCards(ctx, "open")
+	if err != nil {
+		return Snapshot{}, err
+	}
+	closed, err := b.listCards(ctx, "closed")
+	if err != nil {
+		return Snapshot{}, err
+	}
+	// bd lists blocked cards as open; only ready ones wait for a maker.
+	readyIDs := map[string]bool{}
+	for _, r := range ready {
+		readyIDs[r.ID] = true
+	}
+	flowCards := slices.Clone(inProgress)
+	for _, c := range open {
+		if readyIDs[c.ID] || slices.ContainsFunc(c.Labels, func(l string) bool { return strings.HasPrefix(l, station.LabelNeedsPrefix) }) {
+			flowCards = append(flowCards, c)
+		}
+	}
+	now := time.Now()
+	for _, c := range closed {
+		if now.Sub(c.Closed) <= flowClosedWindow {
+			flowCards = append(flowCards, c)
+		}
 	}
 	cur, err := b.Levels.Read()
 	if err != nil {
 		return Snapshot{}, err
 	}
 	snap := Snapshot{
-		Ready: len(ready), InProgress: len(rows), Stopped: st.Event != "", MakersAlive: st.MakersAlive(), Current: cur,
-		Now: time.Now(), Master: st.Master, KaizenRequest: st.KaizenRequest,
+		Ready: len(ready), InProgress: len(inProgress), Stopped: st.Event != "", MakersAlive: st.MakersAlive(), Current: cur,
+		Now: now, Flow: AnalyzeFlow(flowCards, now), Master: st.Master, KaizenRequest: st.KaizenRequest,
 	}
 	for _, s := range st.Stations {
 		if s.Role == "kaizen" {
@@ -254,6 +291,42 @@ func (b BeadsObserver) Observe(ctx context.Context) (Snapshot, error) {
 		}
 	}
 	return snap, nil
+}
+
+// flowClosedWindow bounds how far back closed cards inform mean lead time, so
+// the figures follow the line as it is now.
+const flowClosedWindow = 7 * 24 * time.Hour
+
+// listCards returns the line's cards in one status.
+func (b BeadsObserver) listCards(ctx context.Context, status string) ([]FlowCard, error) {
+	cmd := exec.CommandContext(ctx, "bd", "list", "--label", b.Label, "--status", status, "--limit", "0", "--json")
+	cmd.Dir = b.Dir
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("bd list --status %s: %w", status, err)
+	}
+	return parseFlowCards(out)
+}
+
+// parseFlowCards decodes the JSON array `bd list --json` prints.
+func parseFlowCards(out []byte) ([]FlowCard, error) {
+	var rows []struct {
+		ID        string    `json:"id"`
+		Status    string    `json:"status"`
+		Labels    []string  `json:"labels"`
+		CreatedAt time.Time `json:"created_at"`
+		StartedAt time.Time `json:"started_at"`
+		UpdatedAt time.Time `json:"updated_at"`
+		ClosedAt  time.Time `json:"closed_at"`
+	}
+	if err := json.Unmarshal(out, &rows); err != nil {
+		return nil, fmt.Errorf("bd list: parse output: %w", err)
+	}
+	cards := make([]FlowCard, 0, len(rows))
+	for _, r := range rows {
+		cards = append(cards, FlowCard{ID: r.ID, Status: r.Status, Labels: r.Labels, Created: r.CreatedAt, Started: r.StartedAt, Updated: r.UpdatedAt, Closed: r.ClosedAt})
+	}
+	return cards, nil
 }
 
 // LevelsFile publishes the levels as JSON for the actuators that run makers

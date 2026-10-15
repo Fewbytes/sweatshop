@@ -27,10 +27,36 @@ interval and nothing is lost on restart. Triggers map to:
 
 ## Levelling rules (`heijunka.Decide`, pure)
 
-- Target agents = ceil((ready + in progress) / 2), clamped to the policy's
-  bounds; agents move at most one per wake so bursts do not flap the fleet.
+- Target agents = ceil((ready + in progress) / 2), raised to one above the
+  current count when a ready card waits past the latency target, clamped to
+  the policy's bounds; agents move at most one per wake so bursts do not
+  flap the fleet.
 - WIP limit = agents x 1.
 - Andon pulled: WIP limit 1 (only the fix), agents unchanged.
+
+## Flow metrics and the bottleneck
+
+Heijunka serves flow (JIT: low latency, balance); rate is secondary and never
+the sole basis of a decision. `heijunka.AnalyzeFlow` (pure) reads the line's
+cards and reports, each wake:
+
+- per stage, WIP, total wait and the oldest card with its wait. An open card
+  is in `queued` (ready, no maker yet, since created), `working` (claimed,
+  since started) or `needs:<role>` (waiting on that role, since the card's
+  last update). Parked cards (`line-gave-up`) are off the line;
+- the bottleneck: the waiting stage (never `working`) with the largest total
+  wait, with the evidence above. A growing `queued` means makers are short;
+  `needs:king` means approval is the constraint, which more makers cannot fix;
+- mean lead time (created to closed) and mean queue latency (created to
+  claimed) over cards closed in the last 7 days.
+
+`Decide` uses queue latency: a ready card waiting past
+`Policy.QueueLatencyTarget` (1h) asks for one more agent than are running,
+within the usual bounds and step. The worker logs the bottleneck every wake.
+
+Not observable from cards, so not separated yet: time on the witness or the
+merge guard (both happen inside `working`). Surfacing them needs station
+events and is follow-up work.
 
 ## Actuation
 
