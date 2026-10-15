@@ -275,6 +275,22 @@ func (c Client) postJSON(ctx context.Context, path string, v any) ([]byte, error
 	return c.do(ctx, http.MethodPost, path, nil, bytes.NewReader(body), nil)
 }
 
+// postJSONForKey posts v and returns the "key" of the {"key": ...} response
+// (the object-store key the line stored the payload under).
+func (c Client) postJSONForKey(ctx context.Context, path string, v any) (string, error) {
+	out, err := c.postJSON(ctx, path, v)
+	if err != nil {
+		return "", err
+	}
+	var res struct {
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal(out, &res); err != nil {
+		return "", err
+	}
+	return res.Key, nil
+}
+
 // CardCreate creates a card (viceroy only).
 func (c Client) CardCreate(ctx context.Context, nc NewCard) ([]byte, error) {
 	return c.postJSON(ctx, "/v1/cards", nc)

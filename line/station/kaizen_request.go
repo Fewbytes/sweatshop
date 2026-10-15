@@ -2,7 +2,6 @@ package station
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"regexp"
 	"time"
@@ -193,15 +192,5 @@ func (c Client) AnswerKaizen(ctx context.Context, a KaizenAnswer) error {
 // the line's object store; the caller's token must be a kaizen station's. It
 // returns the object key.
 func (c Client) PublishKaizenAnalysis(ctx context.Context, a KaizenAnalysis) (string, error) {
-	out, err := c.postJSON(ctx, "/v1/kaizen/analysis", a)
-	if err != nil {
-		return "", err
-	}
-	var res struct {
-		Key string `json:"key"`
-	}
-	if err := json.Unmarshal(out, &res); err != nil {
-		return "", err
-	}
-	return res.Key, nil
+	return c.postJSONForKey(ctx, "/v1/kaizen/analysis", a)
 }

@@ -183,17 +183,7 @@ func (s *Server) previousKaizenSignals(w http.ResponseWriter, r *http.Request) (
 // reports/kaizen/<commit>/ and returns that prefix; the caller's token must
 // be a kaizen station's.
 func (c Client) PublishKaizenSignals(ctx context.Context, k KaizenSignals) (string, error) {
-	out, err := c.postJSON(ctx, "/v1/kaizen/signals", k)
-	if err != nil {
-		return "", err
-	}
-	var res struct {
-		Key string `json:"key"`
-	}
-	if err := json.Unmarshal(out, &res); err != nil {
-		return "", err
-	}
-	return res.Key, nil
+	return c.postJSONForKey(ctx, "/v1/kaizen/signals", k)
 }
 
 // PreviousKaizenSignals returns the newest stored baseline measured at a
