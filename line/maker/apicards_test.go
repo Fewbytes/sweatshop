@@ -28,6 +28,15 @@ type memCards struct {
 func (m *memCards) List(_ context.Context, f station.ListFilter) (json.RawMessage, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if f.Status == "in_progress" {
+		var rows []map[string]string
+		for id, who := range m.assignee {
+			if who != "" && m.closed[id] == "" {
+				rows = append(rows, map[string]string{"id": id, "assignee": who})
+			}
+		}
+		return json.Marshal(rows)
+	}
 	if !f.Ready {
 		return nil, fmt.Errorf("maker listed without ready=true: %+v", f)
 	}
@@ -175,5 +184,14 @@ func TestAPICardsRefuseSettlingCardsTheStationDoesNotHold(t *testing.T) {
 	}
 	if len(cards.closed) != 0 || cards.assignee["b-1"] != "someone-else" {
 		t.Fatalf("card changed: closed %v assignee %q", cards.closed, cards.assignee["b-1"])
+	}
+}
+
+func TestAPICardsClaimedListsOnlyThisAgentsInProgressCards(t *testing.T) {
+	r, cards, _ := apiRig(t, nil)
+	cards.assignee["mine"], cards.assignee["theirs"] = "maker-1", "maker-2"
+	got, err := r.Beads.Claimed(context.Background(), "maker-1")
+	if err != nil || len(got) != 1 || got[0].ID != "mine" {
+		t.Fatalf("Claimed = %v, %v; want only mine", got, err)
 	}
 }

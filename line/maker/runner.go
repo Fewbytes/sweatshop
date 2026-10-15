@@ -45,6 +45,8 @@ type Beads interface {
 	// GiveUp labels the bead GaveUpLabel so no maker picks it again. With
 	// escalateToKing it also labels it needs:king: nobody else can unstick it.
 	GiveUp(ctx context.Context, id string, escalateToKing bool) error
+	// Claimed lists the in_progress cards assigned to agent.
+	Claimed(ctx context.Context, agent string) ([]Bead, error)
 }
 
 // GaveUpLabel marks a bead the maker failed to land MaxAttempts times.
@@ -113,6 +115,10 @@ type Runner struct {
 	Heartbeats Heartbeater
 	Commit     string
 
+	// SettleRetryWait is the pause between tries of a settle step (default
+	// DefaultSettleRetryWait).
+	SettleRetryWait time.Duration
+
 	attempts map[string]int
 	// lastLanded is whether the card Once last worked landed; Loop retries a
 	// card that did not only after its idle wait.
@@ -122,6 +128,13 @@ type Runner struct {
 // DefaultTimeout bounds a Maker run so a stuck agent cannot hold a card (and
 // the station) forever.
 const DefaultTimeout = 2 * time.Hour
+
+// DefaultSettleRetryWait is the pause between tries of a failed settle step.
+const DefaultSettleRetryWait = 5 * time.Second
+
+// settleTries is how often a settle step (read master, close, release) is
+// tried before the card is escalated to an operator.
+const settleTries = 3
 
 // DefaultStopPoll is how often a running maker looks for a pulled cord.
 const DefaultStopPoll = 5 * time.Second
@@ -262,6 +275,60 @@ func BeatEveryPoll(ctx context.Context, beat func(context.Context)) (stop func()
 	return func() { cancel(); <-done }
 }
 
+// settleStep runs fn up to settleTries times, pausing between tries.
+func (r *Runner) settleStep(ctx context.Context, id, what string, fn func() error) error {
+	wait := r.SettleRetryWait
+	if wait <= 0 {
+		wait = DefaultSettleRetryWait
+	}
+	var err error
+	for try := 1; try <= settleTries; try++ {
+		if err = fn(); err == nil {
+			return nil
+		}
+		r.logf("%s: %s (try %d/%d): %v", id, what, try, settleTries, err)
+		if try < settleTries {
+			select {
+			case <-ctx.Done():
+			case <-time.After(wait):
+			}
+		}
+	}
+	return fmt.Errorf("%s: %s: %w", id, what, err)
+}
+
+// escalateUnsettled labels a card whose settle failed for good, so an
+// operator sees it; otherwise it would stay claimed with nobody working it.
+// The claim stays: the run may have landed, and releasing would invite a
+// duplicate.
+func (r *Runner) escalateUnsettled(ctx context.Context, id string, cause error) error {
+	r.logf("%s: Once returned without settling: %v", id, cause)
+	if err := r.Beads.GiveUp(ctx, id, true); err != nil {
+		return errors.Join(cause, fmt.Errorf("%s: escalate unsettled card: %w", id, err))
+	}
+	return cause
+}
+
+// releaseStranded releases cards still assigned to this station's agent: it
+// works one card at a time, so a claim it holds between runs belongs to a run
+// that never settled (process death, failed settle).
+func (r *Runner) releaseStranded(ctx context.Context) {
+	stranded, err := r.Beads.Claimed(ctx, r.Station.AgentID)
+	if err != nil {
+		r.logf("list claimed cards: %v", err)
+		return
+	}
+	for _, b := range stranded {
+		if slices.Contains(b.Labels, GaveUpLabel) {
+			continue // already escalated to an operator
+		}
+		r.logf("%s: releasing stranded claim", b.ID)
+		if err := r.Beads.Release(ctx, b.ID, "maker restarted; run did not settle"); err != nil {
+			r.logf("%s: release stranded claim: %v", b.ID, err)
+		}
+	}
+}
+
 // cancelWhenCordPulled cancels run with errCordPulled once the cord is pulled,
 // polling every StopPoll until ctx ends. Check failures are logged and retried.
 func (r *Runner) cancelWhenCordPulled(ctx context.Context, cancel context.CancelCauseFunc) {
@@ -293,6 +360,7 @@ func (r *Runner) cancelWhenCordPulled(ctx context.Context, cancel context.Cancel
 // was a card to work.
 func (r *Runner) Once(ctx context.Context) (bool, error) {
 	r.beat(ctx, station.StateIdle, "")
+	r.releaseStranded(ctx)
 	label := r.Label
 	if label == "" {
 		label = station.LabelLine
@@ -415,24 +483,30 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 	// card claimed by nobody who is working it.
 	settle, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
 	defer cancel()
-	landed, err := Landed(settle, gitx.Repo{Dir: r.Line.Remote}, b.ID, pre)
+	var landed bool
+	err = r.settleStep(settle, b.ID, "read line master", func() (err error) {
+		landed, err = Landed(settle, gitx.Repo{Dir: r.Line.Remote}, b.ID, pre)
+		return err
+	})
 	if err != nil {
-		// Leave the claim: releasing a card that may have landed invites a
-		// duplicate, and an operator can see the in-progress bead.
-		return true, errors.Join(runErr, fmt.Errorf("%s: read line master: %w", b.ID, err))
+		return true, errors.Join(runErr, r.escalateUnsettled(settle, b.ID, err))
 	}
 	if landed {
 		r.logf("%s landed", b.ID)
 		r.lastLanded = true
-		return true, errors.Join(runErr, r.Beads.Close(settle, b.ID, "landed via line"))
+		err := r.settleStep(settle, b.ID, "close", func() error { return r.Beads.Close(settle, b.ID, "landed via line") })
+		if err != nil {
+			err = r.escalateUnsettled(settle, b.ID, err)
+		}
+		return true, errors.Join(runErr, err)
 	}
 	if counts {
 		// Interrupted, cord-pulled and engine-failed runs are not the agent giving up.
 		note += r.missingReportTail(settle, b.ID, commentsBefore, commentsBeforeErr, tail)
 	}
 	r.logf("%s: %s", b.ID, note)
-	if err := r.Beads.Release(settle, b.ID, note); err != nil {
-		return true, errors.Join(runErr, err)
+	if err := r.settleStep(settle, b.ID, "release", func() error { return r.Beads.Release(settle, b.ID, note) }); err != nil {
+		return true, errors.Join(runErr, r.escalateUnsettled(settle, b.ID, err))
 	}
 	if giveUp {
 		delete(r.attempts, b.ID)
@@ -589,6 +663,15 @@ func (b BeadsCLI) Close(ctx context.Context, id, reason string) error {
 	return err
 }
 
+// Claimed lists in_progress cards assigned to agent.
+func (b BeadsCLI) Claimed(ctx context.Context, agent string) ([]Bead, error) {
+	out, err := b.bd(ctx, "list", "--status", "in_progress", "--assignee", agent, "--limit", "0", "--json")
+	if err != nil {
+		return nil, err
+	}
+	return parseBeads(out)
+}
+
 // Release reopens the card for another run (clearing the assignee) and
 // records the note (bd unclaim --reason comments it) for the next worker.
 func (b BeadsCLI) Release(ctx context.Context, id, note string) error {
@@ -681,6 +764,32 @@ func (a APICards) CommentCount(ctx context.Context, id string) (int, error) {
 		return 0, fmt.Errorf("card %s not found", id)
 	}
 	return len(issues[0].Comments), nil
+}
+
+// Claimed filters the in_progress list by assignee itself: the route has no
+// assignee filter.
+func (a APICards) Claimed(ctx context.Context, agent string) ([]Bead, error) {
+	out, err := a.Client.CardsList(ctx, station.ListFilter{Status: "in_progress"})
+	if err != nil {
+		return nil, err
+	}
+	var rows []struct {
+		Assignee string `json:"assignee"`
+	}
+	if err := json.Unmarshal(out, &rows); err != nil {
+		return nil, fmt.Errorf("parse in_progress cards: %w", err)
+	}
+	beads, err := parseBeads(out)
+	if err != nil {
+		return nil, err
+	}
+	var mine []Bead
+	for i, b := range beads {
+		if rows[i].Assignee == agent {
+			mine = append(mine, b)
+		}
+	}
+	return mine, nil
 }
 
 func (a APICards) GiveUp(ctx context.Context, id string, escalateToKing bool) error {

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -231,6 +232,10 @@ type fakeBeads struct {
 	// comments is what CommentCount reports; a run may raise it to act as an
 	// agent that posted a failure report.
 	comments int
+	// stranded is what Claimed reports.
+	stranded []Bead
+	// failRelease and failClose are how many calls of each fail before one succeeds.
+	failRelease, failClose int
 }
 
 // noReportNote is what a release note ends with when the run left no
@@ -264,12 +269,26 @@ func (f *fakeBeads) Claim(_ context.Context, id, agent string) error {
 
 func (f *fakeBeads) Close(_ context.Context, id, reason string) error {
 	f.calls = append(f.calls, "close "+id+" "+reason)
+	if f.failClose > 0 {
+		f.failClose--
+		return errors.New("close failed")
+	}
 	return nil
 }
 
 func (f *fakeBeads) Release(_ context.Context, id, note string) error {
 	f.calls = append(f.calls, "release "+id+" "+note)
+	if f.failRelease > 0 {
+		f.failRelease--
+		return errors.New("release failed")
+	}
 	return nil
+}
+
+func (f *fakeBeads) Claimed(_ context.Context, agent string) ([]Bead, error) {
+	stranded := f.stranded
+	f.stranded = nil
+	return stranded, nil
 }
 
 type fakeEngine struct {
@@ -790,5 +809,67 @@ func TestAPICardsCommentCountReadsShownComments(t *testing.T) {
 				t.Fatalf("CommentCount = %d, %v; want 2, nil", n, err)
 			}
 		})
+	}
+}
+
+func TestOnceReleasesClaimsStrandedByEarlierRun(t *testing.T) {
+	bare, _ := remote(t)
+	b := &fakeBeads{stranded: []Bead{{ID: "old-1"}}}
+	r := newRunner(t, bare, b, &fakeEngine{})
+	if _, err := r.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := "release old-1 maker restarted; run did not settle"
+	if !slices.Contains(b.calls, want) {
+		t.Fatalf("calls = %q, want %q", b.calls, want)
+	}
+}
+
+func TestOnceRetriesReleaseThenSucceeds(t *testing.T) {
+	bare, _ := remote(t)
+	b := &fakeBeads{ready: []Bead{{ID: "b-1", Priority: 1}}, failRelease: 2}
+	r := newRunner(t, bare, b, &fakeEngine{})
+	r.SettleRetryWait = time.Millisecond
+	if _, err := r.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, c := range b.calls {
+		if strings.HasPrefix(c, "release b-1") {
+			n++
+		}
+	}
+	if n != 3 || slices.Contains(b.calls, "giveup b-1 needs:king") {
+		t.Fatalf("calls = %q, want 3 releases and no escalation", b.calls)
+	}
+}
+
+func TestOnceEscalatesToKingWhenCloseKeepsFailing(t *testing.T) {
+	bare, work := remote(t)
+	b := &fakeBeads{ready: []Bead{{ID: "b-1", Priority: 1}}, failClose: 99}
+	e := &fakeEngine{run: func(ContainerSpec) (int, error) {
+		commit(t, work, "work\n\nBead: b-1")
+		return 0, nil
+	}}
+	r := newRunner(t, bare, b, e)
+	r.SettleRetryWait = time.Millisecond
+	if _, err := r.Once(context.Background()); err == nil {
+		t.Fatal("Once = nil error, want the close failure")
+	}
+	if !slices.Contains(b.calls, "giveup b-1 needs:king") {
+		t.Fatalf("calls = %q, want escalation to the king", b.calls)
+	}
+}
+
+func TestOnceEscalatesToKingWhenReleaseKeepsFailing(t *testing.T) {
+	bare, _ := remote(t)
+	b := &fakeBeads{ready: []Bead{{ID: "b-1", Priority: 1}}, failRelease: 99}
+	r := newRunner(t, bare, b, &fakeEngine{})
+	r.SettleRetryWait = time.Millisecond
+	if _, err := r.Once(context.Background()); err == nil {
+		t.Fatal("Once = nil error, want the release failure")
+	}
+	if !slices.Contains(b.calls, "giveup b-1 needs:king") {
+		t.Fatalf("calls = %q, want escalation to the king", b.calls)
 	}
 }

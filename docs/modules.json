@@ -1343,7 +1343,7 @@
       "purpose": "Package linedir creates and loads a line directory: the on-disk home of one"
     },
     "line/maker": {
-      "entry_point_count": 25,
+      "entry_point_count": 26,
       "entry_points": [
         "APICards",
         "AndonEvent",
@@ -1355,8 +1355,8 @@
         "CheckTrailers",
         "ContainerSpec",
         "DefaultMaxAttempts",
-        "DefaultStopPoll",
-        "DefaultTimeout"
+        "DefaultSettleRetryWait",
+        "DefaultStopPoll"
       ],
       "hidden_coupling_ratio": 0.2,
       "hotspot_rank": 7,
