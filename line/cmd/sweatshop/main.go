@@ -58,6 +58,8 @@ const usage = `usage:
   sweatshop line stats [--since D]      print CI health: pass rate, durations, slow, failing and flaky tests, time to green (D: 36h, 7d)
   sweatshop line events [--since D] [--card ID] [--station S]
                                         print the line's event log, oldest first, as JSON: offers, claims, releases, give-ups, closes, reaps, submits, merges, andon pulls and clears
+  sweatshop line reports list [--prefix P] | get KEY
+                                        viceroy only, read-only: list keys in the reports bucket as JSON / print one object
   sweatshop line evidence ID            print a check log
   sweatshop line cards list [--status S] [--label L] [--parent ID] | show ID | create --title T --type TYPE --priority N [--parent ID] [--acceptance A] (description on stdin) | comment ID (text on stdin) | offer ID | close ID (reason on stdin) | label ID [--add L]... [--remove L]...
                                         read and (viceroy only) write cards; output is JSON
@@ -128,6 +130,8 @@ func run(args []string, stdout io.Writer) error {
 		return lineStats(args[2:], stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "events":
 		return lineEvents(args[2:], stdout)
+	case len(args) >= 2 && args[0] == "line" && args[1] == "reports":
+		return lineReports(args[2:], stdout)
 	case len(args) == 2 && args[0] == "line" && args[1] == "status":
 		return lineStatus(stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "cards":
@@ -1084,6 +1088,39 @@ func lineEvents(args []string, stdout io.Writer) error {
 		return err
 	}
 	return json.NewEncoder(stdout).Encode(events)
+}
+
+// lineReports implements `line reports`.
+func lineReports(args []string, stdout io.Writer) error {
+	c, err := lineClient()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	switch {
+	case len(args) >= 1 && args[0] == "list":
+		fs := flag.NewFlagSet("line reports list", flag.ContinueOnError)
+		prefix := fs.String("prefix", "", "only keys with this prefix")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if fs.NArg() != 0 {
+			return errors.New(usage)
+		}
+		keys, err := c.ListReports(ctx, *prefix)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(stdout).Encode(keys)
+	case len(args) == 2 && args[0] == "get":
+		data, err := c.GetReport(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		_, err = stdout.Write(data)
+		return err
+	}
+	return errors.New(usage)
 }
 
 // lineCards implements `line cards`; stdin carries descriptions and comments.

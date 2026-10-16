@@ -6,6 +6,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -75,6 +76,70 @@ func ObjectStoreFromEnv(fsRoot string) (ObjectStore, error) {
 }
 
 func (s S3Store) Put(ctx context.Context, key, contentType string, data []byte) error {
+	_, err := s.send(ctx, http.MethodPut, s.objectPath(key), nil, contentType, data)
+	if err != nil {
+		return fmt.Errorf("s3 put %s: %w", key, err)
+	}
+	return nil
+}
+
+// Get returns the object at key; a missing key wraps ErrObjectNotFound.
+func (s S3Store) Get(ctx context.Context, key string) ([]byte, error) {
+	data, err := s.send(ctx, http.MethodGet, s.objectPath(key), nil, "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("s3 get %s: %w", key, err)
+	}
+	return data, nil
+}
+
+// List returns the keys under prefix (relative to the store's Prefix), in key
+// order, following continuation tokens.
+func (s S3Store) List(ctx context.Context, prefix string) ([]string, error) {
+	var keys []string
+	token := ""
+	for {
+		q := url.Values{"list-type": {"2"}, "prefix": {strings.TrimLeft(s.Prefix+"/"+prefix, "/")}}
+		if s.Prefix == "" {
+			q.Set("prefix", strings.TrimLeft(prefix, "/"))
+		}
+		if token != "" {
+			q.Set("continuation-token", token)
+		}
+		body, err := s.send(ctx, http.MethodGet, "/"+s.Bucket, q, "", nil)
+		if err != nil {
+			return nil, fmt.Errorf("s3 list %s: %w", prefix, err)
+		}
+		var page struct {
+			Keys      []string `xml:"Contents>Key"`
+			Truncated bool     `xml:"IsTruncated"`
+			Next      string   `xml:"NextContinuationToken"`
+		}
+		if err := xml.Unmarshal(body, &page); err != nil {
+			return nil, fmt.Errorf("s3 list %s: %w", prefix, err)
+		}
+		for _, k := range page.Keys {
+			keys = append(keys, strings.TrimPrefix(strings.TrimPrefix(k, s.Prefix), "/"))
+		}
+		if !page.Truncated || page.Next == "" {
+			return keys, nil
+		}
+		token = page.Next
+	}
+}
+
+// objectPath is the bucket-relative request path of key.
+func (s S3Store) objectPath(key string) string {
+	objKey := strings.TrimLeft(key, "/")
+	if s.Prefix != "" {
+		objKey = strings.TrimLeft(s.Prefix+"/"+key, "/")
+	}
+	return "/" + s.Bucket + "/" + objKey
+}
+
+// send signs (SigV4) and performs one request against the endpoint at
+// bucketPath (which starts with "/"+Bucket), returning the response body. A 404
+// wraps ErrObjectNotFound; any other non-2xx status is an error.
+func (s S3Store) send(ctx context.Context, method, bucketPath string, query url.Values, contentType string, data []byte) ([]byte, error) {
 	region := s.Region
 	if region == "" {
 		region = "us-east-1"
@@ -89,13 +154,9 @@ func (s S3Store) Put(ctx context.Context, key, contentType string, data []byte) 
 	}
 	base, err := url.Parse(strings.TrimRight(s.Endpoint, "/"))
 	if err != nil || base.Host == "" {
-		return fmt.Errorf("s3 put %s: bad endpoint %q", key, s.Endpoint)
+		return nil, fmt.Errorf("bad endpoint %q", s.Endpoint)
 	}
-	objKey := strings.TrimLeft(s.Prefix+"/"+key, "/")
-	if s.Prefix == "" {
-		objKey = strings.TrimLeft(key, "/")
-	}
-	path := base.Path + "/" + s.Bucket + "/" + objKey
+	path := base.Path + bucketPath
 	u := *base
 	u.Path = path
 	// Canonical URI: each segment URI-encoded once (S3 does not double-encode).
@@ -105,6 +166,18 @@ func (s S3Store) Put(ctx context.Context, key, contentType string, data []byte) 
 	}
 	canonURI := strings.Join(segs, "/")
 	u.RawPath = canonURI
+	// Canonical query: names and values URI-encoded, sorted by name.
+	qnames := make([]string, 0, len(query))
+	for k := range query {
+		qnames = append(qnames, k)
+	}
+	sort.Strings(qnames)
+	pairs := make([]string, 0, len(qnames))
+	for _, k := range qnames {
+		pairs = append(pairs, awsEscape(k)+"="+awsEscape(query.Get(k)))
+	}
+	canonQuery := strings.Join(pairs, "&")
+	u.RawQuery = canonQuery
 
 	t := now().UTC()
 	amzDate := t.Format("20060102T150405Z")
@@ -132,7 +205,7 @@ func (s S3Store) Put(ctx context.Context, key, contentType string, data []byte) 
 		canonHdr.WriteString(k + ":" + hdr[k] + "\n")
 	}
 	signed := strings.Join(names, ";")
-	canonReq := strings.Join([]string{"PUT", canonURI, "", canonHdr.String(), signed, payload}, "\n")
+	canonReq := strings.Join([]string{method, canonURI, canonQuery, canonHdr.String(), signed, payload}, "\n")
 	scope := day + "/" + region + "/s3/aws4_request"
 	toSign := "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + sha256Hex([]byte(canonReq))
 	k := hmacSHA256([]byte("AWS4"+s.SecretKey), day)
@@ -141,9 +214,9 @@ func (s S3Store) Put(ctx context.Context, key, contentType string, data []byte) 
 	k = hmacSHA256(k, "aws4_request")
 	sig := hex.EncodeToString(hmacSHA256(k, toSign))
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, u.String(), bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), bytes.NewReader(data))
 	if err != nil {
-		return fmt.Errorf("s3 put %s: %w", key, err)
+		return nil, err
 	}
 	for name, v := range hdr {
 		if name != "host" {
@@ -153,14 +226,17 @@ func (s S3Store) Put(ctx context.Context, key, contentType string, data []byte) 
 	req.Header.Set("Authorization", fmt.Sprintf("AWS4-HMAC-SHA256 Credential=%s/%s, SignedHeaders=%s, Signature=%s", s.AccessKey, scope, signed, sig))
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("s3 put %s: %w", key, err)
+		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, ErrObjectNotFound
+	}
 	if resp.StatusCode/100 != 2 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return fmt.Errorf("s3 put %s: %s: %s", key, resp.Status, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
-	return nil
+	return io.ReadAll(io.LimitReader(resp.Body, MaxObjectBytes+1))
 }
 
 func sha256Hex(b []byte) string {

@@ -390,6 +390,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 		return s.routeConstitution(w, r, st)
 	case path == "/v1/testament":
 		return s.routeTestament(w, r, st)
+	case path == "/v1/reports" || path == "/v1/reports/object":
+		return s.routeReports(w, r, st)
 	case path == "/v1/events":
 		return s.routeEvents(w, r, st)
 	case path == "/v1/heijunka/levels":

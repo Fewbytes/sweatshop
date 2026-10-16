@@ -1222,8 +1222,8 @@
         "ErrCardMoved",
         "FlowCard"
       ],
-      "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 14,
+      "hidden_coupling_ratio": 0.25,
+      "hotspot_rank": 12,
       "imported_by": [
         "line/cmd/sweatshop"
       ],
@@ -1234,7 +1234,7 @@
         "line/station"
       ],
       "lcom4": 1,
-      "measured_at_commit": "58bcbe362fd664b1630fbaa9b5913596a6c43131",
+      "measured_at_commit": "d586f0e121c5d4e88e046f8d33939f585af123d9",
       "purpose": "Package heijunka is the host-side worker that levels the line's flow. It is"
     },
     "line/internal/testwait": {
@@ -1390,8 +1390,8 @@
         "DefaultSettleRetryWait",
         "DefaultStopPoll"
       ],
-      "hidden_coupling_ratio": 0.2,
-      "hotspot_rank": 7,
+      "hidden_coupling_ratio": 0.4,
+      "hotspot_rank": 6,
       "imported_by": [
         "line/cmd/sweatshop",
         "line/gemba",
@@ -1408,27 +1408,27 @@
         "line/station"
       ],
       "lcom4": 2,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "d586f0e121c5d4e88e046f8d33939f585af123d9",
       "purpose": "Package maker runs a Maker station: a host-side loop that takes a ready"
     },
     "line/report": {
-      "entry_point_count": 19,
+      "entry_point_count": 22,
       "entry_points": [
         "Check",
+        "ErrObjectNotFound",
         "FSStore",
         "HTML",
         "JUnitXML",
+        "MaxObjectBytes",
         "NewObjectStore",
+        "ObjectReader",
         "ObjectStore",
         "ObjectStoreFromEnv",
         "ParseGoTestJSON",
-        "ReadJSONL",
-        "ReadTestsJSONL",
-        "Reporter",
-        "Run"
+        "ReadJSONL"
       ],
       "hidden_coupling_ratio": 0.333,
-      "hotspot_rank": 18,
+      "hotspot_rank": 16,
       "imported_by": [
         "line/cistats",
         "line/linestore",
@@ -1437,7 +1437,7 @@
       ],
       "imports": [],
       "lcom4": 2,
-      "measured_at_commit": "58bcbe362fd664b1630fbaa9b5913596a6c43131",
+      "measured_at_commit": "d586f0e121c5d4e88e046f8d33939f585af123d9",
       "purpose": "Package report turns a witness check run into a JUnit XML report and a"
     },
     "line/runner": {
@@ -1534,8 +1534,8 @@
         "Message",
         "Prompt"
       ],
-      "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 12,
+      "hidden_coupling_ratio": 0.5,
+      "hotspot_rank": 14,
       "imported_by": [
         "line/cmd/sweatshop"
       ],
@@ -1543,7 +1543,7 @@
         "line/station"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "d586f0e121c5d4e88e046f8d33939f585af123d9",
       "purpose": "Package viceroy is the wake loop of the viceroy container: wait for the"
     },
     "line/witness": {

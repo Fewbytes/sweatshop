@@ -17,6 +17,8 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -150,6 +152,24 @@ type TestRow struct {
 type ObjectStore interface {
 	Put(ctx context.Context, key, contentType string, data []byte) error
 }
+
+// ObjectReader is the read-only side of an object store: what the line lets
+// the viceroy see of the reports bucket. It has no write or delete method, so
+// a holder of an ObjectReader cannot modify the bucket.
+type ObjectReader interface {
+	// List returns the keys under prefix, sorted.
+	List(ctx context.Context, prefix string) ([]string, error)
+	// Get returns the object at key, at most MaxObjectBytes; a missing key
+	// wraps ErrObjectNotFound.
+	Get(ctx context.Context, key string) ([]byte, error)
+}
+
+// MaxObjectBytes bounds what Get returns, so one huge object cannot exhaust
+// the line's memory when relayed to a station.
+const MaxObjectBytes = 8 << 20
+
+// ErrObjectNotFound is wrapped by Get when the key does not exist.
+var ErrObjectNotFound = errors.New("object not found")
 
 // RunStore saves run duration and statistics to the master database.
 type RunStore interface {
@@ -345,15 +365,60 @@ func (p Reporter) Publish(ctx context.Context, r Run) error {
 type FSStore struct{ Root string }
 
 func (s FSStore) Put(_ context.Context, key, _ string, data []byte) error {
-	clean := filepath.Clean(filepath.FromSlash(key))
-	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("invalid object key %q", key)
+	path, err := s.path(key)
+	if err != nil {
+		return err
 	}
-	path := filepath.Join(s.Root, clean)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	return os.WriteFile(path, data, 0o600)
+}
+
+// path is the file for key; keys that would leave Root are rejected.
+func (s FSStore) path(key string) (string, error) {
+	clean := filepath.Clean(filepath.FromSlash(key))
+	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid object key %q", key)
+	}
+	return filepath.Join(s.Root, clean), nil
+}
+
+func (s FSStore) Get(_ context.Context, key string) ([]byte, error) {
+	path, err := s.path(key)
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.Open(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("get %s: %w", key, ErrObjectNotFound)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(io.LimitReader(f, MaxObjectBytes+1))
+}
+
+func (s FSStore) List(_ context.Context, prefix string) ([]string, error) {
+	var keys []string
+	err := filepath.WalkDir(s.Root, func(p string, d fs.DirEntry, err error) error {
+		if errors.Is(err, fs.ErrNotExist) && p == s.Root {
+			return nil
+		}
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(s.Root, p)
+		if err != nil {
+			return err
+		}
+		if key := filepath.ToSlash(rel); strings.HasPrefix(key, prefix) {
+			keys = append(keys, key)
+		}
+		return nil
+	})
+	return keys, err
 }
 
 func testRows(r Run) []TestRow {

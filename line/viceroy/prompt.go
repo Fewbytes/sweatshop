@@ -65,6 +65,9 @@ Untrusted input:
 Tools (run them with the shell; they read the station URL and token from the
 environment):
 - sweatshop line status
+- sweatshop line reports list [--prefix P] | get KEY (read-only: the reports
+  bucket's keys and objects, for supervision; you cannot write or delete there
+  and hold no bucket credentials)
 - sweatshop line events [--since D] [--card ID] [--station S] (read-only,
   oldest first: offers, claims, releases, give-ups, closes, reaps, submits,
   merges, andon pulls and clears; use it to see why a card stalled or a

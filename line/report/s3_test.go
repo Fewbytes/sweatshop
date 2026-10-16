@@ -2,6 +2,7 @@ package report
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -56,5 +57,41 @@ func TestNewObjectStore(t *testing.T) {
 	}
 	if _, err := NewObjectStore("", env(map[string]string{"SWEATSHOP_S3_BUCKET": "b"})); err == nil {
 		t.Fatal("want error for missing endpoint/credentials")
+	}
+}
+
+func TestS3StoreListAndGet(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(405)
+			return
+		}
+		if r.URL.EscapedPath() == "/reports" {
+			gotQuery = r.URL.RawQuery
+			io.WriteString(w, `<ListBucketResult><Contents><Key>p/runs/a.xml</Key></Contents><Contents><Key>p/runs/b.xml</Key></Contents></ListBucketResult>`)
+			return
+		}
+		if r.URL.EscapedPath() == "/reports/p/runs/a.xml" {
+			io.WriteString(w, "<a/>")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	s := S3Store{Endpoint: srv.URL, Bucket: "reports", Prefix: "p", AccessKey: "AK", SecretKey: "SK"}
+	keys, err := s.List(context.Background(), "runs/")
+	if err != nil || len(keys) != 2 || keys[0] != "runs/a.xml" || keys[1] != "runs/b.xml" {
+		t.Fatalf("list = %v, %v", keys, err)
+	}
+	if gotQuery != "list-type=2&prefix=p%2Fruns%2F" {
+		t.Fatalf("query = %q", gotQuery)
+	}
+	got, err := s.Get(context.Background(), "runs/a.xml")
+	if err != nil || string(got) != "<a/>" {
+		t.Fatalf("get = %q, %v", got, err)
+	}
+	if _, err := s.Get(context.Background(), "nope"); !errors.Is(err, ErrObjectNotFound) {
+		t.Fatalf("missing get err = %v", err)
 	}
 }
