@@ -12,7 +12,7 @@ import math
 import os
 import subprocess
 from collections import Counter, defaultdict
-from typing import Callable
+from typing import Callable, Collection, Mapping
 
 from clone_signals import WindowSet, clone_fragments, clone_pairs, window_hashes
 from adapter import AdapterResult, History, Signals, Unavailable
@@ -84,17 +84,16 @@ def import_graph(
     return graph
 
 
-def cyclic_packages(graph: dict[str, Counter[str]]) -> tuple[int, set[str]]:
-    """Tarjan's strongly connected components: (cycle count, packages in one)."""
+def import_cycles(graph: Mapping[str, Collection[str]]) -> list[tuple[str, ...]]:
+    """Tarjan's strongly connected components of more than one package, each
+    sorted, in sorted order."""
     index: dict[str, int] = {}
     low: dict[str, int] = {}
     on_stack: set[str] = set()
     stack: list[str] = []
-    cycles = 0
-    members: set[str] = set()
+    cycles: list[tuple[str, ...]] = []
 
     def visit(v: str) -> None:
-        nonlocal cycles
         index[v] = low[v] = len(index)
         stack.append(v)
         on_stack.add(v)
@@ -113,13 +112,18 @@ def cyclic_packages(graph: dict[str, Counter[str]]) -> tuple[int, set[str]]:
                 if w == v:
                     break
             if len(component) > 1:
-                cycles += 1
-                members.update(component)
+                cycles.append(tuple(sorted(component)))
 
     for v in sorted(graph):
         if v not in index:
             visit(v)
-    return cycles, members
+    return sorted(cycles)
+
+
+def cyclic_packages(graph: dict[str, Counter[str]]) -> tuple[int, set[str]]:
+    """(cycle count, packages in one)."""
+    cycles = import_cycles(graph)
+    return len(cycles), {pkg for cycle in cycles for pkg in cycle}
 
 
 def module_edges(
@@ -191,6 +195,11 @@ class SourceAdapter:
             self.spec.lsp_command[0]: ", ".join(self._server_versions) or "unavailable",
             "kaizen-source-adapter": SOURCE_ADAPTER_VERSION,
         }
+
+    def import_graph(self, root: str) -> dict[str, frozenset[str]]:
+        files = source_files(self.spec, root)
+        graph = import_graph(files, self.spec.import_resolver(root, set(files)))
+        return {pkg: frozenset(targets) for pkg, targets in graph.items()}
 
     def measure(self, root: str, history: History) -> AdapterResult:
         spec = self.spec

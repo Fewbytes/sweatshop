@@ -121,6 +121,7 @@ testing where available.
 | Context closure of touched functions | ↓ | tokens in body + direct deps |
 | Call depth entry→work | ↓ | call graph |
 | Import cycles | ↓ to 0 | dependency graph |
+| Architecture trend and cycle origins | descriptive | `measure` stores, in signals.json (`architecture`), propagation cost, import-cycle count and largest cycle at the newest commit of each of the latest 26 weeks, and for each current cycle the first-parent commit that formed it (bisected) and its card; the report's Architecture trend section shows when decay started and which card caused it; never gated on |
 | Cognitive Complexity; rank and report, never gate | ↓ | linter |
 | Dead symbols | ↓ | symbol index + reference search |
 | Typed boundary ratio | ↑ | type checker / ast-grep |

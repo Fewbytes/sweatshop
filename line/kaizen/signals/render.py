@@ -123,6 +123,26 @@ def dependency_section(current: dict) -> str:
     ])
 
 
+def architecture_section(current: dict) -> str:
+    trend, origins = current["architecture"]["trend"], current["architecture"]["cycle_origins"]
+    parts = [
+        "<h2>Architecture trend</h2>",
+        "<p>The import graph recomputed at the newest commit of each week (latest weeks only). Propagation cost is the share "
+        "of module pairs where a change to one can reach the other through imports.</p>",
+        _table(
+            ["Week's last commit", "Date", "Modules", "Propagation cost", "Import cycles", "Largest cycle"],
+            [[html.escape(s["commit"][:12]), html.escape(s["date"][:10]), str(s["packages"]), f"{s['propagation_cost']:.1%}",
+              str(s["import_cycles"]), str(s["largest_cycle"])] for s in trend],
+        ),
+        "<h3>Cycle origins</h3>",
+        "<p>The commit that first formed each current cycle, and the card that made it.</p>",
+    ]
+    if not origins:
+        return "\n".join([*parts, "<p>None.</p>"])
+    rows = [[html.escape(", ".join(o["members"])), html.escape(o["commit"][:12]), html.escape(o["date"][:10]), html.escape(o["card"] or "–")] for o in origins]
+    return "\n".join([*parts, _table(["Cycle", "First formed by", "Date", "Card"], rows)])
+
+
 def violations_section(current: dict) -> str:
     parts = [
         "<h2>Modularity violations</h2>",
@@ -198,6 +218,7 @@ def render_report(current: dict, previous: dict | None, after: dict | None, pick
         "<h2>Modules by hotspot rank</h2>",
         status_table(current, previous),
         dependency_section(current),
+        architecture_section(current),
         violations_section(current),
         clones_section(current),
         cohesion_section(current),

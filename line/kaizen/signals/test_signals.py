@@ -20,6 +20,7 @@ import render
 import rework
 import source_adapter
 import syntax
+import architecture
 import clone_signals
 import contract_gate
 import file_signals
@@ -455,9 +456,9 @@ class MeasureRepo(RepoFixture):
     def test_ci_runtime_is_unavailable_with_the_reason_when_no_runs_given(self):
         self.assertEqual(measure.ci_runtime(None)["ci_median_ms"], Unavailable("no CI runs file given"))
 
-    def test_signals_record_schema_7_and_every_tool_version(self):
+    def test_signals_record_schema_8_and_every_tool_version(self):
         s = self.measure()
-        self.assertEqual(s["schema"], 7)
+        self.assertEqual(s["schema"], 8)
         self.assertEqual(sorted(s["tools"]), [
             "git", "gopls", "kaizen-go-tables", "kaizen-python-tables", "kaizen-source-adapter", "kaizen-typescript-tables",
             "pyright-langserver", "python", "tree-sitter", "tree-sitter-go", "tree-sitter-python", "tree-sitter-typescript",
@@ -925,12 +926,56 @@ class GraphViews(unittest.TestCase):
         self.assertIn("<td>3</td>", page)
 
 
+class ArchitectureHistory(RepoFixture):
+    """b imports a from the start; a starts importing b in the third week, by card card-7, and the fourth week adds noise."""
+
+    def commit_on(self, date, msg):
+        git(self.root, "add", "-A", date=date)
+        git(self.root, "commit", "-q", "-m", msg, date=date)
+
+    def setUp(self):
+        super().setUp()
+        self.write("a/a2.go", 'package a\n\nimport "example.com/m/b"\n\nvar _ = b.X\n')
+        self.commit_on("2026-10-15T12:00:00+00:00", "close the loop\n\nBead: card-7")
+        self.write("c/c.go", "package c\n\nfunc C() { _ = 2 }\n")
+        self.commit_on("2026-10-22T12:00:00+00:00", "unrelated")
+
+    def test_cycle_origin_names_the_commit_and_card_that_formed_it(self):
+        origins = measure.measure(self.root, "HEAD", None)["architecture"]["cycle_origins"]
+        formed_by = subprocess.run(["git", "-C", self.root, "rev-parse", "HEAD~1"], capture_output=True, text=True).stdout.strip()
+        self.assertEqual(origins, [{"members": ["a", "b"], "commit": formed_by, "date": "2026-10-15T12:00:00Z", "card": "card-7"}])
+
+    def test_trend_samples_each_week_and_shows_the_cycle_appear(self):
+        trend = measure.measure(self.root, "HEAD", None)["architecture"]["trend"]
+        self.assertEqual(
+            [(t["date"][:10], t["import_cycles"], t["largest_cycle"], t["propagation_cost"]) for t in trend],
+            [("2026-10-01", 0, 0, 0.444), ("2026-10-15", 1, 2, 0.556), ("2026-10-22", 1, 2, 0.556)],
+        )
+
+    def test_propagation_cost_counts_reachable_pairs_including_self(self):
+        chain = {"x": frozenset({"y"}), "y": frozenset({"z"}), "z": frozenset()}
+        self.assertEqual(architecture.propagation_cost(chain), round(6 / 9, 3))
+        self.assertEqual(architecture.propagation_cost({}), 0.0)
+
+    def test_report_lists_the_trend_and_who_formed_each_cycle(self):
+        signals = Rendering().signals("a" * 40, 1)
+        signals["architecture"] = {
+            "trend": [{"commit": "b" * 40, "date": "2026-10-15T12:00:00+00:00", "packages": 3, "propagation_cost": 0.556,
+                       "import_cycles": 1, "largest_cycle": 2}],
+            "cycle_origins": [{"members": ["a", "b"], "commit": "c" * 40, "date": "2026-10-15T12:00:00+00:00", "card": "card-7"}],
+        }
+        page = render.render_report(signals, None, None, None)
+        self.assertIn("<td>bbbbbbbbbbbb</td><td>2026-10-15</td><td>3</td><td>55.6%</td><td>1</td><td>2</td>", page)
+        self.assertIn("<td>a, b</td><td>cccccccccccc</td><td>2026-10-15</td><td>card-7</td>", page)
+
+
 class Rendering(unittest.TestCase):
     def signals(self, commit, hotspot, tools=(('git', '2'),)):
         pkg = {s: 0 for s in render.PACKAGE_SIGNALS} | {"hotspot": hotspot, "hotspot_rank": 1, "symbol_edges": []}
         repo = {s: 0 for s in render.REPO_SIGNALS} | {"hotspot": hotspot, "ci_median_ms": None}
         return {"commit": commit, "measured_at": "t", "window_days": 90, "tools": dict(tools),
-                "packages": {"p/q": pkg}, "repo": repo, "module_edges": [], "modularity_violations": {}, "clone_pairs": []}
+                "packages": {"p/q": pkg}, "repo": repo, "module_edges": [], "modularity_violations": {}, "clone_pairs": [],
+                "architecture": {"trend": [], "cycle_origins": []}}
 
     def test_report_shows_trend_against_previous_run_and_after_values(self):
         page = render.render_report(

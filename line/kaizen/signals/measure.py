@@ -11,6 +11,7 @@ import statistics
 import subprocess
 from datetime import datetime, timedelta
 
+import architecture
 import clone_signals
 from adapter import Adapter, AdapterResult, Commit, History, Signals, Unavailable
 from lang_go import GO
@@ -18,7 +19,7 @@ from lang_python import PYTHON
 from lang_typescript import TYPESCRIPT
 from source_adapter import SourceAdapter
 
-SCHEMA = 7
+SCHEMA = 8
 WINDOW_DAYS = 90
 CI_RUNS_CONSIDERED = 50
 SECONDS_PER_YEAR = 365.25 * 24 * 3600
@@ -127,6 +128,10 @@ def measure(root: str, rev: str, runs: dict | None, adapters: tuple[Adapter, ...
         "clone_pairs": sorted(clone_pairs, key=clone_signals.rank_key),
         "module_edges": sorted(module_edges, key=lambda e: (e["a"], e["b"])),
         "modularity_violations": modularity_violations,
+        "architecture": {
+            "trend": architecture.trend(adapters, root, rev),
+            "cycle_origins": architecture.cycle_origins(adapters, root, rev),
+        },
         "hotspot_functions": sorted(hotspot_functions, key=lambda f: (-f["hotspot"], f["file"], f["name"])),
     }
 
