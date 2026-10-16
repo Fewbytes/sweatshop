@@ -35,8 +35,8 @@ card, check it against the PDF linked here.
 | Ownership / authorship | Bird et al.: count of minor contributors (<5% of commits) | strong at Microsoft; weak or absent in OSS | Confounded with size. "Contributor" must be redefined for agents. |
 | Change entropy | Hassan 2009 HCM over feature-introducing changes; Kamei per-change entropy | moderate | Unstable across systems in D'Ambros et al. 2010. |
 | Size control | Report every metric with size controlled: per LOC, as a residual on log LOC, or within size bands | strong (El Emam et al. 2001; Gil and Lalouche 2017) | Evanco 2003 disputes treating size as a confounder; the data itself is not disputed. |
-| Mutation score | Not covered by the sources read | — | Needs its own reading. |
-| Rework of agent code | Nothing measures it | — | None of the agent-code studies measures churn, survival or reverts in real repositories. |
+| Mutation score | Fraction of generated mutants killed by the tests, computed on changed lines only, with equivalent and "arid" mutants suppressed; report the surviving mutants, not just the ratio (section 13) | moderate for "tracks real-fault detection" (Just et al. 2014; Java, 5 programs); weak-to-moderate once suite size is controlled (Papadakis et al. 2018, as summarised by their survey) | 27% of real faults were not coupled to any commonly generated mutant (17% to none at all). The absolute score is not actionable and not computable at scale (Google); use the incremental, per-change form. Equivalent mutants are undecidable. Not validated for Go or agent-written tests. |
+| Rework of agent code | Survival of introduced static-analysis issues at HEAD (Liu et al. 2026) is the only measure over time; nothing measures rewritten or reverted *lines* of agent code. GitClear 2025 reports a moved-line share falling from 25% to under 10% (vendor) | weak (vendor) plus moderate (Liu et al.) | Liu et al. have no human-commit baseline, so 22.7% survival cannot be compared with anything. See section 11.6. |
 
 **Corrections to the README and kaizen.md**
 
@@ -1178,42 +1178,218 @@ bound for a modern agent), small numbers per rule.
 - Treat Extract Method for complexity, parameter removal and exception-type
   changes as high risk.
 
-### 11.6 Leads not read
+### 11.6 Rework leads (read 2026-10-16)
 
-Checked 2026-10-15 (abstract pages only; full texts not read):
-- arXiv 2601.20109 (Cynthia, Muttakin, Roy): 1,210 agent bug-fix PRs, SonarQube
-  differential before and after merge. Churn only normalises issue counts. No
-  rework or survival.
-- arXiv 2603.28592 (Liu et al., Lo): 302.6k AI-authored commits, 6,299
-  repositories; 22.7% of the introduced static-analysis issues survive at the
-  latest revision. The only one that follows anything over time, and it follows
-  issues, not rewritten lines.
-- arXiv 2601.21276 (Huang et al., MSR 2026): agents disregard reuse; code
-  metrics and reviewer sentiment. No rework.
-- GitClear 2025 (vendor report on code churn): not read.
+The three arXiv papers were read in full from their arXiv HTML versions (text
+extracted locally, not through a summarising reader); the numbers below are
+from that text.
 
-The gap stands: nothing measures rework of agent-written code.
+- **arXiv 2601.20109** (Cynthia, Muttakin, Roy; MSR 2026) **[weak to moderate]**.
+  1,210 merged agent bug-fix PRs from 206 Python repositories (AIDev dataset,
+  of 8,106 fix PRs; Codex 949, Copilot 106, Devin 100, Cursor 40, Claude Code
+  15). SonarQube is run on the parent and the merged commit, and new issues are
+  counted. Issues per KLOC of changed lines shows no significant difference
+  between agents (Kruskal-Wallis); Cursor is the exception, with a higher
+  median. Code smells dominate; no vulnerabilities; duplicated lines under 3%.
+  *Churn only normalises counts. Nothing follows the code after merge: no
+  rework, no survival.* Claude Code's n = 15 makes its per-agent figures noise.
+  **Use:** confirms that issue counts must be normalised by change size (as
+  "Size control" in section 1 already says).
+- **arXiv 2603.28592** (Liu, Widyasari, Zhao, Irsan, Chen, Lo; v3) **[moderate]**.
+  302,579 commits in 6,299 repositories (Python, JS, TS only; >= 100 stars)
+  attributed to Copilot, Claude, Cursor, Gemini and Devin through git metadata
+  (author name/email, bot login, Co-authored-by). ESLint, Pylint and Semgrep
+  run on the file before and after each commit; an issue is "introduced" only
+  if unmatched and on a changed line. 484,366 issues introduced (89.3% smells,
+  6.0% correctness, 4.7% security); 9.1% of commits introduce at least one;
+  per-tool 7.5% (Copilot) to 14.8% (Gemini). Survival at HEAD, matched by rule
+  plus surrounding code: **105,364 of 464,900 = 22.7%**, with no monotone trend
+  by age (19.4% at 6-9 months, 28.2% at 3-6, 22.8% above 9). AI commits fix
+  slightly more smells than they introduce (439,817 vs 432,748) but introduce
+  about 1.5 times as many security issues as they fix. The authors validated 99
+  sampled issues: precision 85.9%, survival-classification accuracy 84.8%
+  (recall 81.2%), so roughly one survival label in six is wrong.
+  *Limits:* no human-commit baseline, so 22.7% is not "worse than humans";
+  the metric is lint issues, not rewritten lines; repositories where an AI is
+  named in git metadata are a self-selected subset; "survives" includes
+  "nobody touched the file". The paper does record whether the file was
+  modified again before HEAD. **Use:** the attribution rule (git metadata
+  trailers) and the "unmatched issue on a changed line" rule are directly
+  reusable for the line; see sweatshop-8t5.16.
+- **arXiv 2601.21276** (Huang, Jaisri, Shimizu, Chen, Nakashima, Rodriguez-Perez;
+  MSR 2026) **[weak to moderate]**. Python repositories with > 500 stars from
+  AIDev; 3,858 PRs for the metrics and sentiment analysis; the redundancy
+  analysis is **one repository (crewAI, 617 PRs)**. Cyclomatic complexity and
+  LOC differ little between agent and human PRs; 85% of file pairs have zero
+  complexity change. The paper's own "Max Redundancy Score" (maximum cosine
+  similarity of CodeSage embeddings between each new function and existing
+  functions, after excluding PyRef-detected moves and renames) averages 0.2867
+  for agents against 0.1532 for humans (Mann-Whitney p < 0.001). The score is a
+  similarity of embeddings, not a clone detector; no threshold is validated
+  against real clones, and the manual check of the refactoring filter covered 10
+  samples. Reviewer sentiment is more neutral or positive for agent PRs.
+  **Use:** supports tracking *new code similar to existing code* (a Type-3/4
+  clone-at-birth signal) as a candidate, but with one repository and an
+  unvalidated metric it does not justify a threshold.
+- **GitClear, "AI Copilot Code Quality: 2025"** **[weak: vendor]**. Only the
+  landing-page abstract was readable; the PDF is behind a lead form. Abstract
+  claims: 211 million changed lines, 2020-2024, from repositories owned by
+  Google, Microsoft, Meta and enterprise customers; refactoring-type (moved)
+  lines fell from 25% of changed lines in 2021 to under 10% in 2024; "copy/pasted"
+  lines rose from 8.3% to 12.3%. The page title says "4x growth in code clones"
+  and press coverage says 8x for duplicated blocks; neither could be checked
+  against the report, so do not quote them. The dataset is private, the metric
+  definitions are GitClear's own, and the study does not identify which lines
+  an AI wrote, so it shows a time trend that coincides with AI adoption, not an
+  effect of it.
+
+**Conclusion:** the gap stands. Liu et al. come closest and show survival of
+*issues*; nobody has measured the fate of *lines* an agent wrote, nor compared
+against human-written lines in the same repositories. sweatshop-8t5.16 should
+therefore report agent-line survival beside the same measure for human lines in
+the same period, or label the figure as unbaselined.
+
+---
+
+## 13. Mutation testing
+
+Read 2026-10-16. Text of Just et al. (FSE 2014), Petrovic et al. (arXiv
+2102.11378) and the Papadakis et al. survey was extracted from the PDFs
+locally; every number below is from that text.
+
+### 13.1 Just, Jalali, Inozemtseva, Ernst, Holmes, Fraser 2014 [moderate]
+
+Are mutants a valid substitute for real faults? 357 real faults in five Java
+programs (Chart, Closure, Math, Time, Lang; 321 KLOC), developer-written and
+generated test suites.
+- Mutation score of the fixing test suite rose over the pre-fix suite for 362
+  of 480 developer test pairs (75%); statement coverage rose for 222 (46%). The
+  association between the two is significant (chi-square 78.13, p < 0.001), so
+  coverage must be controlled.
+- With coverage controlled, mutation score still rose for 153 of 258 pairs
+  (59%) that added no coverage.
+- Correlation of mutation score with real-fault detection is positive, "usually
+  strong or moderate", and significantly higher than statement coverage's for
+  every program except Time (Wilcoxon, p < 0.05). Effect sizes A12 0.66 to 0.81.
+- **73% of faults are coupled to a mutant from commonly used operators; 27%
+  (95/357) are not.** Of those 95, 25 need a stronger operator, 7 a new one, and
+  63 (17.6% of all faults) have no obvious mutant. The conclusion text reports
+  this as "17%".
+- Conditional-operator, relational-operator and statement-deletion mutants are
+  most often coupled to real faults, and are not known to produce many equivalent
+  mutants.
+- Threats: five Java programs, all well tested; faults were linked through
+  bug-tracker identifiers, which is a biased sample.
+
+### 13.2 Papadakis, Shin, Yoo, Bae, ICSE 2018 [moderate; read at survey level only]
+
+The paper itself was not read. What was read: its row in the Papadakis et al.
+survey (section 13.4): mutation score and test-suite size both correlate with
+fault detection, "but often the individual (and joint) correlations are weak";
+suites with very high mutation scores do significantly better than those with
+lower scores. A search-engine summary of the abstract adds that the correlations
+are weak when suite size is controlled, and that the top-ranked suites by
+mutation score still beat random suites of the same size. **That second
+sentence is unverified against the paper.** Read the PDF before quoting.
+Net effect on Just et al.: mutation score is a useful *ranking* signal for
+tests, a poor *absolute* predictor, and part of its correlation comes from
+suite size.
+
+### 13.3 Petrovic, Ivankovic, Fraser, Just, "Practical Mutation Testing at Scale" (Google; arXiv 2102.11378) [moderate: one company, developer-feedback labels]
+
+- The whole-codebase score is infeasible (about 2 billion LOC, over 500 million
+  test executions a day) and "neither concrete nor actionable". Google
+  mutates *only changed, covered lines during code review*.
+- Developers initially judged **85%** of reported mutants unproductive
+  (trivially equivalent, or detectable but not worth a test). Suppression rules
+  for "arid" AST nodes (logging, memoisation lookups, initial capacities,
+  guaranteed-nonnegative `size()` comparisons) raised the productive share from
+  15% to **89%**; across the whole dataset **82%** of surfaced mutants with
+  feedback were labelled "Please fix".
+- Median mutants per change: 820 unfiltered, 77 with one per line, **7** with
+  arid suppression plus one per line.
+- 87.5% of generated mutants are killed by the initial suite; the survivors are
+  what a developer sees. Survival varies by operator (unary operator insertion
+  9.5%, about half that of logical-connector replacement) and by language
+  (Dart higher).
+- Scale of the data: about 17 million mutants over 760,000 changes; 2 million
+  mutants surfaced.
+- Equivalent mutants "cannot generally be detected automatically"; Google's
+  answer is language-specific heuristics, in Go for example gathering deleted
+  symbols into a slice so the compiler does not reject an unused import.
+- Threat acknowledged by the authors: the data is specific to Google's style and
+  review process.
+
+### 13.4 Papadakis, Kintis, Zhang, Jia, Le Traon, Harman 2019, "Mutation Testing Advances" (survey, Advances in Computers) [moderate; secondary]
+
+Read in text form, selectively (equivalence, redundancy and the test-criteria
+tables), not cover to cover.
+- Equivalent-mutant identification is undecidable. Trivial Compiler Equivalence
+  (compare compiled object code) is conservative and identifies at least 30% of
+  equivalent mutants; as a redundancy detector it finds on average 21% (C) and
+  5.4% (Java) of mutants. Second-order mutation cuts equivalent mutants by 80 to
+  90% at about 10% or less loss in test effectiveness (Papadakis and Malevris).
+- The survey's own words on real-fault correlation: "neither clear
+  understanding nor much empirical evidence concerning whether and when mutants
+  are correlated with real faults".
+- Duplicate or redundant mutants inflate the score and make it "hard to
+  interpret".
+
+### 13.5 What this means for Kaizen
+
+1. **Per-change, not per-repository.** Score only mutants on lines the card
+   touched and the tests cover, the Google design. This is what
+   sweatshop-8t5.5 already scopes.
+2. **Report survivors with their operator, and suppress known-arid ones.**
+   A bare ratio is inflated by equivalent mutants and by suite size; the
+   surviving mutants are the actionable output. Starting rules from Google:
+   logging, memoisation lookups, capacities and timeouts, non-negative-size
+   comparisons.
+3. **Prefer the operators Just et al. found coupled to real faults**
+   (conditional, relational, statement deletion) when a sample must be cut.
+4. **Do not treat the score as a gate or a quality number.** 17% of real faults
+   have no coupled mutant, Papadakis 2018 finds weak correlations once suite
+   size is held fixed, and nothing here is validated on Go or on tests written
+   by agents (who can write assertions that kill mutants, not faults).
+   Record it and watch it, which is what sweatshop-8t5.15 does, and check
+   against closed bug cards in sweatshop-8t5.8.
+5. **Treat a rising score with a falling count of surviving productive mutants
+   as the signal; treat a score on its own as a trend.** Compare like with like:
+   same tool, same version, same operator set (a version change forces a new
+   baseline, as the epic already states).
+
+Cards affected: sweatshop-8t5.5 (scope, arid-node suppression, operator
+priority), sweatshop-8t5.15 (what to record: operator and survivor identity,
+not only the ratio; do not treat as a predictor until validated),
+sweatshop-8t5.8 (validate against real faults here), sweatshop-8t5.16 (baseline
+for agent-line survival).
 
 ---
 
 ## 12. Sources not read (and why)
 
+Second attempt 2026-10-16. The books could not be read: they are
+copyrighted and no legal full text is available in this environment, so they
+stay unread rather than being summarised from secondary sources.
+
 | Source | Reason |
 |---|---|
-| Tornhill, *Your Code as a Crime Scene*; *Software Design X-Rays* | Paywalled (O'Reilly) |
+| Tornhill, *Your Code as a Crime Scene*; *Software Design X-Rays* | Books, paywalled; no open copy |
+| MacCormack, Baldwin, Rusnak, *Hidden Structure* (book) | Book; not available. Journal papers in section 7 stand in |
+| Lakos, *Large-Scale C++ Software Design* (1996) | Book; secondary sources used |
 | Mo et al., WICSA 2015 | IEEE and DTIC copies blocked; TSE version read instead |
 | DV8 documentation | Connection refused |
-| Gall, Jazayeri, Krajewski 2003 | IEEE paywall; repository copy bot-blocked |
-| Oliva and Gerosa 2011 | IEEE paywall |
-| Baldwin, MacCormack, Rusnak 2014 | Rate-limited or 403; abstract only |
-| MacCormack and Sturtevant 2016 | ScienceDirect 403 |
-| Lakos 1996 | Book; secondary sources used |
+| Gall, Jazayeri, Krajewski 2003 | IEEE paywall; no open copy found in a second search |
+| Oliva and Gerosa, SBES 2011 (DOI 10.1109/SBES.2011.39; 91% of logical dependencies join structurally unrelated artifacts, by its abstract) | Closed access. The open Oliva-Gerosa paper on the *origins* of logical dependencies (first 100k revisions of the Apache SVN repository, confidence >= 50% covering about 78% of dependencies) was opened instead; it is a different paper and was only skimmed, so nothing in this note rests on it |
+| Baldwin, MacCormack, Rusnak 2014; MacCormack and Sturtevant 2016 | 403; abstract only |
 | Moser et al. 2008 | ACM PDF blocked; abstract only |
-| D'Ambros et al. EMSE 2012 | All copies 403/404/410; MSR 2010 version read |
+| D'Ambros et al. EMSE 2012 | The author and repository copies returned HTML, not the PDF; MSR 2010 version read |
 | Foucault et al. 2014; Yang et al. 2016; Evanco 2003; Gil and Lalouche 2017 | Abstracts only |
 | Campbell, TechDebt 2018 | No open copy |
 | Lavazza et al. 2023 | 403; abstract only |
-| Göde and Koschke 2011; Göde 2009; Krinke 2007/2008 | ACM 403 or not found; Göde and Koschke abstract only |
+| Göde and Koschke 2011 (abstract: most clones are rarely changed and unintentional inconsistent changes are few); Göde 2009; Krinke 2007/2008 | No open PDF; abstract only |
 | Abdeen et al. 2011; Mišić 2001; Allen and Khoshgoftaar 1999 | Blocked or not found |
-| Original LCOM papers (Chidamber–Kemerer, Hitz–Montazeri, Bieman–Kang, Henderson-Sellers) | Definitions taken from Briand, Daly, Wüst 1998 |
-| Mutation-testing validity literature | Out of scope for this pass |
+| Original LCOM papers (Chidamber-Kemerer, Hitz-Montazeri, Bieman-Kang, Henderson-Sellers) | Definitions taken from Briand, Daly, Wüst 1998 |
+| GitClear 2025 report body | Behind a lead form; landing-page abstract only (section 11.6) |
+| Papadakis et al., ICSE 2018 (full paper) | Not opened; survey summary only (section 13.2) |
+| Mutation-testing literature beyond sections 13.1 to 13.4 (Chekam et al. 2017; Google's 2018 ICSE-SEIP paper; Grun, Schuler, Zeller on equivalent mutants) | Not read |
