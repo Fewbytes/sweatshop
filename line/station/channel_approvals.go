@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 )
 
 const (
@@ -207,6 +208,7 @@ func (c *Channel) proposedChoices(ctx context.Context, typed string) ([]CommandC
 	}
 	typed = strings.ToLower(typed)
 	choices := []CommandChoice{}
+	now := time.Now()
 	for _, card := range cards {
 		if len(choices) == maxChoices {
 			break
@@ -217,6 +219,9 @@ func (c *Channel) proposedChoices(ctx context.Context, typed string) ([]CommandC
 		name := card.ID + " " + card.Title
 		if !strings.Contains(strings.ToLower(name), typed) {
 			continue
+		}
+		if IsDeferred(card.Labels, now) {
+			name = "(deferred) " + name
 		}
 		choices = append(choices, CommandChoice{Name: string([]rune(name)[:min(len([]rune(name)), maxChoiceChars)]), Value: card.ID})
 	}

@@ -65,10 +65,10 @@ func (r FlowReport) Wait(stage string) time.Duration {
 	return 0
 }
 
-// cardStage returns where an open card is and since when. Parked cards are
-// off the line and return ok=false.
-func cardStage(c FlowCard) (stage string, since time.Time, ok bool) {
-	if slices.Contains(c.Labels, station.LabelGaveUp) {
+// cardStage returns where an open card is and since when. Parked and deferred
+// cards are off the line and return ok=false.
+func cardStage(c FlowCard, now time.Time) (stage string, since time.Time, ok bool) {
+	if slices.Contains(c.Labels, station.LabelGaveUp) || station.IsDeferred(c.Labels, now) {
 		return "", time.Time{}, false
 	}
 	for _, l := range c.Labels {
@@ -99,7 +99,7 @@ func AnalyzeFlow(cards []FlowCard, now time.Time) FlowReport {
 			}
 			continue
 		}
-		stage, since, ok := cardStage(c)
+		stage, since, ok := cardStage(c, now)
 		if !ok {
 			continue
 		}

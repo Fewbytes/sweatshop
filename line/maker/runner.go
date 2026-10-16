@@ -636,7 +636,12 @@ func (b BeadsCLI) Ready(ctx context.Context, label string) ([]Bead, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseBeads(out)
+	beads, err := parseBeads(out)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	return slices.DeleteFunc(beads, func(b Bead) bool { return station.IsDeferred(b.Labels, now) }), nil
 }
 
 // parseBeads decodes the JSON array `bd ready --json` prints.

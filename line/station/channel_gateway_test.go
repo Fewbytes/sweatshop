@@ -337,7 +337,7 @@ func TestGatewayInteractionApprovesForSovereignOnly(t *testing.T) {
 	}
 
 	ch.gatewayInteraction(ctx, interaction(interactionApplicationCommand, kingID, "x-1"))
-	if got := strings.Join(cards.calls, "|"); got != "unlabel x-1 line-gave-up|label x-1 line|comment x-1 approved by the king (discord interaction I2477)" {
+	if got := strings.Join(cards.calls, "|"); got != "unlabel x-1 line-gave-up|unlabel x-1 line-deferred|label x-1 line|comment x-1 approved by the king (discord interaction I2477)" {
 		t.Fatalf("approve calls %q", got)
 	}
 	cb := fg.callbackLog()
@@ -358,7 +358,7 @@ func TestGatewayInteractionApprovesForSovereignOnly(t *testing.T) {
 	}
 
 	ch.gatewayInteraction(ctx, interaction(interactionApplicationCommand, kingID, "../etc"))
-	if cb = fg.callbackLog(); len(cb) != 4 || !strings.Contains(cb[3], "invalid card id") || len(cards.calls) != 3 {
+	if cb = fg.callbackLog(); len(cb) != 4 || !strings.Contains(cb[3], "invalid card id") || len(cards.calls) != 4 {
 		t.Fatalf("invalid id: %v calls %v", cb, cards.calls)
 	}
 }
@@ -390,14 +390,14 @@ func TestGatewayReactionApprovesOnlyPostsNamingOneCard(t *testing.T) {
 	}
 
 	react(kingID, "200", "✅")
-	if got := strings.Join(cards.calls, "|"); got != "unlabel x-1 line-gave-up|label x-1 line|comment x-1 approved by the king (discord reaction on message 200)" {
+	if got := strings.Join(cards.calls, "|"); got != "unlabel x-1 line-gave-up|unlabel x-1 line-deferred|label x-1 line|comment x-1 approved by the king (discord reaction on message 200)" {
 		t.Fatalf("approve calls %q", got)
 	}
 	if posted := fg.posted; len(posted) != 1 || posted[0] != "approved x-1" {
 		t.Fatalf("replies %v", posted)
 	}
 	react(kingID, "204", "✅")
-	if len(cards.calls) != 6 {
+	if len(cards.calls) != 8 {
 		t.Fatalf("a post repeating one card should approve it: %v", cards.calls)
 	}
 }
@@ -441,7 +441,7 @@ func TestGatewayCardCommandFilesCardForSovereignOnly(t *testing.T) {
 	if cards.last != want {
 		t.Fatalf("defaults: created %+v, want %+v", cards.last, want)
 	}
-	if got := strings.Join(cards.calls, "|"); got != "create Add widgets|unlabel x-2 line-gave-up|label x-2 line|comment x-2 approved by the king (discord interaction I9"+kingID+")" {
+	if got := strings.Join(cards.calls, "|"); got != "create Add widgets|unlabel x-2 line-gave-up|unlabel x-2 line-deferred|label x-2 line|comment x-2 approved by the king (discord interaction I9"+kingID+")" {
 		t.Fatalf("file calls %q", got)
 	}
 	if cb := fg.callbackLog(); len(cb) != 1 || !strings.Contains(cb[0], `"filed x-2"`) || !strings.Contains(cb[0], `"flags":64`) {

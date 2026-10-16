@@ -1463,7 +1463,7 @@
       "purpose": "Package runner is the one interface the line uses to run station and"
     },
     "line/station": {
-      "entry_point_count": 73,
+      "entry_point_count": 76,
       "entry_points": [
         "BeadsCards",
         "CLIEngine",

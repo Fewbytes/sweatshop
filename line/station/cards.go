@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/Fewbytes/sweatshop/line/constitution"
@@ -43,7 +44,8 @@ var (
 )
 
 // ListFilter selects cards; empty fields do not filter. Ready lists only
-// unblocked, unclaimed cards (bd ready) and excludes LabelGaveUp.
+// unblocked, unclaimed cards (bd ready) and excludes LabelGaveUp and cards
+// deferred now (IsDeferred).
 type ListFilter struct {
 	Status, Label, Parent string
 	Ready                 bool
@@ -111,7 +113,11 @@ func (b BeadsCards) List(ctx context.Context, f ListFilter) (json.RawMessage, er
 	if f.Parent != "" {
 		args = append(args, "--parent", f.Parent)
 	}
-	return b.bd(ctx, args...)
+	out, err := b.bd(ctx, args...)
+	if err != nil || !f.Ready {
+		return out, err
+	}
+	return dropDeferred(out, time.Now())
 }
 
 // Show returns `bd show --json` with the card's comments attached: bd show

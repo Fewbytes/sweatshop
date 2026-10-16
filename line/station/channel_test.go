@@ -146,7 +146,7 @@ func TestChannelKingApprove(t *testing.T) {
 	if err := ch.Poll(ctx); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"unlabel x-2.3 line-gave-up|label x-2.3 line", "comment x-2.3 approved by the king (discord message 3)"}
+	want := []string{"unlabel x-2.3 line-gave-up|unlabel x-2.3 line-deferred|label x-2.3 line", "comment x-2.3 approved by the king (discord message 3)"}
 	if strings.Join(cards.calls, "|") != strings.Join(want, "|") {
 		t.Fatalf("calls %v", cards.calls)
 	}

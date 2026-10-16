@@ -148,8 +148,8 @@ type HeldCard struct {
 	Reason string `json:"reason"`
 }
 
-// heldCards lists open line cards carrying LabelGaveUp, which the ready query
-// excludes. It returns nil when the server has no card tracker.
+// heldCards lists open line cards carrying LabelGaveUp or deferred now, which
+// makers are not offered. It returns nil when the server has no card tracker.
 func (s *Server) heldCards(ctx context.Context) ([]HeldCard, error) {
 	if s.Cards == nil {
 		return nil, nil
@@ -165,10 +165,14 @@ func (s *Server) heldCards(ctx context.Context) ([]HeldCard, error) {
 	if err := json.Unmarshal(out, &rows); err != nil {
 		return nil, fmt.Errorf("parse open line cards: %w", err)
 	}
+	now := time.Now()
 	var held []HeldCard
 	for _, r := range rows {
 		if slices.Contains(r.Labels, LabelGaveUp) {
 			held = append(held, HeldCard{ID: r.ID, Reason: "labelled " + LabelGaveUp + "; remove it to offer the card to makers"})
+		}
+		if IsDeferred(r.Labels, now) {
+			held = append(held, HeldCard{ID: r.ID, Reason: "deferred; the king's approve or its " + LabelDeferUntilPrefix + " date brings it back"})
 		}
 	}
 	return held, nil

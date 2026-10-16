@@ -519,6 +519,10 @@ func (c *Channel) command(ctx context.Context, m InboxMessage) {
 		c.approveDeploy(ctx, m, sub[1])
 		return
 	}
+	if sub := deferRe.FindStringSubmatch(m.Text); sub != nil {
+		c.reply(ctx, c.deferCard(ctx, sub[1], sub[3], "discord message "+m.ID))
+		return
+	}
 	sub := approveRe.FindStringSubmatch(m.Text)
 	if sub == nil {
 		return
@@ -547,6 +551,10 @@ func (c *Channel) approveCard(ctx context.Context, id, via string) string {
 	// A split child inherits its parent's LabelGaveUp, which hides it from
 	// every maker; the king's approval is the retry decision.
 	if err := c.Cards.RemoveLabel(ctx, id, LabelGaveUp); err != nil {
+		log.Printf("channel: approve %s: %v", id, err)
+		return fmt.Sprintf("could not approve %s", id)
+	}
+	if err := c.Cards.RemoveLabel(ctx, id, LabelDeferred); err != nil {
 		log.Printf("channel: approve %s: %v", id, err)
 		return fmt.Sprintf("could not approve %s", id)
 	}
