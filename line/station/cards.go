@@ -289,38 +289,11 @@ func (s *Server) routeCards(w http.ResponseWriter, r *http.Request, st *Station)
 		return "", err
 	}
 	ctx := r.Context()
-	switch {
-	case rest == "" && r.Method == http.MethodGet:
-		q := r.URL.Query()
-		f := ListFilter{Status: q.Get("status"), Label: q.Get("label"), Parent: q.Get("parent"), Ready: q.Get("ready") == "true"}
-		for _, v := range []string{f.Status, f.Label} {
-			if v != "" && !wordRe.MatchString(v) {
-				return "", fail(http.StatusBadRequest, "invalid filter %q", v)
-			}
-		}
-		if f.Parent != "" {
-			if err := validID(f.Parent); err != nil {
-				return "", err
-			}
-		}
-		out, err := cards.List(ctx, f)
-		if err != nil {
-			return "", err
-		}
-		return "list", writeRaw(w, out)
-	case rest == "":
-		var c NewCard
-		if err := decodeBody(w, r, &c); err != nil {
-			return "", err
-		}
-		if err := validateNew(c); err != nil {
-			return "", err
-		}
-		out, err := cards.Create(ctx, c)
-		if err != nil {
-			return "", err
-		}
-		return "create " + c.Type, writeRaw(w, out)
+	if rest == "" && r.Method == http.MethodGet {
+		return s.serveCardList(w, r, cards)
+	}
+	if rest == "" {
+		return s.serveCardCreate(w, r, cards)
 	}
 	id := parts[0]
 	if err := validID(id); err != nil {
@@ -337,25 +310,7 @@ func (s *Server) routeCards(w http.ResponseWriter, r *http.Request, st *Station)
 		return s.raiseNeed(w, r, cards, st, id)
 	}
 	if parts[1] == "comments" {
-		if st.Role != viceroyRole {
-			if err := s.admitOwnComment(r, cards, st, id); err != nil {
-				return "", err
-			}
-		}
-		var body struct {
-			Text string `json:"text"`
-		}
-		if err := decodeBody(w, r, &body); err != nil {
-			return "", err
-		}
-		if strings.TrimSpace(body.Text) == "" || len(body.Text) > maxDesc || !utf8.ValidString(body.Text) {
-			return "", fail(http.StatusBadRequest, "comment text must be 1..%d bytes of UTF-8", maxDesc)
-		}
-		if err := cards.Comment(ctx, id, body.Text); err != nil {
-			return "", err
-		}
-		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-		return "comment " + id, nil
+		return s.serveCardComment(w, r, cards, st, id)
 	}
 	if parts[1] == "labels" {
 		return s.viceroyLabels(w, r, cards, st, id)
@@ -367,6 +322,66 @@ func (s *Server) routeCards(w http.ResponseWriter, r *http.Request, st *Station)
 		return s.viceroyClose(w, r, cards, st, id)
 	}
 	return s.settle(w, r, cards, st, id, parts[1])
+}
+
+// serveCardList handles GET /v1/cards.
+func (s *Server) serveCardList(w http.ResponseWriter, r *http.Request, cards Cards) (string, error) {
+	q := r.URL.Query()
+	f := ListFilter{Status: q.Get("status"), Label: q.Get("label"), Parent: q.Get("parent"), Ready: q.Get("ready") == "true"}
+	for _, v := range []string{f.Status, f.Label} {
+		if v != "" && !wordRe.MatchString(v) {
+			return "", fail(http.StatusBadRequest, "invalid filter %q", v)
+		}
+	}
+	if f.Parent != "" {
+		if err := validID(f.Parent); err != nil {
+			return "", err
+		}
+	}
+	out, err := cards.List(r.Context(), f)
+	if err != nil {
+		return "", err
+	}
+	return "list", writeRaw(w, out)
+}
+
+// serveCardCreate handles POST /v1/cards.
+func (s *Server) serveCardCreate(w http.ResponseWriter, r *http.Request, cards Cards) (string, error) {
+	var c NewCard
+	if err := decodeBody(w, r, &c); err != nil {
+		return "", err
+	}
+	if err := validateNew(c); err != nil {
+		return "", err
+	}
+	out, err := cards.Create(r.Context(), c)
+	if err != nil {
+		return "", err
+	}
+	return "create " + c.Type, writeRaw(w, out)
+}
+
+// serveCardComment handles POST /v1/cards/{id}/comments.
+func (s *Server) serveCardComment(w http.ResponseWriter, r *http.Request, cards Cards, st *Station, id string) (string, error) {
+	if st.Role != viceroyRole {
+		if err := s.admitOwnComment(r, cards, st, id); err != nil {
+			return "", err
+		}
+	}
+	var body struct {
+		Text string `json:"text"`
+	}
+	if err := decodeBody(w, r, &body); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(body.Text) == "" || len(body.Text) > maxDesc || !utf8.ValidString(body.Text) {
+		return "", fail(http.StatusBadRequest, "comment text must be 1..%d bytes of UTF-8", maxDesc)
+	}
+	if err := cards.Comment(r.Context(), id, body.Text); err != nil {
+		return "", err
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	return "comment " + id, nil
 }
 
 // viceroyClose closes a card the constitution delegates to the viceroy, once
