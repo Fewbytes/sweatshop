@@ -301,7 +301,7 @@ class MeasureRepo(RepoFixture):
     def test_modularity_violations_rank_unimported_cochange_with_support_confidence_and_card(self):
         adapters = (SourceAdapter(lang_go.GO, violation_thresholds=ViolationThresholds(min_support=2, min_confidence=0.5)),)
         found = measure.measure(self.root, "HEAD", None, adapters)["modularity_violations"]
-        self.assertEqual(found, {"go": [{"a": "a/a.go", "b": "c/c.go", "support": 2, "confidence": 1.0, "last_card": None}]})
+        self.assertEqual(found, {"go": [{"a": "a/a.go", "b": "c/c.go", "support": 2, "confidence": 1.0, "low_confidence": True, "last_card": None}]})
 
     def test_modularity_violations_ignore_test_files(self):
         for n in (1, 2):
@@ -338,7 +338,7 @@ class MeasureRepo(RepoFixture):
 
     def test_file_pairs_cochanging_without_an_import_are_hidden_and_listed(self):
         s = self.measure()
-        self.assertEqual(s["cochange_pairs"], [{"a": "a/a.go", "b": "c/c.go", "count": 2, "hidden": True}])
+        self.assertEqual(s["cochange_pairs"], [{"a": "a/a.go", "b": "c/c.go", "count": 2, "hidden": True, "low_confidence": True}])
         self.assertEqual(s["files"]["c/c.go"]["hidden_coupling_ratio"], 1.0)
         self.assertEqual(s["files"]["b/b.go"]["cochange_pairs"], 0)
 
@@ -350,14 +350,47 @@ class MeasureRepo(RepoFixture):
         self.assertEqual(s["files"]["b/b.go"]["cochange_pairs"], 1)
         self.assertEqual(s["files"]["b/b.go"]["hidden_pairs"], 0)
 
-    def test_bulk_commits_by_file_count_make_no_file_pairs(self):
-        for i in range(file_signals.MAX_FILES_PER_COMMIT + 1):
+    def test_bulk_transactions_by_file_count_make_no_file_pairs(self):
+        for i in range(file_signals.MAX_FILES_PER_TRANSACTION + 1):
             self.write(f"bulk/f{i}.go", "package bulk\n")
         self.commit("bulk one")
-        for i in range(file_signals.MAX_FILES_PER_COMMIT + 1):
+        for i in range(file_signals.MAX_FILES_PER_TRANSACTION + 1):
             self.write(f"bulk/f{i}.go", "package bulk\n\nvar X = 1\n")
         self.commit("bulk two")
         self.assertEqual(self.measure()["files"]["bulk/f0.go"]["cochange_pairs"], 0)
+
+    def test_commits_of_one_card_are_one_transaction(self):
+        commits = [
+            Commit("card-1", {"a.go": 1}, {"a.go": 1}, 0.0, "s3"),
+            Commit(None, {"c.go": 1}, {"c.go": 1}, 0.0, "s2"),
+            Commit("card-1", {"b.go": 1}, {"b.go": 1}, 0.0, "s1"),
+        ]
+        self.assertEqual(
+            file_signals.transactions(commits),
+            [file_signals.Transaction("card-1", frozenset({"a.go", "b.go"})), file_signals.Transaction(None, frozenset({"c.go"}))],
+        )
+
+    def test_a_card_over_the_file_limit_is_dropped_even_when_each_commit_is_small(self):
+        half = file_signals.MAX_FILES_PER_TRANSACTION // 2 + 1
+        commits = [
+            Commit("card-1", {f"{part}{i}.go": 1 for i in range(half)}, {}, 0.0, part) for part in ("x", "y")
+        ]
+        self.assertEqual(file_signals.transactions(commits), [])
+
+    def test_cochange_counts_a_card_split_over_commits_once(self):
+        self.write("a/a.go", BRANCHY + "\nfunc split1() { _ = 3 }\n")
+        self.commit("split one\n\nBead: card-s")
+        self.write("c/c.go", "package c\n\nfunc C() { _ = 3 }\n")
+        self.commit("split two\n\nBead: card-s")
+        pair = next(p for p in self.measure()["cochange_pairs"] if (p["a"], p["b"]) == ("a/a.go", "c/c.go"))
+        self.assertEqual(pair["count"], 3)
+
+    def test_results_backed_by_few_transactions_are_low_confidence(self):
+        s = self.measure()
+        self.assertEqual(s["cochange_pairs"][0]["count"], 2)
+        self.assertTrue(s["cochange_pairs"][0]["low_confidence"])
+        self.assertEqual(s["files"]["c/c.go"]["transactions"], 2)
+        self.assertTrue(s["files"]["c/c.go"]["cochange_low_confidence"])
 
     def test_files_and_functions_are_ranked_by_hotspot(self):
         s = self.measure()

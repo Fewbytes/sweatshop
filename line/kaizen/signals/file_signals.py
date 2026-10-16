@@ -13,15 +13,40 @@ from itertools import combinations
 from adapter import Commit, Signals
 from syntax import SourceFile, package_of
 
-# A commit touching more packages or files than this is a bulk change (rename,
-# format), not evidence that the files depend on each other.
-MAX_PACKAGES_PER_COMMIT = 20
-MAX_FILES_PER_COMMIT = 50
+# A transaction touching more packages or files than this is a bulk change
+# (rename, format), not evidence that the files depend on each other. 30 files
+# is code-maat's default.
+MAX_PACKAGES_PER_TRANSACTION = 20
+MAX_FILES_PER_TRANSACTION = 30
 MIN_COCHANGES = 2
+# Fewer transactions than this back a number too thinly to trust: the line's
+# history is short and small samples make instability look like signal
+# (Kirbas et al. 2017). Our choice, not a validated cut-off.
+MIN_TRANSACTIONS_FOR_CONFIDENCE = 5
 TOP_COCHANGE_PAIRS = 50
 TOP_HOTSPOT_FUNCTIONS = 20
 # Graves et al. 2000 weight a change by exp(-alpha * age), alpha 0.75 per year.
 DECAY_PER_YEAR = 0.75
+
+
+@dataclass(frozen=True)
+class Transaction:
+    card: str | None  # None for a commit that names no card
+    files: frozenset[str]
+
+
+def transactions(commits: list[Commit]) -> list[Transaction]:
+    """The change transactions in the commits, newest first.
+
+    Zimmermann et al. count support over transactions. An agent commits one
+    card in several small pieces, so the commits of one card (Bead trailer) are
+    one transaction; a commit naming no card is its own. Transactions over
+    MAX_FILES_PER_TRANSACTION files are dropped as bulk changes."""
+    touched: dict[str, set[str]] = {}
+    for commit in commits:  # newest first, as git log gives them
+        touched.setdefault(commit.card or commit.sha, set()).update(commit.deleted_lines)
+    cards = {c.card or c.sha: c.card for c in commits}
+    return [Transaction(cards[key], frozenset(files)) for key, files in touched.items() if len(files) <= MAX_FILES_PER_TRANSACTION]
 
 
 @dataclass(frozen=True)
@@ -62,10 +87,13 @@ def modularity_violations(
 ) -> list[Signals]:
     """File pairs that co-change with no import either way (Mo et al.'s
     modularity violations), most supported first. support is the shared
-    commits; confidence is Zimmermann's, support over the commits of the
-    pair's busier file, the weaker of the two rules a=>b and b=>a. last_card is
-    the newest shared commit that names a card, None if none does."""
-    churn = Counter(path for c in commits for path in c.deleted_lines if path in source)
+    transactions; confidence is Zimmermann's, support over the transactions of
+    the pair's busier file, the weaker of the two rules a=>b and b=>a.
+    low_confidence is true when fewer than MIN_TRANSACTIONS_FOR_CONFIDENCE
+    transactions back the pair. last_card is the newest shared transaction that
+    names a card, None if none does."""
+    history = transactions(commits)
+    churn = Counter(path for t in history for path in t.files if path in source)
     found = {}
     for (a, b), support in file_pairs.items():
         if a not in source or b not in source:  # test files co-change with what they test
@@ -78,15 +106,15 @@ def modularity_violations(
         ):
             found[a, b] = (support, confidence)
     last_card: dict[tuple[str, str], str] = {}
-    for commit in commits:  # newest first, as git log gives them
-        if commit.card:
-            touched = sorted(p for p in commit.deleted_lines if p in source)
-            for pair in combinations(touched, 2):
+    for t in history:  # newest first
+        if t.card:
+            for pair in combinations(sorted(p for p in t.files if p in source), 2):
                 if pair in found:
-                    last_card.setdefault(pair, commit.card)
+                    last_card.setdefault(pair, t.card)
     ranked = sorted(found, key=lambda pair: (-found[pair][0], -found[pair][1], pair))
     return [
-        {"a": a, "b": b, "support": found[a, b][0], "confidence": round(found[a, b][1], 3), "last_card": last_card.get((a, b))}
+        {"a": a, "b": b, "support": found[a, b][0], "confidence": round(found[a, b][1], 3),
+         "low_confidence": found[a, b][0] < MIN_TRANSACTIONS_FOR_CONFIDENCE, "last_card": last_card.get((a, b))}
         for a, b in ranked
     ]
 
@@ -94,17 +122,16 @@ def modularity_violations(
 def cochanging_pairs(
     commits: list[Commit], files: dict[str, SourceFile]
 ) -> tuple[Counter[tuple[str, str]], Counter[tuple[str, str]]]:
-    """(package pairs, file pairs) -> number of non-bulk commits touching both."""
+    """(package pairs, file pairs) -> number of non-bulk transactions touching both."""
     package_pairs: Counter[tuple[str, str]] = Counter()
     file_pairs: Counter[tuple[str, str]] = Counter()
-    for commit in commits:
-        touched = sorted(p for p in commit.deleted_lines if p in files)
+    for t in transactions(commits):
+        touched = sorted(p for p in t.files if p in files)
         pkgs = sorted({package_of(p) for p in touched})
-        if len(pkgs) > MAX_PACKAGES_PER_COMMIT:
+        if len(pkgs) > MAX_PACKAGES_PER_TRANSACTION:
             continue
         package_pairs.update(combinations(pkgs, 2))
-        if len(touched) <= MAX_FILES_PER_COMMIT:
-            file_pairs.update(combinations(touched, 2))
+        file_pairs.update(combinations(touched, 2))
     return package_pairs, file_pairs
 
 
@@ -148,7 +175,8 @@ def file_signals(
     file_pairs: Counter[tuple[str, str]],
     package_graph: dict[str, set[str]],
 ) -> tuple[dict[str, Signals], list[Signals], list[Signals]]:
-    """Per-file signals, the most frequent co-changing file pairs, and the
+    """Per-file signals (transactions is how many change transactions back its
+    co-change numbers), the most frequent co-changing file pairs, and the
     highest-hotspot functions. A file's hotspot is its decayed change count
     times its complexity, a ranking key only. A function's hotspot is its
     complexity times the decayed change count of its file: git attributes
@@ -159,6 +187,9 @@ def file_signals(
     changed: Counter[str] = Counter()
     reworked: Counter[str] = Counter()
     cards: dict[str, set[str]] = defaultdict(set)
+    backing: Counter[str] = Counter()
+    for t in transactions(commits):
+        backing.update(p for p in t.files if p in source)
     for commit in commits:
         for path, deleted in commit.deleted_lines.items():
             if path not in source:
@@ -186,6 +217,8 @@ def file_signals(
             "hotspot_per_loc": round(decayed[path] * complexity / lines, 4),
             "loc": f.lines,
             "cards": len(cards[path]),
+            "transactions": backing[path],
+            "cochange_low_confidence": backing[path] < MIN_TRANSACTIONS_FOR_CONFIDENCE,
             "rework_rate": round(reworked[path] / churn[path], 3) if churn[path] else 0.0,
             "cochange_pairs": len(mine),
             "hidden_pairs": len(mine & hidden),
@@ -195,7 +228,8 @@ def file_signals(
         out[path]["hotspot_rank"] = rank
 
     top_pairs = sorted(pairs, key=lambda pair: (-pairs[pair], pair))[:TOP_COCHANGE_PAIRS]
-    cochange = [{"a": a, "b": b, "count": pairs[a, b], "hidden": (a, b) in hidden} for a, b in top_pairs]
+    cochange = [{"a": a, "b": b, "count": pairs[a, b], "hidden": (a, b) in hidden,
+         "low_confidence": pairs[a, b] < MIN_TRANSACTIONS_FOR_CONFIDENCE} for a, b in top_pairs]
 
     functions = [
         {"file": path, "name": fc.name, "complexity": fc.complexity, "hotspot": round(decayed[path] * fc.complexity, 3)}

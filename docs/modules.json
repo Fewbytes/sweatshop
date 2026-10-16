@@ -44,8 +44,8 @@
     "agentsh/cmd/agentshd": {
       "entry_point_count": 0,
       "entry_points": [],
-      "hidden_coupling_ratio": 0.75,
-      "hotspot_rank": 25,
+      "hidden_coupling_ratio": 0.5,
+      "hotspot_rank": 29,
       "imported_by": [],
       "imports": [
         "agentsh/internal/config",
@@ -55,7 +55,7 @@
         "agentsh/internal/workspace"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "318c2ed7ed6ccc97285cc63f820a944cc2965377",
       "purpose": ""
     },
     "agentsh/internal/analyzer": {
@@ -217,8 +217,8 @@
         "New",
         "Server"
       ],
-      "hidden_coupling_ratio": 0.75,
-      "hotspot_rank": 29,
+      "hidden_coupling_ratio": 0.5,
+      "hotspot_rank": 33,
       "imported_by": [
         "agentsh/cmd/agentshd"
       ],
@@ -228,7 +228,7 @@
         "agentsh/internal/workspace"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "318c2ed7ed6ccc97285cc63f820a944cc2965377",
       "purpose": ""
     },
     "agentsh/internal/output": {
@@ -247,7 +247,7 @@
         "PreviewTailLines",
         "Read"
       ],
-      "hidden_coupling_ratio": 0.625,
+      "hidden_coupling_ratio": 0.0,
       "hotspot_rank": 3,
       "imported_by": [
         "agentsh/internal/daemon",
@@ -257,7 +257,7 @@
         "agentsh/internal/storage"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "318c2ed7ed6ccc97285cc63f820a944cc2965377",
       "purpose": ""
     },
     "agentsh/internal/rpc": {
@@ -276,8 +276,8 @@
         "BashServiceStatusRequest",
         "BashStateRequest"
       ],
-      "hidden_coupling_ratio": 0.667,
-      "hotspot_rank": 32,
+      "hidden_coupling_ratio": 0.4,
+      "hotspot_rank": 36,
       "imported_by": [
         "agentsh/cmd/agentsh",
         "agentsh/internal/daemon",
@@ -285,7 +285,7 @@
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "318c2ed7ed6ccc97285cc63f820a944cc2965377",
       "purpose": ""
     },
     "agentsh/internal/service": {
@@ -347,8 +347,8 @@
         "IndexEntry",
         "Invocation"
       ],
-      "hidden_coupling_ratio": 0.571,
-      "hotspot_rank": 5,
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 7,
       "imported_by": [
         "agentsh/cmd/agentsh",
         "agentsh/internal/daemon",
@@ -359,7 +359,7 @@
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "318c2ed7ed6ccc97285cc63f820a944cc2965377",
       "purpose": ""
     },
     "agentsh/internal/testwait": {
@@ -403,7 +403,7 @@
         "Paths",
         "Resolve"
       ],
-      "hidden_coupling_ratio": 0.8,
+      "hidden_coupling_ratio": 0.0,
       "hotspot_rank": 44,
       "imported_by": [
         "agentsh/cmd/agentsh",
@@ -415,7 +415,7 @@
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "96da24bc59d97926a914586077287c786d3424ff",
+      "measured_at_commit": "318c2ed7ed6ccc97285cc63f820a944cc2965377",
       "purpose": ""
     },
     "bughunt/cmd/bughunt": {
@@ -1030,8 +1030,8 @@
         "OSExec",
         "Release"
       ],
-      "hidden_coupling_ratio": 0.333,
-      "hotspot_rank": 20,
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 17,
       "imported_by": [
         "line/cmd/sweatshop",
         "line/station"
@@ -1040,7 +1040,7 @@
         "line/gitx"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "318c2ed7ed6ccc97285cc63f820a944cc2965377",
       "purpose": "Package deploy rolls a release onto the host. The line decides what to"
     },
     "line/gemba": {
@@ -1188,7 +1188,7 @@
     "line/harness": {
       "entry_point_count": 0,
       "entry_points": [],
-      "hidden_coupling_ratio": 0.2,
+      "hidden_coupling_ratio": 0.0,
       "hotspot_rank": 64,
       "imported_by": [],
       "imports": [
@@ -1203,7 +1203,7 @@
         "line/witness"
       ],
       "lcom4": 1,
-      "measured_at_commit": "40b532fe3f363e9689ce9c58f6f403648fb20bd4",
+      "measured_at_commit": "318c2ed7ed6ccc97285cc63f820a944cc2965377",
       "purpose": ""
     },
     "line/heijunka": {
@@ -1285,7 +1285,7 @@
       "purpose": "Package kaizen runs a Kaizen station: a host-side loop that, on a schedule"
     },
     "line/kaizen/signals": {
-      "entry_point_count": 183,
+      "entry_point_count": 186,
       "entry_points": [
         "ADAPTERS",
         "ANONYMOUS_FUNCTION",
@@ -1305,7 +1305,7 @@
       "imported_by": [],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "cefad35ee6ff0ef6f53fc38f08f4e574e9d6701c",
+      "measured_at_commit": "318c2ed7ed6ccc97285cc63f820a944cc2965377",
       "purpose": "The per-language adapter interface and the types signals travel in."
     },
     "line/linedir": {
@@ -1323,8 +1323,8 @@
         "Station",
         "StationSpec"
       ],
-      "hidden_coupling_ratio": 0.333,
-      "hotspot_rank": 18,
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 20,
       "imported_by": [
         "line/cmd/sweatshop",
         "line/gemba",
@@ -1341,7 +1341,7 @@
         "line/guard"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "318c2ed7ed6ccc97285cc63f820a944cc2965377",
       "purpose": "Package linedir creates and loads a line directory: the on-disk home of one"
     },
     "line/linestore": {

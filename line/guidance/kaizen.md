@@ -155,16 +155,23 @@ plus the import graph:
   Gil and Lalouche 2017), so a large file would top every list for being
   large. Compare files by the per-LOC figure before concluding that one is a
   worse hotspot than another; `churn` and `hotspot` stay as counts.
-- **Co-change pair**: two files changed together in at least 2 non-bulk commits
-  (a commit touching over 20 packages or 50 files is bulk and ignored). A pair
+- **Co-change pair**: two files changed together in at least 2 non-bulk
+  transactions. A transaction is all the commits naming one card (`Bead`
+  trailer), or a single commit that names none (Zimmermann counts support over
+  transactions; agents commit a card in small pieces). One touching over 30
+  files (code-maat's default) or 20 packages is bulk and ignored. A pair or
+  file backed by fewer than 5 transactions is `low_confidence`
+  (`cochange_low_confidence` on files, whose `transactions` gives the count),
+  because the line's history is short (Kirbas et al. 2017). A pair
   is **hidden** when the files are in different directories and neither
   directory imports the other; same-directory pairs are never hidden.
 - **Modularity violation** (`modularity_violations` in signals.json, per
   language, ranked): a hidden pair with at least 5 shared commits (`support`)
-  and `confidence` of at least 30%, where confidence is support over the
-  commits of the pair's busier file (Zimmermann). The thresholds
+  and `confidence` of at least 30%, where support counts transactions and
+  confidence is support over the transactions of the pair's busier file
+  (Zimmermann). The thresholds
   (`ViolationThresholds`) are code-maat's defaults, our choice rather than a
-  validated cut-off. `last_card` is the newest shared commit naming a card.
+  validated cut-off. `last_card` is the newest shared transaction naming a card.
   Most co-change has no import, so the share of hidden pairs is high by
   construction and is not a score; the ranked list is. A language whose
   imports resolve to nothing reports `unavailable` ("not measured"), never an
