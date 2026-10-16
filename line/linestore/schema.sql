@@ -66,3 +66,15 @@ CREATE TABLE IF NOT EXISTS mutation_run (
   score        REAL,
   unavailable  TEXT NOT NULL
 );
+
+-- line_event is the chronological record of line events: seq orders rows in the
+-- order they happened, at is fixed-width UTC (see eventTimeFormat) so SQL can
+-- compare it as text. card and station are empty when the event has none.
+CREATE TABLE IF NOT EXISTS line_event (
+  seq     INTEGER PRIMARY KEY,
+  at      TEXT NOT NULL,
+  kind    TEXT NOT NULL,
+  card    TEXT NOT NULL,
+  station TEXT NOT NULL,
+  detail  TEXT NOT NULL
+);

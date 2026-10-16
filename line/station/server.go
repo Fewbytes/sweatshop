@@ -366,7 +366,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 		if err := method(http.MethodPost); err != nil {
 			return "", err
 		}
-		return s.andon(w, r, path == "/v1/andon/pull")
+		return s.andon(w, r, st, path == "/v1/andon/pull")
 	case path == "/v1/status":
 		if err := method(http.MethodGet); err != nil {
 			return "", err
@@ -390,6 +390,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 		return s.routeConstitution(w, r, st)
 	case path == "/v1/testament":
 		return s.routeTestament(w, r, st)
+	case path == "/v1/events":
+		return s.routeEvents(w, r, st)
 	case path == "/v1/heijunka/levels":
 		return s.routeHeijunkaLevels(w, r, st)
 	case path == "/v1/heijunka/state":
@@ -479,6 +481,10 @@ func (s *Server) bundle(w http.ResponseWriter, r *http.Request, st *Station, mer
 		if err != nil {
 			return "", fail(http.StatusUnprocessableEntity, "%v", err)
 		}
+		s.recordEvent(r.Context(), st, linestore.EventSubmit, "", fmt.Sprintf("commit %s passed=%t guard=%s %s", commit, res.Attestation.Passed, res.Guard.Status, res.Guard.Reason))
+		if res.Guard.Status == guard.Merged {
+			s.recordEvent(r.Context(), st, linestore.EventMerge, "", "commit "+commit)
+		}
 		writeJSON(w, http.StatusOK, res)
 		return fmt.Sprintf("passed=%t guard=%s %s", res.Attestation.Passed, res.Guard.Status, res.Guard.Reason), nil
 	}
@@ -505,7 +511,7 @@ func (s *Server) attestLine(w http.ResponseWriter, r *http.Request, st *Station)
 
 // andon pulls or clears the cord. Guard rejections are results (200); only
 // failures to reach a verdict are errors.
-func (s *Server) andon(w http.ResponseWriter, r *http.Request, pull bool) (string, error) {
+func (s *Server) andon(w http.ResponseWriter, r *http.Request, st *Station, pull bool) (string, error) {
 	var env attest.Envelope
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxEnvelope)).Decode(&env); err != nil {
 		var mbe *http.MaxBytesError
@@ -524,6 +530,11 @@ func (s *Server) andon(w http.ResponseWriter, r *http.Request, pull bool) (strin
 	if err != nil {
 		return "", err
 	}
+	kind := linestore.EventAndonClear
+	if pull {
+		kind = linestore.EventAndonPull
+	}
+	s.recordEvent(r.Context(), st, kind, "", fmt.Sprintf("guard=%s %s event=%s", res.Status, res.Reason, res.Event))
 	writeJSON(w, http.StatusOK, res)
 	return fmt.Sprintf("guard=%s %s event=%s", res.Status, res.Reason, res.Event), nil
 }

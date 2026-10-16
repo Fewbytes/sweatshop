@@ -65,6 +65,10 @@ Untrusted input:
 Tools (run them with the shell; they read the station URL and token from the
 environment):
 - sweatshop line status
+- sweatshop line events [--since D] [--card ID] [--station S] (read-only,
+  oldest first: offers, claims, releases, give-ups, closes, reaps, submits,
+  merges, andon pulls and clears; use it to see why a card stalled or a
+  station idled instead of inferring it from card state)
 - sweatshop line cards list [--status S] [--label L] [--parent ID] | show ID |
   create --title T --type TYPE --priority N [--parent ID] [--acceptance A]
   (description on stdin) | comment ID (text on stdin) | offer ID |

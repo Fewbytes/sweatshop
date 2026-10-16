@@ -56,6 +56,8 @@ const usage = `usage:
                                         check rev and submit it to the merge guard
   sweatshop line status                 print the line's master and andon state
   sweatshop line stats [--since D]      print CI health: pass rate, durations, slow, failing and flaky tests, time to green (D: 36h, 7d)
+  sweatshop line events [--since D] [--card ID] [--station S]
+                                        print the line's event log, oldest first, as JSON: offers, claims, releases, give-ups, closes, reaps, submits, merges, andon pulls and clears
   sweatshop line evidence ID            print a check log
   sweatshop line cards list [--status S] [--label L] [--parent ID] | show ID | create --title T --type TYPE --priority N [--parent ID] [--acceptance A] (description on stdin) | comment ID (text on stdin) | offer ID | close ID (reason on stdin)
                                         read and (viceroy only) write cards; output is JSON
@@ -124,6 +126,8 @@ func run(args []string, stdout io.Writer) error {
 		return lineSubmit(args[1], args[2:], stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "stats":
 		return lineStats(args[2:], stdout)
+	case len(args) >= 2 && args[0] == "line" && args[1] == "events":
+		return lineEvents(args[2:], stdout)
 	case len(args) == 2 && args[0] == "line" && args[1] == "status":
 		return lineStatus(stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "cards":
@@ -442,7 +446,7 @@ func lineHeijunka(args []string) error {
 	logger := log.New(os.Stderr, "heijunka: ", log.LstdFlags)
 	w := &heijunka.Worker{
 		Needs:    &heijunka.NeedsTriager{Cards: heijunka.BeadsNeeds{Dir: *beads}, Timeout: needsTimeout, Log: logger},
-		Reaper:   &heijunka.Reaper{Cards: heijunka.BeadsReap{BeadsNeeds: heijunka.BeadsNeeds{Dir: *beads}}, Log: logger},
+		Reaper:   &heijunka.Reaper{Cards: heijunka.BeadsReap{BeadsNeeds: heijunka.BeadsNeeds{Dir: *beads}}, Events: c, Log: logger},
 		Status:   c,
 		Observer: heijunka.BeadsObserver{API: c, Dir: *beads, Label: station.LabelLine},
 		Kaizen:   c,
@@ -1057,6 +1061,29 @@ func lineStats(args []string, stdout io.Writer) error {
 	}
 	_, err = io.WriteString(stdout, sum.Text())
 	return err
+}
+
+// lineEvents implements `line events`.
+func lineEvents(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("line events", flag.ContinueOnError)
+	since := fs.String("since", "", "only events from the last D (36h, 7d); default all history")
+	card := fs.String("card", "", "only events of this card")
+	stationName := fs.String("station", "", "only events by this station")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return errors.New(usage)
+	}
+	c, err := lineClient()
+	if err != nil {
+		return err
+	}
+	events, err := c.Events(context.Background(), *since, *card, *stationName)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(stdout).Encode(events)
 }
 
 // lineCards implements `line cards`; stdin carries descriptions and comments.

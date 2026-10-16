@@ -51,8 +51,14 @@ var ErrCardMoved = errors.New("card changed since it was read")
 // Reaper returns claims whose holder is dead or busy elsewhere to the queue.
 // It acts on the shared resource only; it never commands the agent.
 type Reaper struct {
-	Cards ReapCards
-	Log   *log.Logger
+	Cards  ReapCards
+	Events ReapRecorder // nil: reaps are only logged
+	Log    *log.Logger
+}
+
+// ReapRecorder writes a reap to the line's event log.
+type ReapRecorder interface {
+	RecordReap(ctx context.Context, card, detail string) error
 }
 
 // AbandonedReason says why a claim is abandoned, naming the evidence observed.
@@ -107,6 +113,11 @@ func (r Reaper) Reap(ctx context.Context, st station.Status) error {
 			errs = append(errs, fmt.Errorf("reap %s: %w", c.ID, err))
 		default:
 			r.logf("%s: %s", c.ID, note)
+			if r.Events != nil {
+				if err := r.Events.RecordReap(ctx, c.ID, note); err != nil {
+					r.logf("%s: record reap event: %v", c.ID, err)
+				}
+			}
 		}
 	}
 	return errors.Join(errs...)

@@ -1207,7 +1207,7 @@
       "purpose": ""
     },
     "line/heijunka": {
-      "entry_point_count": 40,
+      "entry_point_count": 41,
       "entry_points": [
         "AbandonedReason",
         "Actuator",
@@ -1345,17 +1345,20 @@
       "purpose": "Package linedir creates and loads a line directory: the on-disk home of one"
     },
     "line/linestore": {
-      "entry_point_count": 9,
+      "entry_point_count": 23,
       "entry_points": [
-        "FileName",
-        "KaizenBaseline",
-        "Levels",
-        "MutationFromKaizenRun",
-        "MutationFromLandedCard",
-        "MutationRun",
-        "MutationSource",
-        "Open",
-        "Store"
+        "Event",
+        "EventAndonClear",
+        "EventAndonPull",
+        "EventClaim",
+        "EventClose",
+        "EventFilter",
+        "EventGiveUp",
+        "EventKind",
+        "EventMerge",
+        "EventOffer",
+        "EventReap",
+        "EventRelease"
       ],
       "hidden_coupling_ratio": 0.0,
       "hotspot_rank": 23,

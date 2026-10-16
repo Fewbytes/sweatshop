@@ -517,6 +517,11 @@ func TestAndonFlow(t *testing.T) {
 	if st, err := r.andon.Status(r.ctx); err != nil || st.Event != "" || st.Andon != nil {
 		t.Fatalf("status after clear = %+v, %v", st, err)
 	}
+	events, err := r.maker.Events(r.ctx, "", "", "andon-1")
+	if err != nil || len(events) != 2 || events[0].Kind != linestore.EventAndonPull || events[1].Kind != linestore.EventAndonClear ||
+		!strings.Contains(events[0].Detail, pulled.Event) {
+		t.Fatalf("andon events = %+v, %v", events, err)
+	}
 }
 
 func TestNewFromLineRejectsSharedTokens(t *testing.T) {
@@ -652,5 +657,21 @@ func TestStatsAndMetricsRoutesServeStoredRunsAndTests(t *testing.T) {
 	if code != http.StatusOK || !strings.Contains(body, `sweatshop_ci_runs_total{outcome="failed"} 1`) ||
 		!strings.Contains(body, `sweatshop_ci_test_failure_ratio{test="p.TestBroken"} 1`) {
 		t.Fatalf("metrics: %d %s", code, body)
+	}
+}
+
+func TestEventsRecordSubmitAndMerge(t *testing.T) {
+	r := newRig(t)
+	head := r.commit("src/a.txt", "a", "add a")
+	if _, err := r.maker.Merge(r.ctx, r.agent.Dir, "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+	events, err := r.andon.Events(r.ctx, "", "", "maker-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || events[0].Kind != linestore.EventSubmit || events[1].Kind != linestore.EventMerge ||
+		!strings.Contains(events[0].Detail, head) || events[1].Detail != "commit "+head {
+		t.Fatalf("events = %+v", events)
 	}
 }

@@ -254,7 +254,7 @@ func TestClaudeCLIFlags(t *testing.T) {
 }
 
 func TestCharterContent(t *testing.T) {
-	for _, want := range []string{"approve <card id>", "principal \"unknown\"", "be brief", "sweatshop line testament", "sweatshop viceroy succeed"} {
+	for _, want := range []string{"approve <card id>", "principal \"unknown\"", "be brief", "sweatshop line testament", "sweatshop line events", "sweatshop viceroy succeed"} {
 		if !strings.Contains(strings.ToLower(Charter), strings.ToLower(want)) {
 			t.Errorf("charter lacks %q", want)
 		}

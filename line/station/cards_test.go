@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/Fewbytes/sweatshop/line/constitution"
+	"github.com/Fewbytes/sweatshop/line/linestore"
 )
 
 type fakeCards struct {
@@ -514,5 +515,79 @@ func TestClosingEpicRevokesApproval(t *testing.T) {
 	}
 	if ok, err := srv.Epics.Approved("x-3"); err != nil || ok {
 		t.Fatalf("approved=%v err=%v", ok, err)
+	}
+}
+
+func TestEventsRecordCardActionsAndAreReadableByEveryRole(t *testing.T) {
+	f := &fakeCards{show: `{"id":"x-1","assignee":"mt-agent","issue_type":"chore","parent":"x-9"}`}
+	srv, _, v, m := cardsRig(t, f)
+	srv.Store = openTestStore(t)
+	srv.Stations[1].AgentID = "mt-agent"
+	ctx := context.Background()
+	if _, err := v.CardOffer(ctx, "x-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.CardClaim(ctx, "x-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.CardRelease(ctx, "x-1", "stuck"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.CardGiveUp(ctx, "x-1", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.CardClose(ctx, "x-1", "done"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.CardClaim(ctx, "x-2"); err != nil {
+		t.Fatal(err)
+	}
+	type row struct {
+		Kind          linestore.EventKind
+		Card, Station string
+	}
+	rowsOf := func(events []linestore.Event) []row {
+		var rows []row
+		for _, e := range events {
+			rows = append(rows, row{e.Kind, e.Card, e.Station})
+		}
+		return rows
+	}
+	got, err := v.Events(ctx, "", "x-1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []row{
+		{linestore.EventOffer, "x-1", "v"}, {linestore.EventClaim, "x-1", "m"}, {linestore.EventRelease, "x-1", "m"},
+		{linestore.EventGiveUp, "x-1", "m"}, {linestore.EventClose, "x-1", "m"},
+	}
+	if !slices.Equal(rowsOf(got), want) || got[2].Detail != "stuck" {
+		t.Fatalf("events of x-1 = %+v, want %v", got, want)
+	}
+	byStation, err := m.Events(ctx, "1h", "", "m")
+	if err != nil || len(byStation) != 5 || byStation[4].Card != "x-2" {
+		t.Fatalf("events of station m = %+v, %v", byStation, err)
+	}
+	if _, err := v.Events(ctx, "bogus", "", ""); err == nil || !strings.Contains(err.Error(), "400") {
+		t.Fatalf("bad since: %v", err)
+	}
+	if err := v.RecordReap(ctx, "x-1", "silent"); err == nil || !strings.Contains(err.Error(), "403") {
+		t.Fatalf("only heijunka may record reaps: %v", err)
+	}
+}
+
+func TestEventsRecordReapFromHeijunkaStation(t *testing.T) {
+	srv, _, v, _ := cardsRig(t, &fakeCards{})
+	srv.Store = openTestStore(t)
+	srv.Stations = append(srv.Stations, &Station{Name: "h", Role: heijunkaRole, Token: "ht"})
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	h := Client{URL: ts.URL, Token: "ht"}
+	if err := h.RecordReap(context.Background(), "x-1", "station m silent"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := v.Events(context.Background(), "", "", "")
+	if err != nil || len(got) != 1 || got[0].Kind != linestore.EventReap || got[0].Card != "x-1" || got[0].Station != "h" || got[0].Detail != "station m silent" {
+		t.Fatalf("events = %+v, %v", got, err)
 	}
 }

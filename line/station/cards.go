@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Fewbytes/sweatshop/line/constitution"
+	"github.com/Fewbytes/sweatshop/line/linestore"
 )
 
 const (
@@ -350,7 +351,7 @@ func (s *Server) routeCards(w http.ResponseWriter, r *http.Request, st *Station)
 		return "comment " + id, nil
 	}
 	if parts[1] == "offer" {
-		return s.offer(w, r, cards, id)
+		return s.offer(w, r, cards, st, id)
 	}
 	if parts[1] == "close" && st.Role == viceroyRole {
 		return s.viceroyClose(w, r, cards, st, id)
@@ -395,8 +396,17 @@ func (s *Server) viceroyClose(w http.ResponseWriter, r *http.Request, cards Card
 	if err := s.revokeEpicApproval(id); err != nil {
 		return "", err
 	}
+	s.recordEvent(r.Context(), st, linestore.EventClose, id, body.Reason)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	return "close " + id, nil
+}
+
+// settleEvents is the event each settle action records.
+var settleEvents = map[string]linestore.EventKind{
+	"claim":   linestore.EventClaim,
+	"close":   linestore.EventClose,
+	"release": linestore.EventRelease,
+	"give-up": linestore.EventGiveUp,
 }
 
 // settle runs a maker's claim, close, release or give-up. The caller must
@@ -457,6 +467,7 @@ func (s *Server) settle(w http.ResponseWriter, r *http.Request, cards Cards, st 
 	if err != nil {
 		return "", err
 	}
+	s.recordEvent(ctx, st, settleEvents[action], id, body.Reason)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	return action + " " + id, nil
 }
@@ -495,7 +506,7 @@ type Offer struct {
 
 // offer puts the card on the line when a delegation covers it, else proposes
 // it to the king.
-func (s *Server) offer(w http.ResponseWriter, r *http.Request, cards Cards, id string) (string, error) {
+func (s *Server) offer(w http.ResponseWriter, r *http.Request, cards Cards, st *Station, id string) (string, error) {
 	raw, err := cards.Show(r.Context(), id)
 	if err != nil {
 		return "", err
@@ -512,6 +523,7 @@ func (s *Server) offer(w http.ResponseWriter, r *http.Request, cards Cards, id s
 	if err := cards.AddLabel(r.Context(), id, res.Label); err != nil {
 		return "", err
 	}
+	s.recordEvent(r.Context(), st, linestore.EventOffer, id, "label "+res.Label)
 	writeJSON(w, http.StatusOK, res)
 	return fmt.Sprintf("offer %s label=%s", id, res.Label), nil
 }

@@ -103,3 +103,26 @@ func TestReapLeavesCardTheHolderSettledFirst(t *testing.T) {
 		t.Fatalf("calls %q, want %q", cards.calls, want)
 	}
 }
+
+type fakeReapRecorder struct{ got []string }
+
+func (f *fakeReapRecorder) RecordReap(_ context.Context, card, detail string) error {
+	f.got = append(f.got, card+": "+detail)
+	return nil
+}
+
+func TestReapRecordsEventForEachReapedCard(t *testing.T) {
+	seen := time.Now()
+	st := station.Status{Stations: []station.StationStatus{
+		{Name: "maker-1", State: station.StateWorking, Card: "a-1", LastSeen: &seen, Alive: true},
+	}}
+	cards := &fakeReapCards{claimed: []ClaimedCard{{ID: "a-1", Assignee: "maker-1"}, {ID: "a-3", Assignee: "maker-7"}}}
+	rec := &fakeReapRecorder{}
+	if err := (Reaper{Cards: cards, Events: rec}).Reap(context.Background(), st); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"a-3: heijunka: reaped (reap 1 of 3): station maker-7 no longer exists"}
+	if !slices.Equal(rec.got, want) {
+		t.Fatalf("recorded %q, want %q", rec.got, want)
+	}
+}
