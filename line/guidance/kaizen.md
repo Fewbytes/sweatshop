@@ -127,6 +127,7 @@ testing where available.
 | Typed boundary ratio | ↑ | type checker / ast-grep |
 | Mutation score | ↑ | `kaizen_signals.py mutation` on the target scope: gremlins (Go), mutmut (Python), Stryker (TypeScript); killed, survived, timed-out; unavailable when the wall-time cap is hit |
 | Survival and rework of landed cards | descriptive | `kaizen_signals.py rework --cards cards.json` (cards from `sweatshop line cards list --status closed`): share of a card's added lines still blamed on it after 7 and 30 days, lines a later card changed within 14 days (and by the same family), reverts, follow-up bug cards; per maker, card type and file area, always with sample sizes; never gated on |
+| Signal calibration | descriptive | `kaizen_signals.py calibrate --cards cards.json`: per file signal, AUC and precision@k at the revision before each closed bug card's fix; see "Which signals predict bugs here" below; never gated on |
 | Stale / unverifiable comments | ↓ | review, test-execution checks |
 | Test runtime | ↓ or = | test runner |
 
@@ -251,6 +252,32 @@ plus the import graph:
   language adds a table file and one line there. Evidence: agent changes to
   validation, fallbacks and error handling predicted later failures, where
   complexity and size deltas did not (CodeThread, arXiv 2606.21804).
+
+**Which signals predict bugs here.** `calibrate` follows codelore's
+`calibrate-defects`: for each closed bug card whose fix landed on master (the
+commits with its `Bead:` trailer), it measures every source file at the
+revision before the fix; the existing files the fix touched are the bug
+locations. Per signal it reports the mean per-fix AUC with a 95% interval,
+precision@k (k = files touched) against chance, and a verdict: `predictive`
+when the interval is above 0.5, `noise` when it includes 0.5,
+`inconclusive` under 10 scored fixes. File size (`loc`) is scored as the
+baseline. Run on 2026-10-16 (21 scored fixes; the line is young, so re-run
+when there is more history and update this table):
+
+| Signal | AUC | Verdict | Use |
+|---|---|---|---|
+| `loc` (baseline) | 0.86 ± 0.05 | predictive | not a target; the bar the others must beat |
+| `hotspot`, `complexity` | 0.83 ± 0.08 | predictive, not above `loc` | rank candidates, but compare by the per-LOC figure |
+| `cards` per file | 0.83 ± 0.09 | predictive, not above `loc` | rank candidates |
+| `churn` | 0.72 ± 0.10 | predictive, below `loc` | secondary |
+| `hidden_pairs` | 0.50 ± 0.06 | noise | do not rank files by it; the modularity-violation list stays a review prompt only |
+| `rework_rate` | 0.54 ± 0.10 | noise | drop as a ranking input; report only |
+
+No signal beat file size, and precision@k was low for all (at most 14%
+against 2% by chance). So the file signals say where bugs are likely only
+because large files hold more of them: do not treat a lower hotspot or
+complexity as evidence of fewer bugs, and give hidden coupling and rework
+rate no weight when choosing among candidates.
 
 Cohesion and cognitive complexity have weak evidence as predictors (LCOM3 and
 LCOM4 were not fault predictors; cognitive complexity correlates with

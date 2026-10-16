@@ -9,6 +9,7 @@
           [--target PKG --category P2 --signal clones --why TEXT]
   mutation --root DIR --language go|python|typescript --out mutation.json [--cap-seconds N] SCOPE...
   rework --root DIR --cards cards.json --out rework.json [--markdown rework.md] [--rev REV]
+  calibrate --root DIR --cards cards.json --out calibration.json [--markdown calibration.md] [--rev REV]
   modules --signals signals.json --map docs/modules.json
   modules-check --root DIR --map docs/modules.json
   gate    --root DIR --base REV [--thresholds kaizen-gate.json] [--baseline accepted.json]
@@ -24,6 +25,7 @@ import argparse
 import json
 import sys
 
+import calibrate
 import contract_gate
 import gate
 import measure
@@ -61,6 +63,16 @@ def cmd_rework(args: argparse.Namespace) -> int:
     if args.markdown:
         with open(args.markdown, "w", encoding="utf-8") as f:
             f.write(rework.render_markdown(result))
+    return 0
+
+
+def cmd_calibrate(args: argparse.Namespace) -> int:
+    result = calibrate.run_calibration(args.root, args.rev, load(args.cards))
+    with open(args.out, "w", encoding="utf-8") as f:
+        f.write(measure.dumps(result))
+    if args.markdown:
+        with open(args.markdown, "w", encoding="utf-8") as f:
+            f.write(calibrate.render_markdown(result))
     return 0
 
 
@@ -169,6 +181,14 @@ def main(argv: list[str]) -> int:
     rw.add_argument("--out", required=True)
     rw.add_argument("--markdown", help="also write the tables as Markdown")
     rw.set_defaults(func=cmd_rework)
+
+    ca = sub.add_parser("calibrate", help="which file signals predicted where closed bug cards were fixed")
+    ca.add_argument("--root", required=True)
+    ca.add_argument("--rev", default="HEAD")
+    ca.add_argument("--cards", required=True, help="`sweatshop line cards list --status closed` output saved as JSON")
+    ca.add_argument("--out", required=True)
+    ca.add_argument("--markdown", help="also write the table as Markdown")
+    ca.set_defaults(func=cmd_calibrate)
 
     mo = sub.add_parser("modules", help="write or refresh the committed module map")
     mo.add_argument("--signals", required=True)
