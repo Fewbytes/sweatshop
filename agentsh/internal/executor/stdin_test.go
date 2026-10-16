@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/testwait"
 	"strings"
 	"testing"
 	"time"
@@ -38,7 +39,7 @@ func TestInteractivePromptTransitionsToWaitingOnInput(t *testing.T) {
 
 	// Poll until exited
 	var got storage.Invocation
-	pollUntil(t, 2*time.Second, "interactive command to exit after input", func() bool {
+	testwait.Until(t, 2*time.Second, "interactive command to exit after input", func() bool {
 		var err error
 		got, err = store.GetInvocation(context.Background(), inv.ID)
 		return err == nil && got.State == storage.StateExited
@@ -72,7 +73,7 @@ func TestInteractivePromptCanBeKilled(t *testing.T) {
 	// to actually finish before the test returns, or its async I/O can race
 	// t.TempDir()'s cleanup (flaked as exactly that in CI — GitHub Actions
 	// run 32247405015: "TempDir RemoveAll cleanup: ... directory not empty").
-	pollUntil(t, 10*time.Second, "invocation to finish after kill", func() bool {
+	testwait.Until(t, 10*time.Second, "invocation to finish after kill", func() bool {
 		got, err := store.GetInvocation(context.Background(), inv.ID)
 		return err == nil && (got.State == storage.StateKilled || got.State == storage.StateExited)
 	})

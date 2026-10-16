@@ -53,7 +53,7 @@ func TestConcurrentExecuteInspectAndRead(t *testing.T) {
 			command := "echo out; echo err >&2"
 			if n%3 == 0 {
 				// Exercise the timeout path, which writes State from the waiter.
-				command, timeout = "sleep 5", 80*time.Millisecond
+				command, timeout = "tail -f /dev/null", 80*time.Millisecond
 			}
 			_, err := exec.Execute(context.Background(), Request{
 				Command: command, CWD: root, Timeout: timeout,
@@ -79,7 +79,7 @@ func TestConcurrentKillAndCompletion(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			invocation, err := exec.Execute(context.Background(), Request{
-				Command: "sleep 0.2", CWD: root, Background: true,
+				Command: "tail -f /dev/null", CWD: root, Background: true,
 			})
 			if err != nil {
 				t.Errorf("execute: %v", err)

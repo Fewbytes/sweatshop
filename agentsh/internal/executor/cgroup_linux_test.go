@@ -4,6 +4,7 @@ package executor
 
 import (
 	"fmt"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/testwait"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,7 +20,7 @@ func TestCgroupKillsSetsidDescendant(t *testing.T) {
 		t.Skip(err)
 	}
 	id := "inv_cgtest"
-	cmd := exec.Command("sh", "-c", cgroup.Prelude(id)+`setsid sh -c 'echo $$ > escaped.pid; exec sleep 30' & wait`)
+	cmd := exec.Command("sh", "-c", cgroup.Prelude(id)+`setsid sh -c 'echo $$ > escaped.pid; exec tail -f /dev/null' & wait`)
 	cmd.Dir = t.TempDir()
 	cgroup.Configure(cmd)
 	if err := cgroup.Prepare(id, cmd); err != nil {
@@ -34,7 +35,7 @@ func TestCgroupKillsSetsidDescendant(t *testing.T) {
 	defer cgroup.Cleanup(id)
 	pidFile := filepath.Join(cmd.Dir, "escaped.pid")
 	var child int
-	pollUntil(t, 2*time.Second, "escaped child to write its pid", func() bool {
+	testwait.Until(t, 2*time.Second, "escaped child to write its pid", func() bool {
 		data, readErr := os.ReadFile(pidFile)
 		if readErr != nil {
 			return false
@@ -49,7 +50,7 @@ func TestCgroupKillsSetsidDescendant(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = cmd.Wait()
-	pollUntil(t, time.Second, fmt.Sprintf("cgroup to depopulate after killing setsid descendant %d", child), func() bool {
+	testwait.Until(t, time.Second, fmt.Sprintf("cgroup to depopulate after killing setsid descendant %d", child), func() bool {
 		events, err := os.ReadFile(filepath.Join(cgroup.path(id), "cgroup.events"))
 		return err == nil && strings.Contains(string(events), "populated 0")
 	})

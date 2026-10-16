@@ -3,9 +3,6 @@ agentsh/cmd/agentsh/main_test.go 3
 agentsh/internal/daemon/dzz3_test.go 4
 agentsh/internal/daemon/i4u_test.go 2
 agentsh/internal/daemon/service_test.go 5
-agentsh/internal/executor/cgroup_linux_test.go 1
-agentsh/internal/executor/concurrency_test.go 3
-agentsh/internal/executor/executor_test.go 2
-agentsh/internal/executor/service_test.go 8
 agentsh/internal/integration/integration_test.go 1
 agentsh/internal/storage/storage_test.go 1
+agentsh/internal/executor/concurrency_test.go 1

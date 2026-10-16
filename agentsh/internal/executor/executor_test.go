@@ -5,6 +5,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/testwait"
 	"io"
 	"os"
 	"path/filepath"
@@ -72,7 +73,7 @@ func TestControlPipeOverflowIsCappedAndReported(t *testing.T) {
 func TestTimeoutKillsProcessGroup(t *testing.T) {
 	exec, _, root := testExecutor(t)
 	pidFile := filepath.Join(root, "child.pid")
-	inv, err := exec.Execute(context.Background(), Request{Command: `sleep 30 & echo $! > child.pid; wait`, CWD: root, Timeout: 100 * time.Millisecond})
+	inv, err := exec.Execute(context.Background(), Request{Command: `tail -f /dev/null & echo $! > child.pid; wait`, CWD: root, Timeout: 100 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +88,7 @@ func TestTimeoutKillsProcessGroup(t *testing.T) {
 	if _, err := fmt.Sscanf(string(data), "%d", &pid); err != nil {
 		t.Fatal(err)
 	}
-	pollUntil(t, time.Second, fmt.Sprintf("child %d to die after timeout", pid), func() bool {
+	testwait.Until(t, time.Second, fmt.Sprintf("child %d to die after timeout", pid), func() bool {
 		return syscall.Kill(pid, 0) == syscall.ESRCH
 	})
 }
@@ -119,7 +120,7 @@ func TestBackgroundReturnsBeforeCompletion(t *testing.T) {
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	pollUntil(t, time.Second, "background invocation to exit", func() bool {
+	testwait.Until(t, time.Second, "background invocation to exit", func() bool {
 		got, getErr := store.GetInvocation(context.Background(), inv.ID)
 		return getErr == nil && got.State == storage.StateExited
 	})
@@ -188,7 +189,7 @@ func TestExecuteReturnsWhenBackgroundChildKeepsControlPipeOpen(t *testing.T) {
 	exec, _, root := testExecutor(t)
 	started := time.Now()
 	inv, err := exec.Execute(context.Background(), Request{
-		Command: `nohup sleep 5 >> bg.log 2>&1 &`,
+		Command: `nohup tail -f /dev/null >> bg.log 2>&1 &`,
 		CWD:     root,
 		Timeout: 10 * time.Second,
 	})

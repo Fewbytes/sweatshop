@@ -4,6 +4,7 @@ package executor
 
 import (
 	"context"
+	"github.com/Fewbytes/sweatshop/agentsh/internal/testwait"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,29 +18,15 @@ import (
 // race t.TempDir()'s cleanup after the test returns.
 func waitForNoProcesses(t *testing.T, exec *Executor) {
 	t.Helper()
-	pollUntil(t, 2*time.Second, "no running processes", func() bool {
+	testwait.Until(t, 2*time.Second, "no running processes", func() bool {
 		return len(exec.Processes("")) == 0
 	})
-}
-
-// pollUntil is the only place executor tests wait on wall-clock time: it
-// re-evaluates condition until it holds, failing the test after timeout.
-// Tests wait on observable state through it rather than sleeping a guess.
-func pollUntil(t *testing.T, timeout time.Duration, what string, condition func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for !condition() {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out after %v waiting for %s", timeout, what)
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
 }
 
 func TestStartServiceReturnsRunningRecordWithInvocationID(t *testing.T) {
 	exec, _, root := testExecutor(t)
 	svc, err := exec.StartService(context.Background(), ServiceRequest{
-		Name: "web", Command: "sleep 30", CWD: root,
+		Name: "web", Command: "tail -f /dev/null", CWD: root,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -62,10 +49,10 @@ func TestStartServiceReturnsRunningRecordWithInvocationID(t *testing.T) {
 
 func TestStartServiceRejectsDuplicateNameWhileRunning(t *testing.T) {
 	exec, _, root := testExecutor(t)
-	if _, err := exec.StartService(context.Background(), ServiceRequest{Name: "web", Command: "sleep 30", CWD: root}); err != nil {
+	if _, err := exec.StartService(context.Background(), ServiceRequest{Name: "web", Command: "tail -f /dev/null", CWD: root}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := exec.StartService(context.Background(), ServiceRequest{Name: "web", Command: "sleep 30", CWD: root}); err == nil {
+	if _, err := exec.StartService(context.Background(), ServiceRequest{Name: "web", Command: "tail -f /dev/null", CWD: root}); err == nil {
 		t.Fatal("expected error starting a second service under a running name")
 	}
 	_ = exec.KillService("web", syscall.SIGKILL)
@@ -74,14 +61,14 @@ func TestStartServiceRejectsDuplicateNameWhileRunning(t *testing.T) {
 
 func TestStartServiceAllowsReuseAfterKill(t *testing.T) {
 	exec, _, root := testExecutor(t)
-	if _, err := exec.StartService(context.Background(), ServiceRequest{Name: "web", Command: "sleep 30", CWD: root}); err != nil {
+	if _, err := exec.StartService(context.Background(), ServiceRequest{Name: "web", Command: "tail -f /dev/null", CWD: root}); err != nil {
 		t.Fatal(err)
 	}
 	if err := exec.KillService("web", syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
 	waitForNoProcesses(t, exec)
-	if _, err := exec.StartService(context.Background(), ServiceRequest{Name: "web", Command: "sleep 30", CWD: root}); err != nil {
+	if _, err := exec.StartService(context.Background(), ServiceRequest{Name: "web", Command: "tail -f /dev/null", CWD: root}); err != nil {
 		t.Fatalf("expected restart under the same name to succeed, got: %v", err)
 	}
 	_ = exec.KillService("web", syscall.SIGKILL)
@@ -110,7 +97,7 @@ func TestServiceStatusReportsCrashedWhenProcessDiesUnexpectedly(t *testing.T) {
 
 func TestServiceStatusReportsStoppedAfterKillService(t *testing.T) {
 	exec, _, root := testExecutor(t)
-	svc, err := exec.StartService(context.Background(), ServiceRequest{Name: "web", Command: "sleep 30", CWD: root})
+	svc, err := exec.StartService(context.Background(), ServiceRequest{Name: "web", Command: "tail -f /dev/null", CWD: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +128,7 @@ func TestLoadServicesMarksDeadPIDsStopped(t *testing.T) {
 
 	// A record left over from a daemon crash: still says "running", but its
 	// PID (a made-up, almost certainly dead value) is gone.
-	record := `{"name":"orphan","invocation_id":"inv_x","command":"sleep 30","session":"default","pid":999999,"started_at":"2026-08-17T00:00:00Z","state":"running"}`
+	record := `{"name":"orphan","invocation_id":"inv_x","command":"tail -f /dev/null","session":"default","pid":999999,"started_at":"2026-08-17T00:00:00Z","state":"running"}`
 	if err := os.WriteFile(filepath.Join(servicesDir, "orphan.json"), []byte(record), 0o600); err != nil {
 		t.Fatal(err)
 	}
