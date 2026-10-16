@@ -229,6 +229,21 @@ plus the import graph:
   `hotspot:PATH`) accepted as existing debt, so only new findings fail. Run it after
   the change (Section 5, step 6); Makers may run it before committing.
 
+- **Contract gate**: `kaizen_signals.py contracts --root . --base HEAD
+  --card-kind refactor|behaviour|other [--message-file MSG]` lists the guards,
+  defaults, fallback branches and error contracts (validation checks, nil and
+  error checks, default assignments, else and default branches, error
+  construction and returns) that the working tree removed or altered in the
+  changed files. Added ones are not listed; formatting, comments, renames and
+  moves between files are no change. On a `refactor` card (labelled refactor,
+  or from Kaizen) any such change fails. A `behaviour` card may make it; an
+  `other` card passes only with a `Contract-change: <why>` line in the commit
+  message. The rules are tree-sitter tables per language
+  (`line/kaizen/signals/contract_go.py`), listed in `contract_rules.py`; a
+  language adds a table file and one line there. Evidence: agent changes to
+  validation, fallbacks and error handling predicted later failures, where
+  complexity and size deltas did not (CodeThread, arXiv 2606.21804).
+
 Cohesion and cognitive complexity have weak evidence as predictors (LCOM3 and
 LCOM4 were not fault predictors; cognitive complexity correlates with
 comprehension time, not correctness). Use them to rank candidates and report

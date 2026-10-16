@@ -12,6 +12,7 @@
   modules --signals signals.json --map docs/modules.json
   modules-check --root DIR --map docs/modules.json
   gate    --root DIR --base REV [--thresholds kaizen-gate.json] [--baseline accepted.json]
+  contracts --root DIR --base REV --card-kind refactor|behaviour|other [--message-file MSG]
   delta   --before b.json --after a.json --package PKG --signal NAME
 
 Run with: uv run --no-project --with-requirements line/kaizen/signals/requirements.txt \
@@ -23,6 +24,7 @@ import argparse
 import json
 import sys
 
+import contract_gate
 import gate
 import measure
 import modules
@@ -104,6 +106,22 @@ def cmd_gate(args: argparse.Namespace) -> int:
     return 1 if findings else 0
 
 
+def cmd_contracts(args: argparse.Namespace) -> int:
+    """List the guards, defaults, fallbacks and error contracts the working tree removed or altered
+    against --base; exit 1 when the card kind and commit message do not allow that."""
+    removed = contract_gate.removed_contracts(args.root, args.base)
+    message = ""
+    if args.message_file:
+        with open(args.message_file, encoding="utf-8") as f:
+            message = f.read()
+    for item in removed:
+        print(f"{item.path}: {item.rule} removed or altered: {' '.join(item.text.split())}")
+    reasons = contract_gate.judge(removed, contract_gate.CardKind(args.card_kind), message)
+    for reason in reasons:
+        print(f"contracts: {reason}", file=sys.stderr)
+    return 1 if reasons else 0
+
+
 def cmd_delta(args: argparse.Namespace) -> int:
     """Print the commit message's Signals line; exit 1 if the signal did not drop."""
     before, after = load(args.before), load(args.after)
@@ -179,6 +197,14 @@ def main(argv: list[str]) -> int:
     g.add_argument("--thresholds", help="JSON of gate.Thresholds fields; defaults allow no growth")
     g.add_argument("--baseline", help="JSON list of finding keys accepted as existing debt")
     g.set_defaults(func=cmd_gate)
+
+    c = sub.add_parser("contracts", help="exit 1 when a card that must not change behaviour removes or alters a guard, default, fallback or error contract")
+    c.add_argument("--root", required=True)
+    c.add_argument("--base", required=True, help="revision to compare with, normally HEAD")
+    c.add_argument("--card-kind", required=True, choices=[k.value for k in contract_gate.CardKind],
+                   help="refactor: labelled refactor or from Kaizen; behaviour: changes behaviour on purpose; other: needs a justification")
+    c.add_argument("--message-file", help=f"commit message; a '{contract_gate.JUSTIFICATION_PREFIX} <why>' line justifies the change")
+    c.set_defaults(func=cmd_contracts)
 
     d = sub.add_parser("delta")
     d.add_argument("--before", required=True)

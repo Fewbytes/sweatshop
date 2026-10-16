@@ -21,6 +21,7 @@ import rework
 import source_adapter
 import syntax
 import clone_signals
+import contract_gate
 import file_signals
 import gate
 import graphs
@@ -580,6 +581,105 @@ class GateAgainstHead(RepoFixture):
         self.write("c/c.go", "package c\n\nfunc C(a bool) {\n\tif a {\n\t}\n}\n")
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(kaizen_signals.main(["gate", "--root", self.root, "--base", "HEAD"]), 1)
+
+
+GUARDED = """package c
+
+import "errors"
+
+func C(x *int, name string) (int, error) {
+	if x == nil {
+		return 0, errors.New("x required")
+	}
+	if name == "" {
+		name = "anon"
+	}
+	if v, err := load(name); err != nil {
+		return 0, err
+	} else {
+		return v, nil
+	}
+}
+"""
+
+
+class ContractGate(RepoFixture):
+    def setUp(self):
+        super().setUp()
+        self.write("c/c.go", GUARDED)
+        self.commit("guarded")
+
+    def removed(self):
+        return {(r.rule, " ".join(r.text.split())) for r in contract_gate.removed_contracts(self.root, "HEAD")}
+
+    def edit(self, old, new):
+        self.write("c/c.go", GUARDED.replace(old, new))
+
+    def test_unchanged_tree_removes_nothing(self):
+        self.assertEqual(self.removed(), set())
+
+    def test_removing_a_nil_guard_is_flagged(self):
+        self.edit('\tif x == nil {\n\t\treturn 0, errors.New("x required")\n\t}\n', "")
+        self.assertIn(("guard-condition", "x == nil"), self.removed())
+
+    def test_changing_a_default_is_flagged(self):
+        self.edit('"anon"', '"guest"')
+        self.assertEqual({rule for rule, _ in self.removed()}, {"default-assignment"})
+
+    def test_swallowing_an_error_is_flagged(self):
+        self.edit("return 0, err\n", "return 0, nil\n")
+        self.assertEqual({rule for rule, _ in self.removed()}, {"error-return"})
+
+    def test_removing_a_fallback_branch_is_flagged(self):
+        self.edit("} else {\n\t\treturn v, nil\n\t}", "}\n\treturn v, nil")
+        self.assertIn("fallback-branch", {rule for rule, _ in self.removed()})
+
+    def test_renaming_variables_and_reformatting_is_not_flagged(self):
+        self.write("c/c.go", GUARDED.replace("name", "label").replace("x == nil {", "x   ==   nil { // required"))
+        self.assertEqual(self.removed(), set())
+
+    def test_adding_a_guard_is_not_flagged(self):
+        self.edit("func C(x *int, name string) (int, error) {\n", "func C(x *int, name string) (int, error) {\n\tif name == \"?\" {\n\t\treturn 0, errors.New(\"bad\")\n\t}\n")
+        self.assertEqual(self.removed(), set())
+
+    def test_moving_a_guard_to_another_file_is_not_flagged(self):
+        self.write("c/c.go", "package c\n")
+        self.write("c/guards.go", GUARDED)
+        self.assertEqual(self.removed(), set())
+
+    def test_deleting_a_guarded_file_is_flagged(self):
+        os.remove(os.path.join(self.root, "c/c.go"))
+        self.assertIn(("guard-condition", "x == nil"), self.removed())
+
+    def test_files_of_other_languages_are_ignored(self):
+        self.write("notes.txt", "if x == nil { return }\n")
+        self.assertEqual(self.removed(), set())
+
+    def removal(self):
+        return [contract_gate.RemovedContract("c/c.go", "guard-condition", "x == nil")]
+
+    def test_refactor_card_fails_even_with_a_justification(self):
+        self.assertTrue(contract_gate.judge(self.removal(), contract_gate.CardKind.REFACTOR, "Contract-change: because"))
+
+    def test_behaviour_card_passes(self):
+        self.assertEqual(contract_gate.judge(self.removal(), contract_gate.CardKind.BEHAVIOUR, ""), [])
+
+    def test_other_card_needs_a_justification_line(self):
+        other = contract_gate.CardKind.OTHER
+        self.assertTrue(contract_gate.judge(self.removal(), other, "drop the check"))
+        self.assertTrue(contract_gate.judge(self.removal(), other, "Contract-change:\n"))
+        self.assertEqual(contract_gate.judge(self.removal(), other, "drop\n\nContract-change: callers validate now"), [])
+
+    def test_no_removal_passes_on_a_refactor_card(self):
+        self.assertEqual(contract_gate.judge([], contract_gate.CardKind.REFACTOR, ""), [])
+
+    def test_cli_fails_a_refactor_card_that_removes_a_guard(self):
+        self.edit('"anon"', '"guest"')
+        argv = ["contracts", "--root", self.root, "--base", "HEAD"]
+        with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(kaizen_signals.main(argv + ["--card-kind", "refactor"]), 1)
+            self.assertEqual(kaizen_signals.main(argv + ["--card-kind", "behaviour"]), 0)
+        self.assertIn("c/c.go: default-assignment removed or altered", out.getvalue())
 
 
 def clone_source(package, seed, tail):

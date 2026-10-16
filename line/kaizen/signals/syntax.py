@@ -45,6 +45,21 @@ class Idiom:
 
 
 @dataclass(frozen=True)
+class ContractRule:
+    name: str  # reported with the removed text, e.g. "guard-condition"
+    query: str  # tree-sitter patterns; every @contract capture is one contract
+
+
+@dataclass(frozen=True)
+class ContractRuleSet:
+    language: "LanguageSpec"
+    # Identifiers that stay part of a contract's fingerprint (builtins, the error
+    # constructors); every other identifier is abstracted so a rename is no change.
+    fixed_identifiers: frozenset[str]
+    rules: tuple[ContractRule, ...]
+
+
+@dataclass(frozen=True)
 class LanguageSpec:
     name: str
     tables_tool: str  # the name under which version is recorded in signals.json
@@ -116,7 +131,7 @@ class SourceFile:
 
 
 @cache
-def _parser(grammar: Language) -> Parser:
+def parser_for(grammar: Language) -> Parser:
     return Parser(grammar)
 
 
@@ -129,7 +144,7 @@ def _text(node: Node) -> str:
     return node.text.decode("utf-8") if node.text is not None else ""
 
 
-def _captured(spec: LanguageSpec, source: str, root: Node, capture: str) -> list[Node]:
+def captured(spec: LanguageSpec, source: str, root: Node, capture: str) -> list[Node]:
     captures = QueryCursor(_query(spec.grammar, source)).captures(root)
     return sorted(captures.get(capture, []), key=lambda n: n.start_byte)
 
@@ -232,14 +247,14 @@ def _lsp_position(source: bytes, offset: int) -> tuple[int, int]:
 
 
 def parse_source(spec: LanguageSpec, path: str, source: bytes) -> SourceFile:
-    root = _parser(spec.grammar).parse(source).root_node
+    root = parser_for(spec.grammar).parse(source).root_node
     nodes = list(_nodes(root))
     idioms: dict[tuple[str, str], int] = {}
     for idiom in spec.idioms:
         matches = QueryCursor(_query(spec.grammar, idiom.query)).matches(root)
         idioms[(idiom.concern, idiom.name)] = len(matches)
     declared = [
-        (name, n) for n in _captured(spec, spec.declaration_query, root, "name")
+        (name, n) for n in captured(spec, spec.declaration_query, root, "name")
         if not spec.not_dead.match(name := _text(n))
     ]
     symbol_refs: dict[str, frozenset[str]] = {}
@@ -249,7 +264,7 @@ def parse_source(spec: LanguageSpec, path: str, source: bytes) -> SourceFile:
     return SourceFile(
         path=path,
         is_test=spec.is_test(path),
-        imports=[_text(n).strip(_QUOTES) for n in _captured(spec, spec.import_query, root, "path")],
+        imports=[_text(n).strip(_QUOTES) for n in captured(spec, spec.import_query, root, "path")],
         functions=_functions(spec, root),
         declarations=[
             Declaration(name, *_lsp_position(source, n.start_byte), spec.is_exported(n)) for name, n in declared
