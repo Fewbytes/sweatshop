@@ -338,6 +338,12 @@ func (c Client) CardOffer(ctx context.Context, id string) ([]byte, error) {
 	return c.do(ctx, http.MethodPost, "/v1/cards/"+url.PathEscape(id)+"/offer", nil, nil, nil)
 }
 
+// CardLabels adds and removes labels on a card (viceroy only; the
+// constitution bounds which labels).
+func (c Client) CardLabels(ctx context.Context, id string, change LabelChange) error {
+	return c.cardAction(ctx, id, "labels", change)
+}
+
 // ChannelInbox returns the channel messages after the given ID as JSON,
 // waiting up to wait for one (viceroy only).
 func (c Client) ChannelInbox(ctx context.Context, after string, wait time.Duration) ([]byte, error) {

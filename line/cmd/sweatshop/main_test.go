@@ -374,7 +374,18 @@ func TestLineCards(t *testing.T) {
 	if closeOut.String() != "closed x-1\n" {
 		t.Fatalf("close output %q", closeOut.String())
 	}
-	for _, bad := range [][]string{{}, {"nope"}, {"show"}, {"offer", "a", "b"}, {"close"}} {
+	got = nil
+	var labelOut bytes.Buffer
+	if err := lineCards([]string{"label", "x-1", "--add", "needs:king", "--add", "b", "--remove", "line-gave-up"}, strings.NewReader(""), &labelOut); err != nil {
+		t.Fatalf("label: %v", err)
+	}
+	if want := `POST /v1/cards/x-1/labels {"add":["needs:king","b"],"remove":["line-gave-up"]}`; len(got) != 1 || got[0] != want {
+		t.Fatalf("label request %q, want %q", got, want)
+	}
+	if labelOut.String() != "labelled x-1\n" {
+		t.Fatalf("label output %q", labelOut.String())
+	}
+	for _, bad := range [][]string{{}, {"nope"}, {"show"}, {"offer", "a", "b"}, {"close"}, {"label"}} {
 		if err := lineCards(bad, strings.NewReader(""), &bytes.Buffer{}); err == nil {
 			t.Fatalf("%v accepted", bad)
 		}

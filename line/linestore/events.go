@@ -14,6 +14,7 @@ const (
 	EventOffer      EventKind = "offer"
 	EventClaim      EventKind = "claim"
 	EventRelease    EventKind = "release"
+	EventLabel      EventKind = "label"
 	EventGiveUp     EventKind = "give-up"
 	EventClose      EventKind = "close"
 	EventReap       EventKind = "reap"

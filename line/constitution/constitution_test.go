@@ -415,6 +415,22 @@ func TestCloseDelegationCategoriesValidate(t *testing.T) {
 	}
 }
 
+func TestViceroyMayLabel(t *testing.T) {
+	v := Viceroy{Labels: []string{"obsolete", "triage:*"}}
+	for label, want := range map[string]bool{"obsolete": true, "triage:a": true, "triage:": true, "obsolete2": false, "line": false} {
+		if got := v.MayLabel(label); got != want {
+			t.Errorf("MayLabel(%q) = %v, want %v", label, got, want)
+		}
+	}
+	if (Viceroy{}).MayLabel("obsolete") {
+		t.Error("empty list grants a label")
+	}
+	_, key := publicKey(t)
+	if _, err := Parse([]byte(valid(key) + "[viceroy]\nlabels = [\"\"]\n")); err == nil {
+		t.Error("empty viceroy label accepted")
+	}
+}
+
 func TestExampleParses(t *testing.T) {
 	c, _, err := Load("testdata/example.toml")
 	if err != nil {

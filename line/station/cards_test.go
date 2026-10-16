@@ -199,6 +199,48 @@ func TestCardsOffer(t *testing.T) {
 	}
 }
 
+func TestCardsViceroyLabels(t *testing.T) {
+	cases := []struct {
+		name   string
+		change LabelChange
+		want   string // "" means applied
+		calls  []string
+	}{
+		{"unpark", LabelChange{Remove: []string{"line-gave-up"}}, "", []string{"unlabel x-1 line-gave-up"}},
+		{"needs and constitution label", LabelChange{Add: []string{"needs:king", "triage:a"}, Remove: []string{"line-gave-up"}}, "", []string{"label x-1 needs:king", "label x-1 triage:a", "unlabel x-1 line-gave-up"}},
+		{"line label is not the viceroy's", LabelChange{Add: []string{"line"}}, "403", nil},
+		{"one forbidden label blocks all", LabelChange{Add: []string{"needs:maker"}, Remove: []string{"line"}}, "403", nil},
+		{"same label both ways", LabelChange{Add: []string{"needs:maker"}, Remove: []string{"needs:maker"}}, "400", nil},
+		{"malformed label", LabelChange{Add: []string{"needs:a b"}}, "400", nil},
+		{"empty change", LabelChange{}, "400", nil},
+	}
+	for _, tc := range cases {
+		f := &fakeCards{show: `{}`}
+		srv, _, v, m := cardsRig(t, f)
+		srv.Guard.Constitution.Viceroy.Labels = []string{"triage:*"}
+		srv.Store = openTestStore(t)
+		err := v.CardLabels(context.Background(), "x-1", tc.change)
+		if tc.want == "" && err != nil || tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
+			t.Fatalf("%s: err %v", tc.name, err)
+		}
+		if !slices.Equal(f.calls, tc.calls) {
+			t.Fatalf("%s: calls %v, want %v", tc.name, f.calls, tc.calls)
+		}
+		events, _ := v.Events(context.Background(), "", "x-1", "")
+		if len(events) != len(tc.calls) {
+			t.Fatalf("%s: events %+v, want one per call", tc.name, events)
+		}
+		for _, e := range events {
+			if e.Kind != linestore.EventLabel || e.Station != "v" {
+				t.Fatalf("%s: event %+v", tc.name, e)
+			}
+		}
+		if err := m.CardLabels(context.Background(), "x-1", LabelChange{Remove: []string{"line-gave-up"}}); err == nil || !strings.Contains(err.Error(), "403") {
+			t.Fatalf("%s: maker labelled: %v", tc.name, err)
+		}
+	}
+}
+
 func TestCardsViceroyCloseNeedsDelegationAndDecision(t *testing.T) {
 	cases := []struct {
 		name, id, show string

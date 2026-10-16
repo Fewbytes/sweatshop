@@ -96,6 +96,20 @@ const EpicType = "epic"
 type Viceroy struct {
 	Succession  bool         `toml:"succession"`
 	Delegations []Delegation `toml:"delegations"`
+	// Labels lists labels the viceroy may add to and remove from cards,
+	// beyond the ones the station always allows. An entry ending in "*"
+	// matches every label with that prefix.
+	Labels []string `toml:"labels,omitempty"`
+}
+
+// MayLabel reports whether the viceroy's Labels list covers label.
+func (v Viceroy) MayLabel(label string) bool {
+	return slices.ContainsFunc(v.Labels, func(l string) bool {
+		if prefix, ok := strings.CutSuffix(l, "*"); ok {
+			return strings.HasPrefix(label, prefix)
+		}
+		return l == label
+	})
 }
 
 // Delegation grants the viceroy one bounded power without the king: either
@@ -186,6 +200,9 @@ func (c Constitution) validateGovernance() error {
 		if !slices.Contains([]string{"", TransportPoll, TransportGateway}, ch.Transport) {
 			return fmt.Errorf("channel.transport %q: want %q or %q", ch.Transport, TransportPoll, TransportGateway)
 		}
+	}
+	if slices.Contains(c.Viceroy.Labels, "") {
+		return errors.New("viceroy.labels: empty label")
 	}
 	for i, d := range c.Viceroy.Delegations {
 		if d.Close {

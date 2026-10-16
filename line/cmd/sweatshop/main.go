@@ -59,7 +59,7 @@ const usage = `usage:
   sweatshop line events [--since D] [--card ID] [--station S]
                                         print the line's event log, oldest first, as JSON: offers, claims, releases, give-ups, closes, reaps, submits, merges, andon pulls and clears
   sweatshop line evidence ID            print a check log
-  sweatshop line cards list [--status S] [--label L] [--parent ID] | show ID | create --title T --type TYPE --priority N [--parent ID] [--acceptance A] (description on stdin) | comment ID (text on stdin) | offer ID | close ID (reason on stdin)
+  sweatshop line cards list [--status S] [--label L] [--parent ID] | show ID | create --title T --type TYPE --priority N [--parent ID] [--acceptance A] (description on stdin) | comment ID (text on stdin) | offer ID | close ID (reason on stdin) | label ID [--add L]... [--remove L]...
                                         read and (viceroy only) write cards; output is JSON
   sweatshop line channel inbox [--after ID] [--wait 30s] | post [--from WHO] (text on stdin)
                                         read the king's channel / post to it (viceroy only)
@@ -1095,6 +1095,7 @@ func lineCards(args []string, stdin io.Reader, stdout io.Writer) error {
 	fs := flag.NewFlagSet("line cards "+cmd, flag.ContinueOnError)
 	var f station.ListFilter
 	var nc station.NewCard
+	var labels station.LabelChange
 	switch cmd {
 	case "list":
 		fs.StringVar(&f.Status, "status", "", "filter by status")
@@ -1106,9 +1107,20 @@ func lineCards(args []string, stdin io.Reader, stdout io.Writer) error {
 		fs.IntVar(&nc.Priority, "priority", 2, "priority 0..4")
 		fs.StringVar(&nc.Parent, "parent", "", "parent card")
 		fs.StringVar(&nc.Acceptance, "acceptance", "", "acceptance criteria")
+	case "label":
+		fs.Func("add", "label to add (repeatable)", func(l string) error { labels.Add = append(labels.Add, l); return nil })
+		fs.Func("remove", "label to remove (repeatable)", func(l string) error { labels.Remove = append(labels.Remove, l); return nil })
 	case "show", "comment", "offer", "close":
 	default:
 		return errors.New(usage)
+	}
+	// label takes its flags after the card ID, which flag.Parse would stop at.
+	var labelID string
+	if cmd == "label" {
+		if len(args) == 0 {
+			return errors.New(usage)
+		}
+		labelID, args = args[0], args[1:]
 	}
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -1146,6 +1158,10 @@ func lineCards(args []string, stdin io.Reader, stdout io.Writer) error {
 		out, err = c.CardComment(ctx, fs.Arg(0), strings.TrimRight(string(text), "\n"))
 	case "offer":
 		out, err = c.CardOffer(ctx, fs.Arg(0))
+	case "label":
+		if err = c.CardLabels(ctx, labelID, labels); err == nil {
+			out = []byte("labelled " + labelID)
+		}
 	case "close":
 		reason, rerr := io.ReadAll(io.LimitReader(stdin, 1<<20))
 		if rerr != nil {

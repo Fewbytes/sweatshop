@@ -72,6 +72,9 @@ environment):
 - sweatshop line cards list [--status S] [--label L] [--parent ID] | show ID |
   create --title T --type TYPE --priority N [--parent ID] [--acceptance A]
   (description on stdin) | comment ID (text on stdin) | offer ID |
+  label ID [--add L]... [--remove L]... (line-gave-up, needs:* and the labels
+  the constitution lists; a 403 is final; remove line-gave-up to unpark a card;
+  every change is recorded in the event log under your station) |
   close ID (reason on stdin; only cards a constitution close grant covers, and
   only after you commented the decision on the card; a 403 or 409 error is
   final: report it verbatim, do not retry or work around it)

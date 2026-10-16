@@ -237,6 +237,7 @@ var cardActions = map[string][]string{
 	"close":    {makerRole, viceroyRole},
 	"release":  {makerRole},
 	"give-up":  {makerRole},
+	"labels":   {viceroyRole},
 }
 
 // routeCards handles /v1/cards and /v1/cards/{id}[/<action in cardActions>].
@@ -350,6 +351,9 @@ func (s *Server) routeCards(w http.ResponseWriter, r *http.Request, st *Station)
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return "comment " + id, nil
 	}
+	if parts[1] == "labels" {
+		return s.viceroyLabels(w, r, cards, st, id)
+	}
 	if parts[1] == "offer" {
 		return s.offer(w, r, cards, st, id)
 	}
@@ -399,6 +403,57 @@ func (s *Server) viceroyClose(w http.ResponseWriter, r *http.Request, cards Card
 	s.recordEvent(r.Context(), st, linestore.EventClose, id, body.Reason)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	return "close " + id, nil
+}
+
+// LabelChange is the body of POST /v1/cards/{id}/labels.
+type LabelChange struct {
+	Add    []string `json:"add,omitempty"`
+	Remove []string `json:"remove,omitempty"`
+}
+
+// viceroyMayLabel reports whether the viceroy may add or remove label:
+// always line-gave-up and needs:*, otherwise what the constitution lists.
+func (s *Server) viceroyMayLabel(label string) bool {
+	return label == LabelGaveUp || strings.HasPrefix(label, LabelNeedsPrefix) || s.Guard.Constitution.Viceroy.MayLabel(label)
+}
+
+// viceroyLabels applies a label change for the viceroy. All labels are
+// checked before any is applied; each applied change is its own event whose
+// station is the actor.
+func (s *Server) viceroyLabels(w http.ResponseWriter, r *http.Request, cards Cards, st *Station, id string) (string, error) {
+	var change LabelChange
+	if err := decodeBody(w, r, &change); err != nil {
+		return "", err
+	}
+	if len(change.Add)+len(change.Remove) == 0 {
+		return "", fail(http.StatusBadRequest, "name at least one label to add or remove")
+	}
+	for _, label := range slices.Concat(change.Add, change.Remove) {
+		if !wordRe.MatchString(label) {
+			return "", fail(http.StatusBadRequest, "invalid label %q", label)
+		}
+		if !s.viceroyMayLabel(label) {
+			return "", fail(http.StatusForbidden, "the constitution does not let the viceroy touch label %q", label)
+		}
+		if slices.Contains(change.Add, label) && slices.Contains(change.Remove, label) {
+			return "", fail(http.StatusBadRequest, "label %q is both added and removed", label)
+		}
+	}
+	ctx := r.Context()
+	for _, label := range change.Add {
+		if err := cards.AddLabel(ctx, id, label); err != nil {
+			return "", err
+		}
+		s.recordEvent(ctx, st, linestore.EventLabel, id, "add "+label)
+	}
+	for _, label := range change.Remove {
+		if err := cards.RemoveLabel(ctx, id, label); err != nil {
+			return "", err
+		}
+		s.recordEvent(ctx, st, linestore.EventLabel, id, "remove "+label)
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	return "labels " + id, nil
 }
 
 // settleEvents is the event each settle action records.

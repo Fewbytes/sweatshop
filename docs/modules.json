@@ -1345,7 +1345,7 @@
       "purpose": "Package linedir creates and loads a line directory: the on-disk home of one"
     },
     "line/linestore": {
-      "entry_point_count": 23,
+      "entry_point_count": 24,
       "entry_points": [
         "Event",
         "EventAndonClear",
@@ -1355,10 +1355,10 @@
         "EventFilter",
         "EventGiveUp",
         "EventKind",
+        "EventLabel",
         "EventMerge",
         "EventOffer",
-        "EventReap",
-        "EventRelease"
+        "EventReap"
       ],
       "hidden_coupling_ratio": 0.0,
       "hotspot_rank": 23,
@@ -1463,7 +1463,7 @@
       "purpose": "Package runner is the one interface the line uses to run station and"
     },
     "line/station": {
-      "entry_point_count": 71,
+      "entry_point_count": 72,
       "entry_points": [
         "BeadsCards",
         "CLIEngine",

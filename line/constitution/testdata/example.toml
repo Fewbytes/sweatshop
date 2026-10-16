@@ -63,6 +63,10 @@ channel = "223456789012345678"   # Discord channel ID (digits only)
 [viceroy]
 succession = true   # a successor viceroy may take over from its predecessor
 
+# Labels the viceroy may add and remove on cards, beyond line-gave-up and
+# needs:*, which it may always touch. A trailing * matches a prefix.
+labels = ["obsolete", "triage:*"]
+
 # A delegation lets the viceroy offer matching cards without the king. A card
 # matches by issue type, or by having parent in its ancestor chain.
 [[viceroy.delegations]]
