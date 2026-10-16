@@ -75,6 +75,7 @@ const usage = `usage:
                                         watch master; pull/clear the andon cord (andon station token)
   sweatshop line heijunka --beads DIR [--interval 5m] [--min-agents 1] [--max-agents 4]
                                         level flow: publish agent and WIP-limit levels to the line (SIGUSR1 wakes it now)
+  sweatshop line heijunka state         read-only: levels, offer queue and why makers idle
   sweatshop line maker --dir D --station NAME (--beads DIR | --cards api) [--once] [--engine E] [--url URL] [--timeout 2h] [--max-attempts 3] [--memory 4g] [--pids 1024] [--cpus 2]
                                         work ready "line" beads in station containers
   sweatshop line gemba --dir D --station NAME --beads DIR [--once] [--engine E] [--url URL] [--timeout 2h] [--max-attempts 3] [--memory 4g] [--pids 1024] [--cpus 2]
@@ -143,6 +144,8 @@ func run(args []string, stdout io.Writer) error {
 		return lineDeployer(args[2:])
 	case len(args) >= 2 && args[0] == "line" && args[1] == "andon":
 		return lineAndon(args[2:])
+	case len(args) == 3 && args[0] == "line" && args[1] == "heijunka" && args[2] == "state":
+		return lineHeijunkaState(stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "heijunka":
 		return lineHeijunka(args[2:])
 	case len(args) >= 2 && args[0] == "line" && args[1] == "maker":
@@ -1013,6 +1016,24 @@ func lineStatus(stdout io.Writer) error {
 	if e := st.Andon; e != nil {
 		fmt.Fprintf(stdout, "andon commit %s check %s exit %d evidence %s by %s (%s) at %s\n",
 			e.Commit, e.Check, e.ExitCode, e.EvidenceID, e.AgentID, e.Role, e.PulledAt.Format(time.RFC3339))
+	}
+	return nil
+}
+
+// lineHeijunkaState prints heijunka's levels, the offer queue and why makers idle.
+func lineHeijunkaState(stdout io.Writer) error {
+	c, err := lineClient()
+	if err != nil {
+		return err
+	}
+	hs, err := c.HeijunkaState(context.Background())
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "levels agents=%d wip_limit=%d in_progress=%d\n", hs.Levels.Agents, hs.Levels.WIPLimit, hs.InProgress)
+	fmt.Fprintf(stdout, "offered %v\nunlabelled %v\n", hs.Offered, hs.Unlabelled)
+	for _, m := range hs.Idle {
+		fmt.Fprintf(stdout, "idle %s: %s\n", m.Station, m.Reason)
 	}
 	return nil
 }
