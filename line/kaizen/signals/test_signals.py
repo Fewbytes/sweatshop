@@ -17,6 +17,7 @@ import lang_typescript
 import measure
 import mutation
 import render
+import rework
 import source_adapter
 import syntax
 import clone_signals
@@ -47,9 +48,9 @@ func Branchy(a, b bool) int {
 CLONE_BODY = "".join(f"\tx{i} := compute(alpha, beta, gamma, delta, {i})\n\tuse(x{i})\n" for i in range(6))
 
 
-def git(root, *args, date="2026-10-01T12:00:00+00:00"):
+def git(root, *args, date="2026-10-01T12:00:00+00:00", author="t"):
     env = {**os.environ, "GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date,
-           "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+           "GIT_AUTHOR_NAME": author, "GIT_AUTHOR_EMAIL": "t@example.com",
            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
     subprocess.run(["git", "-C", root, *args], check=True, capture_output=True, env=env)
 
@@ -923,3 +924,83 @@ class MutationScore(unittest.TestCase):
             with open(out) as f:
                 written = json.load(f)
         self.assertEqual(written["mutation_score"], {"unavailable": "gremlins is not installed"})
+
+
+class ReworkHistory(unittest.TestCase):
+    """Cards c-1 (alice) and c-2 (bob, same parent) and c-3 (carol, other parent) edit one file; c-4 lands and is reverted; c-5 is young at HEAD."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = tmp.name
+        git(self.root, "init", "-q", "--initial-branch=master")
+        self.land("c-1", "alice", 1, {"a/f.py": "".join(f"line{i}\n" for i in range(10))})
+        self.land("c-2", "bob", 3, {"a/f.py": edited(range(10), {1, 2})})
+        self.land("c-3", "carol", 5, {"a/f.py": edited(range(10), {1, 2, 4, 5, 6})})
+        self.land("c-4", "bob", 20, {"b/g.py": "g1\ng2\ng3\ng4\n"})
+        git(self.root, "revert", "--no-edit", "HEAD", date=day(21))
+        self.land("c-5", "alice", 60, {"c/h.py": "h\n"})
+        self.cards = [
+            {"id": "c-1", "issue_type": "task", "parent": "epic-1"},
+            {"id": "c-2", "issue_type": "task", "parent": "epic-1"},
+            {"id": "c-3", "issue_type": "feature", "parent": "epic-2"},
+            {"id": "c-4", "issue_type": "task"},
+            {"id": "c-5", "issue_type": "task"},
+            {"id": "bug-1", "issue_type": "bug", "title": "crash after c-4 landed"},
+            {"id": "bug-2", "issue_type": "bug", "description": "see c-40 and c-1.5"},
+        ]
+        self.result = rework.measure_rework(self.root, "HEAD", self.cards)
+        self.by_card = {c["card"]: c for c in self.result["cards"]}
+
+    def land(self, card, author, on_day, files):
+        for rel, text in files.items():
+            path = os.path.join(self.root, rel)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as f:
+                f.write(text)
+        git(self.root, "add", "-A", date=day(on_day), author=author)
+        git(self.root, "commit", "-q", "-m", f"change\n\nBead: {card}", date=day(on_day), author=author)
+
+    def test_survival_counts_lines_still_blamed_on_the_card_at_the_horizon(self):
+        s7 = self.by_card["c-1"]["survival_7d"]
+        self.assertEqual((s7["survived"], s7["lines"], s7["share"]), (5, 10, 0.5))
+        self.assertEqual(self.by_card["c-1"]["survival_30d"]["survived"], 5)
+        self.assertEqual(self.by_card["c-2"]["survival_7d"]["share"], 1.0)
+        self.assertEqual(self.by_card["c-3"]["survival_7d"]["share"], 1.0)
+
+    def test_card_younger_than_the_horizon_is_outside_the_sample_not_zero(self):
+        s30 = self.by_card["c-5"]["survival_30d"]
+        self.assertEqual((s30["cards"], s30["lines"], s30["share"]), (0, 0, None))
+
+    def test_rework_counts_later_cards_and_those_of_the_same_family(self):
+        rw = self.by_card["c-1"]["rework_14d"]
+        self.assertEqual((rw["reworked"], rw["reworked_same_family"], rw["lines"]), (5, 2, 10))
+
+    def test_reverted_card_loses_its_lines_and_is_counted(self):
+        self.assertEqual(self.by_card["c-4"]["survival_7d"]["share"], 0.0)
+        self.assertEqual(self.by_card["c-4"]["reverted_cards"], 1)
+        self.assertEqual(self.by_card["c-1"]["reverted_cards"], 0)
+
+    def test_follow_up_bug_cards_match_whole_card_ids_only(self):
+        self.assertEqual(self.by_card["c-4"]["cards_with_follow_up_bugs"], 1)
+        self.assertEqual(self.by_card["c-1"]["cards_with_follow_up_bugs"], 0)
+
+    def test_groups_by_maker_card_type_and_file_area(self):
+        groups = self.result["groups"]
+        self.assertEqual(groups["maker"]["bob"]["cards"], 2)
+        self.assertEqual(groups["card_type"]["feature"]["added_lines"], 3)
+        self.assertEqual(groups["area"]["a"]["survival_7d"]["lines"], 15)
+        self.assertEqual(groups["area"]["b"]["reverted_cards"], 1)
+
+    def test_markdown_prints_the_sample_next_to_each_share(self):
+        text = rework.render_markdown(self.result)
+        self.assertIn("50% of 10 (1 cards)", text)
+        self.assertIn("n/a of 0 (0 cards)", text)
+
+
+def edited(rng, changed):
+    return "".join(f"new{i}\n" if i in changed else f"line{i}\n" for i in rng)
+
+
+def day(n):
+    return f"2026-01-{n + 1:02d}T12:00:00+00:00" if n < 30 else f"2026-03-{n - 29:02d}T12:00:00+00:00"

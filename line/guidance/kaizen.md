@@ -125,6 +125,7 @@ testing where available.
 | Dead symbols | ↓ | symbol index + reference search |
 | Typed boundary ratio | ↑ | type checker / ast-grep |
 | Mutation score | ↑ | `kaizen_signals.py mutation` on the target scope: gremlins (Go), mutmut (Python), Stryker (TypeScript); killed, survived, timed-out; unavailable when the wall-time cap is hit |
+| Survival and rework of landed cards | descriptive | `kaizen_signals.py rework --cards cards.json` (cards from `sweatshop line cards list --status closed`): share of a card's added lines still blamed on it after 7 and 30 days, lines a later card changed within 14 days (and by the same family), reverts, follow-up bug cards; per maker, card type and file area, always with sample sizes; never gated on |
 | Stale / unverifiable comments | ↓ | review, test-execution checks |
 | Test runtime | ↓ or = | test runner |
 

@@ -8,6 +8,7 @@
   report  --signals signals.json --out report.html [--previous p.json] [--after a.json]
           [--target PKG --category P2 --signal clones --why TEXT]
   mutation --root DIR --language go|python|typescript --out mutation.json [--cap-seconds N] SCOPE...
+  rework --root DIR --cards cards.json --out rework.json [--markdown rework.md] [--rev REV]
   modules --signals signals.json --map docs/modules.json
   modules-check --root DIR --map docs/modules.json
   gate    --root DIR --base REV [--thresholds kaizen-gate.json] [--baseline accepted.json]
@@ -27,6 +28,7 @@ import measure
 import modules
 import mutation
 import render
+import rework
 
 
 def load(path: str | None) -> dict | None:
@@ -47,6 +49,16 @@ def cmd_mutation(args: argparse.Namespace) -> int:
     signals = mutation.mutation_signals(args.root, args.language, tuple(args.scope), args.cap_seconds)
     with open(args.out, "w", encoding="utf-8") as f:
         f.write(measure.dumps(signals))
+    return 0
+
+
+def cmd_rework(args: argparse.Namespace) -> int:
+    result = rework.measure_rework(args.root, args.rev, load(args.cards))
+    with open(args.out, "w", encoding="utf-8") as f:
+        f.write(measure.dumps(result))
+    if args.markdown:
+        with open(args.markdown, "w", encoding="utf-8") as f:
+            f.write(rework.render_markdown(result))
     return 0
 
 
@@ -131,6 +143,14 @@ def main(argv: list[str]) -> int:
     mu.add_argument("--cap-seconds", type=float, default=mutation.DEFAULT_CAP_SECONDS)
     mu.add_argument("scope", nargs="+", help="Go package directory, or Python/TypeScript files, relative to root")
     mu.set_defaults(func=cmd_mutation)
+
+    rw = sub.add_parser("rework", help="survival, rework and reverts of landed cards' code")
+    rw.add_argument("--root", required=True)
+    rw.add_argument("--rev", default="HEAD")
+    rw.add_argument("--cards", required=True, help="`sweatshop line cards list` output saved as JSON: card type, parent and bug cards")
+    rw.add_argument("--out", required=True)
+    rw.add_argument("--markdown", help="also write the tables as Markdown")
+    rw.set_defaults(func=cmd_rework)
 
     mo = sub.add_parser("modules", help="write or refresh the committed module map")
     mo.add_argument("--signals", required=True)
