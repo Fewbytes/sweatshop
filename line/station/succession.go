@@ -528,12 +528,20 @@ func (v *Supervisor) rollback(p *pendingGen, why string) {
 }
 
 // Checkin completes a pending succession: the old container goes, the new
-// generation becomes current.
+// generation becomes current. With nothing pending it is idempotent for the
+// current generation, which checks in again after Resume restarts it.
 func (v *Supervisor) Checkin(ctx context.Context, gen string) (Generation, error) {
 	v.mu.Lock()
 	p := v.pending
 	v.mu.Unlock()
 	if p == nil {
+		cur, have, err := v.current()
+		if err != nil {
+			return Generation{}, err
+		}
+		if have && gen == strconv.Itoa(cur.Gen) {
+			return cur, nil
+		}
 		return Generation{}, fail(http.StatusConflict, "no succession is pending")
 	}
 	if gen != strconv.Itoa(p.Gen) {

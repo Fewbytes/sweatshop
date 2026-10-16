@@ -367,8 +367,16 @@ func TestSucceedAndCheckin(t *testing.T) {
 	if err := gen2.ChannelPost(r.ctx, "two", ""); err != nil {
 		t.Fatal(err)
 	}
-	// And no check-in is pending any more.
-	_, err = gen2.ViceroyCheckin(r.ctx)
+	// With nothing pending, the current generation may check in again (a
+	// restart after Resume) and nothing changes; any other generation may not.
+	out, err = gen2.ViceroyCheckin(r.ctx)
+	var again Generation
+	if err != nil || json.Unmarshal(out, &again) != nil || again.Gen != 2 || again.Commit != c2 {
+		t.Fatalf("repeat check-in %s %v", out, err)
+	}
+	_, err = gen1.ViceroyCheckin(r.ctx)
+	wantErr(t, err, "409")
+	_, err = r.client("viceroy-1", "3").ViceroyCheckin(r.ctx)
 	wantErr(t, err, "409")
 }
 
