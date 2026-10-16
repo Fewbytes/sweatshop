@@ -40,6 +40,8 @@ type Heartbeat struct {
 	State  StationState `json:"state"`            // StateIdle or StateWorking
 	Card   string       `json:"card,omitempty"`   // the card being worked; required when working
 	Commit string       `json:"commit,omitempty"` // commit of the station's binary
+	// IdleReason says why an idle station took no card; only with StateIdle.
+	IdleReason string `json:"idle_reason,omitempty"`
 	// Clock is the station's own time when it sent the heartbeat; Client.Heartbeat
 	// fills it in. Nil from a station that predates the field.
 	Clock *time.Time `json:"clock,omitempty"`
@@ -52,12 +54,16 @@ type Heartbeat struct {
 
 // StationStatus is one station's liveness in GET /v1/status.
 type StationStatus struct {
-	Name     string       `json:"name"`
-	Role     string       `json:"role"`
-	State    StationState `json:"state"`
-	Card     string       `json:"card,omitempty"`
-	Commit   string       `json:"commit,omitempty"`
-	LastSeen *time.Time   `json:"last_seen,omitempty"`
+	Name   string       `json:"name"`
+	Role   string       `json:"role"`
+	State  StationState `json:"state"`
+	Card   string       `json:"card,omitempty"`
+	Commit string       `json:"commit,omitempty"`
+	// IdleReason is as in Heartbeat. LastCard is the card the station worked
+	// before its current state, so a stall shows what it last did.
+	IdleReason string     `json:"idle_reason,omitempty"`
+	LastCard   string     `json:"last_card,omitempty"`
+	LastSeen   *time.Time `json:"last_seen,omitempty"`
 	// ClockSkewSeconds is the station's clock minus the line's at the last
 	// heartbeat: negative when the station runs behind. Zero when unreported.
 	ClockSkewSeconds int64 `json:"clock_skew_seconds,omitempty"`
@@ -70,7 +76,8 @@ type StationStatus struct {
 
 type seenStation struct {
 	Heartbeat
-	at time.Time
+	at       time.Time
+	lastCard string // the card the station worked before this heartbeat's
 }
 
 // liveness keeps the last heartbeat per station name, in memory: after a
@@ -86,7 +93,12 @@ func (l *liveness) beat(name string, hb Heartbeat, now time.Time) {
 	if l.seen == nil {
 		l.seen = map[string]seenStation{}
 	}
-	l.seen[name] = seenStation{Heartbeat: hb, at: now}
+	prev := l.seen[name]
+	lastCard := prev.lastCard
+	if prev.State == StateWorking && prev.Card != hb.Card {
+		lastCard = prev.Card
+	}
+	l.seen[name] = seenStation{Heartbeat: hb, at: now, lastCard: lastCard}
 }
 
 // snapshot lists every maker station and every other station that has
@@ -110,6 +122,7 @@ func (l *liveness) snapshot(stations []*Station, now time.Time) []StationStatus 
 		}
 		out = append(out, StationStatus{
 			Name: st.Name, Role: st.Role, State: seen.State, Card: seen.Card, Commit: seen.Commit,
+			IdleReason: seen.IdleReason, LastCard: seen.lastCard,
 			LastSeen: &at, ClockSkewSeconds: int64(skew / time.Second), Alive: now.Sub(at) <= MakerSilenceLimit,
 			LastRun: seen.LastRun, NextRun: seen.NextRun,
 		})
@@ -142,6 +155,9 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request, st *Station) 
 	}
 	if (hb.State == StateWorking) != (hb.Card != "") {
 		return "", fail(http.StatusBadRequest, "a card goes with state %s and only with it", StateWorking)
+	}
+	if hb.IdleReason != "" && hb.State != StateIdle {
+		return "", fail(http.StatusBadRequest, "an idle reason goes only with state %s", StateIdle)
 	}
 	s.liveness.beat(st.Name, hb, time.Now())
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})

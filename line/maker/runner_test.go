@@ -697,6 +697,31 @@ func TestOnceHeartbeatsIdleThenWorkingTheCard(t *testing.T) {
 	}
 }
 
+func TestOnceHeartbeatsWhyItIsIdle(t *testing.T) {
+	bare, _ := remote(t)
+	fb := &fakeBeads{ready: []Bead{{ID: "b-1", Labels: []string{GaveUpLabel}}}}
+	hb := &fakeHeartbeats{}
+	r := newRunner(t, bare, fb, &fakeEngine{})
+	r.Heartbeats = hb
+	if _, err := r.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	last := hb.beat[len(hb.beat)-1]
+	if want := "all 1 ready cards are labelled " + GaveUpLabel; last.State != station.StateIdle || last.IdleReason != want {
+		t.Fatalf("last heartbeat %+v, want idle with reason %q", last, want)
+	}
+}
+
+func TestIdleReasonNamesTheCause(t *testing.T) {
+	ready := []Bead{{ID: "b-1"}}
+	if got := idleReason(nil, false, "line"); got != "no ready cards labelled line" {
+		t.Errorf("empty: %q", got)
+	}
+	if got := idleReason(ready, true, "line"); got != "andon cord pulled and none of 1 ready cards is an andon card" {
+		t.Errorf("stopped: %q", got)
+	}
+}
+
 func TestOnceSignalLogsExitAndReleasesClaim(t *testing.T) {
 	bare, _ := remote(t)
 	fb := &fakeBeads{ready: []Bead{{ID: "b-1", Priority: 1}}}

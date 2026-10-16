@@ -165,6 +165,12 @@ func Prompt(in PromptInput) string {
 		if st.Card != "" {
 			fmt.Fprintf(&p, " %s", st.Card)
 		}
+		if st.IdleReason != "" {
+			fmt.Fprintf(&p, " (%s)", st.IdleReason)
+		}
+		if st.LastCard != "" {
+			fmt.Fprintf(&p, ", last card %s", st.LastCard)
+		}
 		if st.LastSeen != nil {
 			fmt.Fprintf(&p, ", last seen %s", st.LastSeen.UTC().Format(time.RFC3339))
 		}

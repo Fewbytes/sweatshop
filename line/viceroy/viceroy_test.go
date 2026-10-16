@@ -357,11 +357,11 @@ func TestPromptReportsStationLiveness(t *testing.T) {
 	seen := time.Date(2026, 10, 11, 17, 40, 0, 0, time.UTC)
 	p := Prompt(PromptInput{Wake: WakeHeartbeat, Status: station.Status{Master: "m", Stations: []station.StationStatus{
 		{Name: "maker-1", Role: "maker", State: station.StateWorking, Card: "x-1", LastSeen: &seen, Alive: true},
-		{Name: "maker-2", Role: "maker", State: station.StateIdle, LastSeen: &seen},
+		{Name: "maker-2", Role: "maker", State: station.StateIdle, LastSeen: &seen, IdleReason: "no ready cards labelled line", LastCard: "x-0"},
 	}}})
 	for _, want := range []string{
 		"station maker-1 (maker): working x-1, last seen 2026-10-11T17:40:00Z\n",
-		"station maker-2 (maker): idle, last seen 2026-10-11T17:40:00Z, NOT ALIVE\n",
+		"station maker-2 (maker): idle (no ready cards labelled line), last card x-0, last seen 2026-10-11T17:40:00Z, NOT ALIVE\n",
 	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("prompt lacks %q", want)

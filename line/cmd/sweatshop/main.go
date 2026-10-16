@@ -974,6 +974,12 @@ func tail(s string, n int) string {
 // shows when it last ran and when it may next.
 func stationLine(s station.StationStatus) string {
 	line := fmt.Sprintf("station %s (%s) %s %s alive=%t", s.Name, s.Role, s.State, s.Card, s.Alive)
+	if s.LastCard != "" {
+		line += " last_card=" + s.LastCard
+	}
+	if s.IdleReason != "" {
+		line += fmt.Sprintf(" idle_reason=%q", s.IdleReason)
+	}
 	if s.LastRun != nil {
 		line += " last_run=" + s.LastRun.Format(time.RFC3339)
 	}

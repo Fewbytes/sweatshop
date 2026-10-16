@@ -48,9 +48,28 @@ func TestHeartbeatShowsInStatusStations(t *testing.T) {
 	}
 }
 
+func TestStatusShowsIdleReasonAndLastCard(t *testing.T) {
+	srv, m1, _ := livenessRig(t)
+	ctx := context.Background()
+	for _, hb := range []Heartbeat{
+		{State: StateWorking, Card: "x-1"},
+		{State: StateWorking, Card: "x-1"},
+		{State: StateIdle},
+		{State: StateIdle, IdleReason: "no ready cards"},
+	} {
+		if err := m1.Heartbeat(ctx, hb); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := srv.liveness.snapshot(srv.Stations, time.Now())[0]
+	if got.State != StateIdle || got.IdleReason != "no ready cards" || got.LastCard != "x-1" {
+		t.Fatalf("m1: %+v", got)
+	}
+}
+
 func TestHeartbeatRejectsBadState(t *testing.T) {
 	_, m1, _ := livenessRig(t)
-	for _, hb := range []Heartbeat{{State: "napping"}, {State: StateWorking}, {State: StateIdle, Card: "x-1"}} {
+	for _, hb := range []Heartbeat{{State: "napping"}, {State: StateWorking}, {State: StateIdle, Card: "x-1"}, {State: StateWorking, Card: "x-1", IdleReason: "why"}} {
 		if err := m1.Heartbeat(context.Background(), hb); err == nil || !strings.Contains(err.Error(), "400") {
 			t.Fatalf("%+v: %v", hb, err)
 		}

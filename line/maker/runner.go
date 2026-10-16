@@ -240,11 +240,12 @@ func (r *Runner) maxAttempts() int {
 
 // beat sends one heartbeat; a line that cannot be reached must not stop the
 // maker, so a failure is only logged.
-func (r *Runner) beat(ctx context.Context, state station.StationState, card string) {
+func (r *Runner) beat(ctx context.Context, hb station.Heartbeat) {
 	if r.Heartbeats == nil {
 		return
 	}
-	if err := r.Heartbeats.Heartbeat(ctx, station.Heartbeat{State: state, Card: card, Commit: r.Commit}); err != nil && ctx.Err() == nil {
+	hb.Commit = r.Commit
+	if err := r.Heartbeats.Heartbeat(ctx, hb); err != nil && ctx.Err() == nil {
 		r.logf("heartbeat: %v", err)
 	}
 }
@@ -253,7 +254,7 @@ func (r *Runner) beat(ctx context.Context, state station.StationState, card stri
 // until the returned stop is called: a run lasts far longer than the line's
 // silence limit.
 func (r *Runner) beatWhileWorking(ctx context.Context, card string) (stop func()) {
-	return BeatEveryPoll(ctx, func(ctx context.Context) { r.beat(ctx, station.StateWorking, card) })
+	return BeatEveryPoll(ctx, func(ctx context.Context) { r.beat(ctx, station.Heartbeat{State: station.StateWorking, Card: card}) })
 }
 
 // BeatEveryPoll calls beat at once and then every station.MakerPollInterval
@@ -356,10 +357,21 @@ func (r *Runner) cancelWhenCordPulled(ctx context.Context, cancel context.Cancel
 	}
 }
 
+// idleReason says why Pick found nothing among the ready cards.
+func idleReason(ready []Bead, stopped bool, label string) string {
+	if len(ready) == 0 {
+		return fmt.Sprintf("no ready cards labelled %s", label)
+	}
+	if stopped && !slices.ContainsFunc(ready, func(b Bead) bool { return slices.Contains(b.Labels, "andon") }) {
+		return fmt.Sprintf("andon cord pulled and none of %d ready cards is an andon card", len(ready))
+	}
+	return fmt.Sprintf("all %d ready cards are labelled %s", len(ready), GaveUpLabel)
+}
+
 // Once works one card: pick → claim → run → settle. It reports whether there
 // was a card to work.
 func (r *Runner) Once(ctx context.Context) (bool, error) {
-	r.beat(ctx, station.StateIdle, "")
+	r.beat(ctx, station.Heartbeat{State: station.StateIdle})
 	r.releaseStranded(ctx)
 	label := r.Label
 	if label == "" {
@@ -376,6 +388,7 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 	b, found := Pick(ready, stopped)
 	r.lastLanded = false
 	if !found {
+		r.beat(ctx, station.Heartbeat{State: station.StateIdle, IdleReason: idleReason(ready, stopped, label)})
 		return false, nil
 	}
 	token := r.Token
