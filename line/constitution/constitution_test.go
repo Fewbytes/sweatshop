@@ -501,3 +501,21 @@ func TestCardsNeedsTimeoutDefaultsAndRejectsBad(t *testing.T) {
 		}
 	}
 }
+
+func TestViceroyPresignMaxTTLDefaultsAndRejectsBad(t *testing.T) {
+	_, key := publicKey(t)
+	base := valid(key)
+	c, err := Parse([]byte(base))
+	if err != nil || c.Viceroy.PresignMaxTTLOrDefault() != DefaultPresignMaxTTL {
+		t.Fatalf("default: %v %v", c.Viceroy.PresignMaxTTLOrDefault(), err)
+	}
+	c, err = Parse([]byte("[viceroy]\npresign_max_ttl = \"15m\"\n" + base))
+	if err != nil || c.Viceroy.PresignMaxTTLOrDefault() != 15*time.Minute {
+		t.Fatalf("explicit: %+v %v", c.Viceroy, err)
+	}
+	for _, bad := range []string{"soon", "-1h", "0s"} {
+		if _, err := Parse([]byte("[viceroy]\npresign_max_ttl = \"" + bad + "\"\n" + base)); err == nil {
+			t.Errorf("presign_max_ttl %q accepted", bad)
+		}
+	}
+}

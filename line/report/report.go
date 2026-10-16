@@ -164,6 +164,14 @@ type ObjectReader interface {
 	Get(ctx context.Context, key string) ([]byte, error)
 }
 
+// ObjectPresigner mints time-limited read-only links to objects, so the
+// viceroy can hand the king a report without the line relaying its bytes or
+// any bucket credential leaving the line. The filesystem dev store cannot.
+type ObjectPresigner interface {
+	// PresignGet returns a URL that serves the object at key until ttl passes.
+	PresignGet(key string, ttl time.Duration) (string, error)
+}
+
 // MaxObjectBytes bounds what Get returns, so one huge object cannot exhaust
 // the line's memory when relayed to a station.
 const MaxObjectBytes = 8 << 20

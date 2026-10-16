@@ -95,3 +95,27 @@ func TestS3StoreListAndGet(t *testing.T) {
 		t.Fatalf("missing get err = %v", err)
 	}
 }
+
+func TestS3StorePresignGetSignsOnlyHostAndExpiry(t *testing.T) {
+	s := S3Store{Endpoint: "https://s3.example.com", Bucket: "reports", Prefix: "p", AccessKey: "AK", SecretKey: "SK",
+		Now: func() time.Time { return time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC) }}
+	got, err := s.PresignGet("kaizen/run 1/analysis.md", 15*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "https://s3.example.com/reports/p/kaizen/run%201/analysis.md?X-Amz-Algorithm=AWS4-HMAC-SHA256" +
+		"&X-Amz-Credential=AK%2F20260102%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260102T030405Z" +
+		"&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=57d815ebbfd6e4850819ebdab3902efce53692358ed06c4384865ba7dd769165"
+	if got != want {
+		t.Fatalf("presigned URL = %s\nwant %s", got, want)
+	}
+}
+
+func TestS3StorePresignGetRejectsTTLOutsideSigV4Bounds(t *testing.T) {
+	s := S3Store{Endpoint: "https://s3.example.com", Bucket: "reports", AccessKey: "AK", SecretKey: "SK"}
+	for _, ttl := range []time.Duration{0, time.Millisecond, MaxPresignTTL + time.Second} {
+		if _, err := s.PresignGet("k", ttl); err == nil {
+			t.Errorf("ttl %s accepted", ttl)
+		}
+	}
+}

@@ -100,6 +100,23 @@ type Viceroy struct {
 	// beyond the ones the station always allows. An entry ending in "*"
 	// matches every label with that prefix.
 	Labels []string `toml:"labels,omitempty"`
+	// PresignMaxTTL (Go duration) caps how long a presigned report link the
+	// viceroy requests may live; empty means DefaultPresignMaxTTL.
+	PresignMaxTTL string `toml:"presign_max_ttl,omitempty"`
+}
+
+// DefaultPresignMaxTTL is the longest presigned report link when the
+// constitution does not say otherwise.
+const DefaultPresignMaxTTL = time.Hour
+
+// PresignMaxTTLOrDefault is the presigned-link lifetime cap with the default
+// applied. Parse rejects malformed values, so a bad one here can only come
+// from code.
+func (v Viceroy) PresignMaxTTLOrDefault() time.Duration {
+	if d, err := time.ParseDuration(v.PresignMaxTTL); err == nil && d > 0 {
+		return d
+	}
+	return DefaultPresignMaxTTL
 }
 
 // MayLabel reports whether the viceroy's Labels list covers label.
@@ -203,6 +220,11 @@ func (c Constitution) validateGovernance() error {
 	}
 	if slices.Contains(c.Viceroy.Labels, "") {
 		return errors.New("viceroy.labels: empty label")
+	}
+	if c.Viceroy.PresignMaxTTL != "" {
+		if d, err := time.ParseDuration(c.Viceroy.PresignMaxTTL); err != nil || d <= 0 {
+			return fmt.Errorf("viceroy.presign_max_ttl %q: want a positive duration like 1h", c.Viceroy.PresignMaxTTL)
+		}
 	}
 	for i, d := range c.Viceroy.Delegations {
 		if d.Close {

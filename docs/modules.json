@@ -978,7 +978,7 @@
       "purpose": "Command sweatshop administers an assembly line (witness keys, the merge"
     },
     "line/constitution": {
-      "entry_point_count": 29,
+      "entry_point_count": 30,
       "entry_points": [
         "BlobGuard",
         "Cards",
@@ -1412,7 +1412,7 @@
       "purpose": "Package maker runs a Maker station: a host-side loop that takes a ready"
     },
     "line/report": {
-      "entry_point_count": 22,
+      "entry_point_count": 24,
       "entry_points": [
         "Check",
         "ErrObjectNotFound",
@@ -1420,12 +1420,12 @@
         "HTML",
         "JUnitXML",
         "MaxObjectBytes",
+        "MaxPresignTTL",
         "NewObjectStore",
+        "ObjectPresigner",
         "ObjectReader",
         "ObjectStore",
-        "ObjectStoreFromEnv",
-        "ParseGoTestJSON",
-        "ReadJSONL"
+        "ObjectStoreFromEnv"
       ],
       "hidden_coupling_ratio": 0.333,
       "hotspot_rank": 16,
@@ -1463,7 +1463,7 @@
       "purpose": "Package runner is the one interface the line uses to run station and"
     },
     "line/station": {
-      "entry_point_count": 72,
+      "entry_point_count": 73,
       "entry_points": [
         "BeadsCards",
         "CLIEngine",

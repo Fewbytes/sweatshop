@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -140,10 +141,7 @@ func (s S3Store) objectPath(key string) string {
 // bucketPath (which starts with "/"+Bucket), returning the response body. A 404
 // wraps ErrObjectNotFound; any other non-2xx status is an error.
 func (s S3Store) send(ctx context.Context, method, bucketPath string, query url.Values, contentType string, data []byte) ([]byte, error) {
-	region := s.Region
-	if region == "" {
-		region = "us-east-1"
-	}
+	region := s.region()
 	now := time.Now
 	if s.Now != nil {
 		now = s.Now
@@ -156,15 +154,9 @@ func (s S3Store) send(ctx context.Context, method, bucketPath string, query url.
 	if err != nil || base.Host == "" {
 		return nil, fmt.Errorf("bad endpoint %q", s.Endpoint)
 	}
-	path := base.Path + bucketPath
 	u := *base
-	u.Path = path
-	// Canonical URI: each segment URI-encoded once (S3 does not double-encode).
-	segs := strings.Split(path, "/")
-	for i, seg := range segs {
-		segs[i] = awsEscape(seg)
-	}
-	canonURI := strings.Join(segs, "/")
+	u.Path = base.Path + bucketPath
+	canonURI := canonicalURI(u.Path)
 	u.RawPath = canonURI
 	// Canonical query: names and values URI-encoded, sorted by name.
 	qnames := make([]string, 0, len(query))
@@ -208,11 +200,7 @@ func (s S3Store) send(ctx context.Context, method, bucketPath string, query url.
 	canonReq := strings.Join([]string{method, canonURI, canonQuery, canonHdr.String(), signed, payload}, "\n")
 	scope := day + "/" + region + "/s3/aws4_request"
 	toSign := "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + sha256Hex([]byte(canonReq))
-	k := hmacSHA256([]byte("AWS4"+s.SecretKey), day)
-	k = hmacSHA256(k, region)
-	k = hmacSHA256(k, "s3")
-	k = hmacSHA256(k, "aws4_request")
-	sig := hex.EncodeToString(hmacSHA256(k, toSign))
+	sig := hex.EncodeToString(hmacSHA256(s.signingKey(day, region), toSign))
 
 	req, err := http.NewRequestWithContext(ctx, method, u.String(), bytes.NewReader(data))
 	if err != nil {
@@ -237,6 +225,86 @@ func (s S3Store) send(ctx context.Context, method, bucketPath string, query url.
 		return nil, fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, MaxObjectBytes+1))
+}
+
+func (s S3Store) region() string {
+	if s.Region == "" {
+		return "us-east-1"
+	}
+	return s.Region
+}
+
+func (s S3Store) signingKey(day, region string) []byte {
+	k := hmacSHA256([]byte("AWS4"+s.SecretKey), day)
+	k = hmacSHA256(k, region)
+	k = hmacSHA256(k, "s3")
+	return hmacSHA256(k, "aws4_request")
+}
+
+// canonicalURI encodes each path segment once (S3 does not double-encode).
+func canonicalURI(path string) string {
+	segs := strings.Split(path, "/")
+	for i, seg := range segs {
+		segs[i] = awsEscape(seg)
+	}
+	return strings.Join(segs, "/")
+}
+
+// MaxPresignTTL is the longest lifetime SigV4 allows a presigned URL.
+const MaxPresignTTL = 7 * 24 * time.Hour
+
+// PresignGet returns a SigV4 query-signed URL for GET of the object at key,
+// valid for ttl from now (whole seconds, 1 to MaxPresignTTL). Only the host
+// header is signed, so any client can fetch it; it grants read of that one
+// object and nothing else.
+func (s S3Store) PresignGet(key string, ttl time.Duration) (string, error) {
+	if ttl < time.Second || ttl > MaxPresignTTL {
+		return "", fmt.Errorf("presign ttl %s: want between 1s and %s", ttl, MaxPresignTTL)
+	}
+	base, err := url.Parse(strings.TrimRight(s.Endpoint, "/"))
+	if err != nil || base.Host == "" {
+		return "", fmt.Errorf("bad endpoint %q", s.Endpoint)
+	}
+	now := time.Now
+	if s.Now != nil {
+		now = s.Now
+	}
+	t := now().UTC()
+	amzDate := t.Format("20060102T150405Z")
+	day := t.Format("20060102")
+	region := s.region()
+	scope := day + "/" + region + "/s3/aws4_request"
+
+	query := url.Values{
+		"X-Amz-Algorithm":     {"AWS4-HMAC-SHA256"},
+		"X-Amz-Credential":    {s.AccessKey + "/" + scope},
+		"X-Amz-Date":          {amzDate},
+		"X-Amz-Expires":       {strconv.Itoa(int(ttl / time.Second))},
+		"X-Amz-SignedHeaders": {"host"},
+	}
+	if s.SessionToken != "" {
+		query.Set("X-Amz-Security-Token", s.SessionToken)
+	}
+	names := make([]string, 0, len(query))
+	for k := range query {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	pairs := make([]string, 0, len(names))
+	for _, k := range names {
+		pairs = append(pairs, awsEscape(k)+"="+awsEscape(query.Get(k)))
+	}
+	canonQuery := strings.Join(pairs, "&")
+
+	u := *base
+	u.Path = base.Path + s.objectPath(key)
+	canonURI := canonicalURI(u.Path)
+	canonReq := strings.Join([]string{http.MethodGet, canonURI, canonQuery, "host:" + base.Host + "\n", "host", "UNSIGNED-PAYLOAD"}, "\n")
+	toSign := "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + sha256Hex([]byte(canonReq))
+	sig := hex.EncodeToString(hmacSHA256(s.signingKey(day, region), toSign))
+	u.RawPath = canonURI
+	u.RawQuery = canonQuery + "&X-Amz-Signature=" + sig
+	return u.String(), nil
 }
 
 func sha256Hex(b []byte) string {

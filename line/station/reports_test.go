@@ -5,7 +5,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/Fewbytes/sweatshop/line/report"
 )
 
 func TestViceroyReadsReportsBucketButCannotWriteIt(t *testing.T) {
@@ -60,5 +64,51 @@ func TestOtherRolesCannotReadReportsBucket(t *testing.T) {
 		if _, err := c.ListReports(context.Background(), ""); err == nil {
 			t.Errorf("%s listed the reports bucket", name)
 		}
+	}
+}
+
+func TestViceroyPresignsKaizenReportsWithinTheConstitutionCap(t *testing.T) {
+	r := newKaizenRig(t)
+	r.srv.Stations = append(r.srv.Stations, &Station{Name: "v", Role: viceroyRole, Token: "vt"})
+	r.srv.Reports = report.S3Store{Endpoint: "https://s3.example.com", Bucket: "reports", AccessKey: "AK", SecretKey: "SK"}
+	r.srv.Guard.Constitution.Viceroy.PresignMaxTTL = "30m"
+	ctx := context.Background()
+	viceroy := Client{URL: r.heijunka.URL, Token: "vt"}
+
+	got, err := viceroy.PresignReport(ctx, KaizenAnalysisKey("run1"), 10*time.Minute)
+	if err != nil || got.TTL != "10m0s" || !strings.Contains(got.URL, "/reports/kaizen/run1/analysis.md?") ||
+		!strings.Contains(got.URL, "X-Amz-Expires=600") {
+		t.Fatalf("presign = %+v, %v", got, err)
+	}
+	got, err = viceroy.PresignReport(ctx, KaizenSignalsPrefix("abc")+"/signals.json", 0)
+	if err != nil || got.TTL != "30m0s" || !strings.Contains(got.URL, "X-Amz-Expires=1800") {
+		t.Fatalf("default ttl presign = %+v, %v", got, err)
+	}
+	for name, tc := range map[string]struct {
+		key string
+		ttl time.Duration
+	}{
+		"ttl over the cap":    {KaizenAnalysisKey("run1"), 31 * time.Minute},
+		"not a kaizen report": {"reports/abc/junit.xml", time.Minute},
+		"dot-dot in the key":  {"kaizen/../reports/abc/junit.xml", time.Minute},
+		"empty key":           {"", time.Minute},
+		"sub-second ttl":      {KaizenAnalysisKey("run1"), time.Millisecond},
+	} {
+		if _, err := viceroy.PresignReport(ctx, tc.key, tc.ttl); err == nil {
+			t.Errorf("%s: presign succeeded", name)
+		}
+	}
+}
+
+func TestPresignNeedsAViceroyAndAPresigningStore(t *testing.T) {
+	r := newKaizenRig(t)
+	r.srv.Stations = append(r.srv.Stations, &Station{Name: "v", Role: viceroyRole, Token: "vt"})
+	ctx := context.Background()
+	if _, err := r.mkr.PresignReport(ctx, KaizenAnalysisKey("run1"), time.Minute); err == nil {
+		t.Error("maker presigned a report")
+	}
+	viceroy := Client{URL: r.heijunka.URL, Token: "vt"}
+	if _, err := viceroy.PresignReport(ctx, KaizenAnalysisKey("run1"), time.Minute); err == nil {
+		t.Error("filesystem store presigned a report")
 	}
 }

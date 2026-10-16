@@ -58,8 +58,8 @@ const usage = `usage:
   sweatshop line stats [--since D]      print CI health: pass rate, durations, slow, failing and flaky tests, time to green (D: 36h, 7d)
   sweatshop line events [--since D] [--card ID] [--station S]
                                         print the line's event log, oldest first, as JSON: offers, claims, releases, give-ups, closes, reaps, submits, merges, andon pulls and clears
-  sweatshop line reports list [--prefix P] | get KEY
-                                        viceroy only, read-only: list keys in the reports bucket as JSON / print one object
+  sweatshop line reports list [--prefix P] | get KEY | presign KEY [--ttl D]
+                                        viceroy only, read-only: list keys in the reports bucket as JSON / print one object / print a time-limited read URL for a kaizen report (D: 15m, at most the constitution's viceroy.presign_max_ttl)
   sweatshop line evidence ID            print a check log
   sweatshop line cards list [--status S] [--label L] [--parent ID] | show ID | create --title T --type TYPE --priority N [--parent ID] [--acceptance A] (description on stdin) | comment ID (text on stdin) | offer ID | close ID (reason on stdin) | label ID [--add L]... [--remove L]...
                                         read and (viceroy only) write cards; output is JSON
@@ -1112,6 +1112,21 @@ func lineReports(args []string, stdout io.Writer) error {
 			return err
 		}
 		return json.NewEncoder(stdout).Encode(keys)
+	case len(args) >= 2 && args[0] == "presign":
+		fs := flag.NewFlagSet("line reports presign", flag.ContinueOnError)
+		ttl := fs.Duration("ttl", 0, "link lifetime; default is the constitution's cap")
+		if err := fs.Parse(args[2:]); err != nil {
+			return err
+		}
+		if fs.NArg() != 0 {
+			return errors.New(usage)
+		}
+		res, err := c.PresignReport(ctx, args[1], *ttl)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(stdout, res.URL)
+		return err
 	case len(args) == 2 && args[0] == "get":
 		data, err := c.GetReport(ctx, args[1])
 		if err != nil {

@@ -67,6 +67,9 @@ succession = true   # a successor viceroy may take over from its predecessor
 # needs:*, which it may always touch. A trailing * matches a prefix.
 labels = ["obsolete", "triage:*"]
 
+# Longest lifetime of a presigned link to a kaizen report; default 1h.
+presign_max_ttl = "2h"
+
 # A delegation lets the viceroy offer matching cards without the king. A card
 # matches by issue type, or by having parent in its ancestor chain.
 [[viceroy.delegations]]
