@@ -179,7 +179,7 @@ It refuses a non-empty `<line-dir>`. The line dir lives outside any workspace.
 | Witness signs failing runs | Andon needs signed failure evidence | None for merge (guard rejects failing) |
 | Andon station is scripted | M1 needs a stop/clear loop, not judgment | LLM triage is deferred |
 | Beads claimed/closed by the host runner | Beads sync inside containers is out of M1 | The runner pulls on the agent's behalf; the agent still chooses how to work |
-| No shared cache volume for check runs | A writable cache shared across agent-authored code is poisonable | Slower checks (module downloads per run) |
+| Go module and build caches are shared named volumes for check runs (king, 2026-10-17); `line serve --cold-checks` ignores them | Baking modules into the image went stale under `GOPROXY=off` (sweatshop-59s). A writable cache shared across agent-authored code is poisonable, so the cold run proves the line builds from nothing | A cold run downloads everything and runs under `checks.cold_timeout` (default `"2h"`) |
 | Fix trailer `Andon-Event:` | Simple, verifiable from the commit | Commit-message convention; enforced by guard |
 | `justfile`, `station/**` gated to gemba (R13) | The candidate defines its own check; a maker must not weaken it in the commit it is judged by | Check/image changes cannot go through the line in M1; tests stay agent-editable |
 | Check runs hardened, bounded, time-limited, one per station (R14) | Agent-authored check code must not starve the host or mint signed failures | Constitution grows optional runner limits and `checks.timeout` |

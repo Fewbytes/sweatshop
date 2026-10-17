@@ -53,6 +53,10 @@ type Witness struct {
 	// and records its duration and statistics. Failures are logged only: they
 	// never change the verdict.
 	Reporter *report.Reporter
+	// Cold runs the checks with empty Go caches and network module lookups,
+	// under the constitution's cold_timeout, to prove the line builds from
+	// nothing. The signed predicate is the same as for a warm run.
+	Cold bool
 
 	mu    sync.Mutex
 	swept bool
@@ -210,6 +214,10 @@ var errCheckTimeout = errors.New("check timed out")
 //     cannot fail a check.
 const checkEnv = `export GOFLAGS="${GOFLAGS:+$GOFLAGS }-json -mod=readonly" GOPROXY=off; `
 
+// coldCheckEnv replaces checkEnv in a cold run: fresh throwaway caches (the
+// volumes stay untouched) and the module proxy instead of GOPROXY=off.
+const coldCheckEnv = `export GOFLAGS="${GOFLAGS:+$GOFLAGS }-json -mod=readonly" GOMODCACHE="$(mktemp -d)" GOCACHE="$(mktemp -d)" GOPROXY=https://proxy.golang.org,direct; `
+
 // run executes the required checks in checkout and signs the outcome.
 func (w *Witness) run(ctx context.Context, commit, tree, checkout string) (AttestResult, error) {
 	predicate := attest.ChecksPredicate{
@@ -219,11 +227,14 @@ func (w *Witness) run(ctx context.Context, commit, tree, checkout string) (Attes
 	passed := true
 	started := w.now()
 	var timings []report.Check
-	timeout := w.Constitution.Checks.TimeoutDuration()
+	timeout, prefix := w.Constitution.Checks.TimeoutDuration(), checkEnv
+	if w.Cold {
+		timeout, prefix = w.Constitution.Checks.ColdTimeoutDuration(), coldCheckEnv
+	}
 	for _, check := range w.Constitution.Checks.Required {
 		checkCtx, cancel := context.WithTimeoutCause(ctx, timeout, errCheckTimeout)
 		checkStart := w.now()
-		run, err := w.Runner.Run(checkCtx, checkout, checkEnv+check.Command)
+		run, err := w.Runner.Run(checkCtx, checkout, prefix+check.Command)
 		elapsed := w.now().Sub(checkStart)
 		cut := checkCtx.Err() != nil
 		cancel()

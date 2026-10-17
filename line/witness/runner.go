@@ -58,6 +58,10 @@ func (ExecRunner) Run(ctx context.Context, dir, command string) (RunResult, erro
 // failure), and a unique name so it can be force-removed whatever ended the
 // run. The check runs as the image's user.
 //
+// The Go module and build caches are named engine volumes (goModCacheVolume,
+// goBuildCacheVolume), shared by all check containers. A warm run reads them
+// with GOPROXY=off; see README "Go caches" for priming.
+//
 // Only the check's own outcome is a result. Exit 125 (the engine could not
 // start the container) and exit 137 without OOMKilled (the engine, the VM or
 // someone else SIGKILLed it) are runner errors: nothing is signed. A 137 from
@@ -79,6 +83,17 @@ type ContainerRunner struct {
 	Remove func(name string)
 	Log    *log.Logger // reports cleanup failures; nil means the standard logger
 }
+
+// Named volumes that hold the Go module and build caches across check runs,
+// mounted at the paths GOMODCACHE and GOCACHE point to. They live in the
+// engine, not in the image, so a cold run can ignore them and the image stays
+// free of dependencies.
+const (
+	goModCacheVolume   = "sweatshop-go-mod-cache"
+	goBuildCacheVolume = "sweatshop-go-build-cache"
+	goModCachePath     = "/cache/go-mod"
+	goBuildCachePath   = "/cache/go-build"
+)
 
 // removeGrace bounds the cleanup of a check container.
 const removeGrace = 30 * time.Second
@@ -147,9 +162,10 @@ func (c ContainerRunner) Run(ctx context.Context, dir, command string) (RunResul
 	l := constitution.Runner{Memory: c.Limits.Memory, Pids: c.Limits.Pids, CPUs: c.Limits.CPUs}.Limits()
 	// No --rm: the container must outlive the run so classify can inspect
 	// OOMKilled; c.remove force-removes it afterwards.
-	wrapped := fmt.Sprintf("%s run --name %s --cap-drop=ALL --security-opt=no-new-privileges --memory %s --pids-limit %d --cpus %s -v %s:/src -w /src -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/src %s bash -c %s",
+	wrapped := fmt.Sprintf("%s run --name %s --cap-drop=ALL --security-opt=no-new-privileges --memory %s --pids-limit %d --cpus %s -v %s:/src -v %s:%s -v %s:%s -w /src -e GOMODCACHE=%s -e GOCACHE=%s -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/src %s bash -c %s",
 		c.Engine, shellQuote(name), shellQuote(l.Memory), l.Pids, shellQuote(l.CPUs),
-		shellQuote(dir), shellQuote(c.Image), shellQuote(command))
+		shellQuote(dir), goModCacheVolume, goModCachePath, goBuildCacheVolume, goBuildCachePath,
+		goModCachePath, goBuildCachePath, shellQuote(c.Image), shellQuote(command))
 	res, err := c.Inner.Run(ctx, dir, wrapped)
 	if err == nil {
 		err = c.classify(name, res.ExitCode)

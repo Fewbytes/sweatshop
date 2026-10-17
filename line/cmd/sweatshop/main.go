@@ -48,7 +48,7 @@ const usage = `usage:
                                         create a line directory seeded from S's master
   sweatshop line station add --dir D --name NAME --role ROLE
                                         add a station (key, token, trusted key) to the line in D; restart line serve
-  sweatshop line serve --dir D [--addr 127.0.0.1:PORT] [--unsafe-listen] [--beads DIR]
+  sweatshop line serve --dir D [--addr 127.0.0.1:PORT] [--unsafe-listen] [--beads DIR] [--cold-checks]
                                         serve the station API for the line in D
   sweatshop line attest [--rev HEAD] [--repo .]
                                         have this station's witness check rev
@@ -271,6 +271,7 @@ func lineServe(args []string, stdout io.Writer) error {
 	addr := fs.String("addr", "", "listen address (default 127.0.0.1:<port from line.toml>)")
 	unsafe := fs.Bool("unsafe-listen", false, "allow a non-loopback listen address")
 	beads := fs.String("beads", "", "beads workspace for the cards routes (default: routes return 503)")
+	cold := fs.Bool("cold-checks", false, "run every check with empty Go caches and module downloads allowed, under checks.cold_timeout")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -291,6 +292,9 @@ func lineServe(args []string, stdout io.Writer) error {
 	srv, err := station.NewFromLine(l)
 	if err != nil {
 		return err
+	}
+	for _, st := range srv.Stations {
+		st.Witness.Cold = *cold
 	}
 	if err := srv.OpenStore(context.Background(), l.Dir); err != nil {
 		return err

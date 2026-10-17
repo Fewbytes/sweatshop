@@ -406,3 +406,71 @@ func TestCheckEnvForbidsNetworkModuleLookups(t *testing.T) {
 		t.Errorf("GOFLAGS|GOPROXY = %q, want %q", got, want)
 	}
 }
+
+// deadlineRecordingRunner remembers the command and time limit of its run.
+type deadlineRecordingRunner struct {
+	command  string
+	deadline time.Time
+}
+
+func (r *deadlineRecordingRunner) Run(ctx context.Context, _, command string) (RunResult, error) {
+	r.command = command
+	r.deadline, _ = ctx.Deadline()
+	return RunResult{EvidenceID: "inv_x"}, nil
+}
+
+func TestColdRunUsesColdEnvAndColdTimeoutWarmRunKeepsWarm(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		cold        bool
+		wantEnv     string
+		longTimeout bool
+	}{
+		{"warm", false, checkEnv, false},
+		{"cold", true, coldCheckEnv, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newSource(t)
+			w, _ := newWitness(t)
+			runner := &deadlineRecordingRunner{}
+			w.Runner = runner
+			w.Cold = tc.cold
+			w.Constitution.Checks.Timeout = "10m"
+			w.Constitution.Checks.ColdTimeout = "3h"
+			s.commit("src/a.go", "package a")
+			result, err := w.Attest(s.ctx, s.repo.Dir, "HEAD")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if runner.command != tc.wantEnv+"sh check.sh" {
+				t.Errorf("runner got %q, want env %q", runner.command, tc.wantEnv)
+			}
+			if long := time.Until(runner.deadline) > time.Hour; long != tc.longTimeout {
+				t.Errorf("time limit %s away; long (cold) limit = %v, want %v", time.Until(runner.deadline), long, tc.longTimeout)
+			}
+			if got := result.Statement.Predicate.Checks[0].Command; got != "sh check.sh" {
+				t.Errorf("signed command = %q, want the constitution's", got)
+			}
+		})
+	}
+}
+
+func TestColdCheckEnvAllowsModuleDownloadsIntoFreshCaches(t *testing.T) {
+	t.Setenv("GOFLAGS", "")
+	t.Setenv("GOPROXY", "off")
+	t.Setenv("GOMODCACHE", "/warm/mod")
+	t.Setenv("GOCACHE", "/warm/build")
+	out, err := exec.Command("sh", "-c", coldCheckEnv+`printf '%s|%s|%s|%s' "$GOFLAGS" "$GOPROXY" "$GOMODCACHE" "$GOCACHE"`).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := strings.Split(string(out), "|")
+	if len(parts) != 4 || parts[0] != "-json -mod=readonly" || parts[1] != "https://proxy.golang.org,direct" {
+		t.Fatalf("GOFLAGS|GOPROXY|... = %q", out)
+	}
+	for _, dir := range parts[2:] {
+		if strings.HasPrefix(dir, "/warm/") || dir == "" {
+			t.Errorf("cold run kept cache %q", dir)
+		}
+	}
+}

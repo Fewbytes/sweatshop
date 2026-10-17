@@ -519,3 +519,16 @@ func TestViceroyPresignMaxTTLDefaultsAndRejectsBad(t *testing.T) {
 		}
 	}
 }
+
+func TestChecksColdTimeoutDefaultsAndRejectsBad(t *testing.T) {
+	if got := (Checks{}).ColdTimeoutDuration(); got != defaultColdCheckTimeout {
+		t.Errorf("default cold timeout = %s, want %s", got, defaultColdCheckTimeout)
+	}
+	if got := (Checks{ColdTimeout: "3h"}).ColdTimeoutDuration(); got != 3*time.Hour {
+		t.Errorf("cold timeout = %s, want 3h", got)
+	}
+	c := Constitution{Runner: Runner{Kind: "local"}, Checks: Checks{ColdTimeout: "soon"}}
+	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "checks.cold_timeout") {
+		t.Errorf("validate() = %v, want a checks.cold_timeout error", err)
+	}
+}

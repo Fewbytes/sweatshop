@@ -55,7 +55,7 @@ func TestContainerRunnerWrapsCommandThroughInner(t *testing.T) {
 	if m == nil {
 		t.Fatalf("no unique --name in %s", inner.command)
 	}
-	want := `docker run --name '` + m[1] + `' --cap-drop=ALL --security-opt=no-new-privileges --memory '4g' --pids-limit 1024 --cpus '2' -v '/tmp/check out':/src -w /src -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/src 'ci:1' bash -c 'echo '\''hi'\'' && just ci'`
+	want := `docker run --name '` + m[1] + `' --cap-drop=ALL --security-opt=no-new-privileges --memory '4g' --pids-limit 1024 --cpus '2' -v '/tmp/check out':/src -v sweatshop-go-mod-cache:/cache/go-mod -v sweatshop-go-build-cache:/cache/go-build -w /src -e GOMODCACHE=/cache/go-mod -e GOCACHE=/cache/go-build -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/src 'ci:1' bash -c 'echo '\''hi'\'' && just ci'`
 	if inner.command != want {
 		t.Fatalf("wrapped command:\n got %s\nwant %s", inner.command, want)
 	}

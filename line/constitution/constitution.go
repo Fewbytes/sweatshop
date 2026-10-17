@@ -286,9 +286,25 @@ type Checks struct {
 	// A run that hits it is a runner error: the witness signs nothing, so a
 	// hung or starved check can never become signed evidence of failure.
 	Timeout string `toml:"timeout,omitempty"`
+	// ColdTimeout bounds each check run of a cold run (Go duration, default
+	// defaultColdCheckTimeout): empty caches make the checks download and
+	// compile everything, which takes longer than a warm run.
+	ColdTimeout string `toml:"cold_timeout,omitempty"`
 }
 
-const DefaultCheckTimeout = 30 * time.Minute
+const (
+	DefaultCheckTimeout     = 30 * time.Minute
+	defaultColdCheckTimeout = 2 * time.Hour
+)
+
+// ColdTimeoutDuration is the per-check timeout of a cold run; empty means the
+// default. Parse rejects malformed values.
+func (c Checks) ColdTimeoutDuration() time.Duration {
+	if d, err := time.ParseDuration(c.ColdTimeout); err == nil && d > 0 {
+		return d
+	}
+	return defaultColdCheckTimeout
+}
 
 // TimeoutDuration is the per-check timeout; empty means the default. Parse
 // rejects malformed values, so a bad one here can only come from code.
@@ -448,6 +464,11 @@ func (c Constitution) validate() error {
 	if c.Runner.CPUs != "" {
 		if n, err := strconv.ParseFloat(c.Runner.CPUs, 64); err != nil || n <= 0 || !cpuCount.MatchString(c.Runner.CPUs) {
 			return fmt.Errorf("runner.cpus %q: want a positive number like 2 or 0.5", c.Runner.CPUs)
+		}
+	}
+	if c.Checks.ColdTimeout != "" {
+		if d, err := time.ParseDuration(c.Checks.ColdTimeout); err != nil || d <= 0 {
+			return fmt.Errorf("checks.cold_timeout %q: want a positive duration like 2h", c.Checks.ColdTimeout)
 		}
 	}
 	if c.Checks.Timeout != "" {
