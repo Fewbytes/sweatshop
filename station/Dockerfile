@@ -17,6 +17,17 @@ RUN go mod download
 COPY line/ ./
 RUN CGO_ENABLED=0 go build -o /out/sweatshop ./cmd/sweatshop
 
+# Module cache for the check runner: the witness runs checks with GOPROXY=off,
+# so every module any `just ci` needs must already be in the image. agentsh
+# replaces line with ../line, so line sits beside it.
+FROM golang:${GO_VERSION}-bookworm@${GOLANG_DIGEST} AS gomodcache
+ENV GOMODCACHE=/opt/gomodcache
+COPY line/go.mod line/go.sum /build/line/
+COPY agentsh/go.mod agentsh/go.sum /build/agentsh/
+COPY bughunt/go.mod bughunt/go.sum /build/bughunt/
+COPY depmaint/go.mod depmaint/go.sum /build/depmaint/
+RUN set -eux; for m in line agentsh bughunt depmaint; do (cd /build/$m && go mod download); done; chmod -R a+rX /opt/gomodcache
+
 # bookworm ships git 2.39 and bookworm-backports carries no git at all, so
 # build the witness's floor (2.45.1) or newer from the kernel.org release.
 FROM ${DEBIAN_IMAGE} AS git-builder
@@ -137,6 +148,8 @@ RUN set -eux; \
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" && claude --version
 
 COPY --from=builder /usr/local/go /usr/local/go
+COPY --from=gomodcache /opt/gomodcache /opt/gomodcache
+ENV GOMODCACHE=/opt/gomodcache
 ENV PATH=/usr/local/go/bin:/home/agent/go/bin:$PATH
 COPY --from=builder /out/sweatshop /usr/local/bin/sweatshop
 COPY --chmod=0755 station/entrypoint.sh /usr/local/bin/station-entrypoint
