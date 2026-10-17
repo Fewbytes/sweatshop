@@ -394,8 +394,8 @@ func (s *Server) viceroyClose(w http.ResponseWriter, r *http.Request, cards Card
 	if err := decodeBody(w, r, &body); err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(body.Reason) == "" || len(body.Reason) > maxDesc || !utf8.ValidString(body.Reason) {
-		return "", fail(http.StatusBadRequest, "reason must be 1..%d bytes of UTF-8", maxDesc)
+	if err := requireReason(body.Reason); err != nil {
+		return "", err
 	}
 	raw, err := cards.Show(r.Context(), id)
 	if err != nil {
@@ -424,6 +424,15 @@ func (s *Server) viceroyClose(w http.ResponseWriter, r *http.Request, cards Card
 	s.recordEvent(r.Context(), st, linestore.EventClose, id, body.Reason)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	return "close " + id, nil
+}
+
+// requireReason rejects a close or release reason that is blank, longer than
+// maxDesc bytes or not UTF-8.
+func requireReason(reason string) error {
+	if strings.TrimSpace(reason) == "" || len(reason) > maxDesc || !utf8.ValidString(reason) {
+		return fail(http.StatusBadRequest, "reason must be 1..%d bytes of UTF-8", maxDesc)
+	}
+	return nil
 }
 
 // LabelChange is the body of POST /v1/cards/{id}/labels.
@@ -514,8 +523,8 @@ func (s *Server) settle(w http.ResponseWriter, r *http.Request, cards Cards, st 
 		if err := decodeBody(w, r, &body); err != nil {
 			return "", err
 		}
-		if strings.TrimSpace(body.Reason) == "" || len(body.Reason) > maxDesc || !utf8.ValidString(body.Reason) {
-			return "", fail(http.StatusBadRequest, "reason must be 1..%d bytes of UTF-8", maxDesc)
+		if err := requireReason(body.Reason); err != nil {
+			return "", err
 		}
 	}
 	var err error
