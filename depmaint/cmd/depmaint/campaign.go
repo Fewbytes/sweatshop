@@ -16,6 +16,7 @@ const campaignUsage = `usage: depmaint campaign <subcommand>
   plan <id>
   next <id>
   record <id> --step N --verdict succeeded|rejected|failed [--reason R] [--pr URL] [--executor NAME]
+  report <id> [--out FILE]
   list [--status S]`
 
 // runCampaign dispatches `depmaint campaign ...`; exit codes as run.
@@ -62,6 +63,16 @@ func runCampaign(args []string, stdout, stderr io.Writer) int {
 		}
 		err = cli.CampaignRecord(ctx, ".", campaign.RecordInput{CampaignID: args[1], Step: *step, Verdict: campaign.Verdict(*verdict),
 			Reason: *reason, Executor: *executor, PRURL: *pr, CommitSHA: *commit}, pub, stdout)
+	case "report":
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, campaignUsage)
+			return 2
+		}
+		out := fs.String("out", "", "write the report here (default .depmaint/reports/<id>.md)")
+		if fs.Parse(args[2:]) != nil {
+			return 2
+		}
+		err = cli.CampaignReport(ctx, ".", args[1], *out, pub, stdout)
 	case "list":
 		status := fs.String("status", "", "only campaigns with this status")
 		if fs.Parse(args[1:]) != nil {

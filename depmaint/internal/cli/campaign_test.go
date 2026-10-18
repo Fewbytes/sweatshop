@@ -83,3 +83,41 @@ func TestCampaignCommandsRunTheNextRecordLoopAndRememberRejections(t *testing.T)
 	requireContains(t, run(func(o *bytes.Buffer) error { return CampaignList(ctx, w.root, "", o) }),
 		"dep_c1\trunning\tnode:lib → 1.2.0\t1/5 attempts")
 }
+
+func TestEscalateWithoutBeadsWritesTheReportAndSaysNobodyWasNotified(t *testing.T) {
+	w := campaignWorld(t)
+	ctx, pub := context.Background(), w.published()
+	var out bytes.Buffer
+	if err := CampaignNew(ctx, w.root, CampaignNewArgs{Type: campaign.TypeUpgrade, Target: "node:lib=1.2.0"}, pub, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := CampaignPlan(ctx, w.root, "dep_c1", pub, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+
+	noBd := func(string) (string, error) { return "", os.ErrNotExist }
+	if err := Escalate(ctx, w.root, "dep_c1", "needs a human", pub, BdFiler(w.root, noBd), &out); err != nil {
+		t.Fatal(err)
+	}
+	requireContains(t, out.String(), "beads is unavailable")
+	report, err := os.ReadFile(filepath.Join(w.root, ".depmaint/reports/dep_c1.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireContains(t, string(report), "needs a human (no tracker available)")
+}
+
+func TestBdFilerNeedsBothTheBinaryAndABeadsDirectory(t *testing.T) {
+	root := t.TempDir()
+	found := func(string) (string, error) { return "/usr/bin/bd", nil }
+	if BdFiler(root, found) != nil {
+		t.Error("filer offered without a .beads/ directory")
+	}
+	if err := os.Mkdir(filepath.Join(root, ".beads"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if BdFiler(root, found) == nil {
+		t.Error("no filer although bd and .beads/ are both present")
+	}
+}

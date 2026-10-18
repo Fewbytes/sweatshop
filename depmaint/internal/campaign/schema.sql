@@ -30,3 +30,11 @@ CREATE TABLE IF NOT EXISTS attempt (
   commit_sha     TEXT NOT NULL,
   created_at     VARCHAR(32) NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS escalation (
+  id          VARCHAR(48) PRIMARY KEY,
+  campaign_id VARCHAR(32) NOT NULL,
+  reason      TEXT NOT NULL,
+  bead_id     TEXT NOT NULL,
+  created_at  VARCHAR(32) NOT NULL
+);

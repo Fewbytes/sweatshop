@@ -656,20 +656,20 @@
       "purpose": "Command depmaint expands, caches, and drives dependency-maintenance campaigns."
     },
     "depmaint/internal/campaign": {
-      "entry_point_count": 31,
+      "entry_point_count": 35,
       "entry_points": [
         "Attempt",
+        "BeadFiler",
         "Budget",
         "Campaign",
         "Engine",
+        "Escalated",
+        "Escalation",
         "NewSpec",
         "Next",
         "NextBlocked",
         "NextDispatch",
-        "NextExhausted",
-        "NextState",
-        "NextSucceeded",
-        "OpenStore"
+        "NextExhausted"
       ],
       "hidden_coupling_ratio": 0.0,
       "hotspot_rank": 23,
@@ -686,20 +686,20 @@
       "purpose": "Package campaign is depmaint's state machine: bounded upgrade campaigns"
     },
     "depmaint/internal/cli": {
-      "entry_point_count": 14,
+      "entry_point_count": 17,
       "entry_points": [
         "Audit",
+        "BdFiler",
         "CampaignList",
         "CampaignNew",
         "CampaignNewArgs",
         "CampaignNext",
         "CampaignPlan",
         "CampaignRecord",
+        "CampaignReport",
         "DefaultPublished",
-        "Graph",
-        "Init",
-        "Layout",
-        "Outdated"
+        "Escalate",
+        "Graph"
       ],
       "hidden_coupling_ratio": 0.0,
       "hotspot_rank": 17,

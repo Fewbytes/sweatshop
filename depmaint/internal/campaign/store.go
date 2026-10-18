@@ -177,3 +177,44 @@ func (s *Store) Attempts(ctx context.Context, campaignID string) ([]Attempt, err
 	}
 	return out, rows.Err()
 }
+
+// Escalation records that a campaign was handed to humans. BeadID is empty
+// when no tracker was available; the row still documents the reason.
+type Escalation struct {
+	ID         string
+	CampaignID string
+	Reason     string
+	BeadID     string
+	CreatedAt  time.Time
+}
+
+// AppendEscalation adds a row to the escalation log; rows are never updated.
+func (s *Store) AppendEscalation(ctx context.Context, e Escalation) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO escalation (id, campaign_id, reason, bead_id, created_at) VALUES (?, ?, ?, ?, ?)`,
+		e.ID, e.CampaignID, e.Reason, e.BeadID, e.CreatedAt.UTC().Format(time.RFC3339))
+	return err
+}
+
+// Escalations returns a campaign's escalations in recording order.
+func (s *Store) Escalations(ctx context.Context, campaignID string) ([]Escalation, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, campaign_id, reason, bead_id, created_at FROM escalation WHERE campaign_id = ? ORDER BY created_at, id`, campaignID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Escalation
+	for rows.Next() {
+		var e Escalation
+		var created string
+		if err := rows.Scan(&e.ID, &e.CampaignID, &e.Reason, &e.BeadID, &created); err != nil {
+			return nil, err
+		}
+		if e.CreatedAt, err = time.Parse(time.RFC3339, created); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}

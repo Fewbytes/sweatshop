@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 
 	"github.com/Fewbytes/sweatshop/depmaint/internal/cli"
 	"github.com/Fewbytes/sweatshop/depmaint/internal/version"
@@ -71,6 +72,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 3
 		}
 		return 0
+	case "escalate":
+		fs := flag.NewFlagSet("escalate", flag.ContinueOnError)
+		reason := fs.String("reason", "", "why a human is needed")
+		if len(args) < 2 || fs.Parse(args[2:]) != nil {
+			fmt.Fprintln(stderr, usage)
+			return 2
+		}
+		if err := cli.Escalate(context.Background(), ".", args[1], *reason, cli.DefaultPublished(), cli.BdFiler(".", exec.LookPath), stdout); err != nil {
+			fmt.Fprintf(stderr, "escalate: %v\n", err)
+			return 3
+		}
+		return 0
 	case "campaign":
 		return runCampaign(args[1:], stdout, stderr)
 	default:
@@ -86,5 +99,6 @@ commands:
   graph [--refresh]     expand + snapshot; report drift vs previous
   outdated [--ecosystem E]    direct deps with newer published versions
   audit [--min-severity S]    advisories + EOL + deprecated → campaign worklist
-  campaign new|plan|next|record|list   drive a bounded upgrade campaign
+  campaign new|plan|next|record|report|list   drive a bounded upgrade campaign
+  escalate <id> --reason R    hand a stalled campaign to humans via beads
   version               print version and exit`
