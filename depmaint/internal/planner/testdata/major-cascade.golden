@@ -1,0 +1,16 @@
+upgrade npm:lib to 2.0.0
+blockers: 1
+  [constraint] npm:plug@1.0.0: requires npm:lib ~1.0.0, rejects 2.0.0
+feasible: yes (major tier)
+step 1: npm:plug 1.0.0 -> 2.0.0 (major)
+  why: npm:plug@1.0.0 requires npm:lib ~1.0.0, which rejects 2.0.0
+  verify: build and tests pass; npm:plug resolves to 2.0.0 in the next snapshot
+  rollback: restore npm:plug to 1.0.0 and re-expand the graph
+step 2: npm:util 1.0.0 -> 2.0.0 (major)
+  why: npm:plug@2.0.0 requires npm:util ^2.0.0, which rejects 1.0.0
+  verify: build and tests pass; npm:util resolves to 2.0.0 in the next snapshot
+  rollback: restore npm:util to 1.0.0 and re-expand the graph
+step 3: npm:lib 1.0.0 -> 2.0.0 (major)
+  why: requested upgrade
+  verify: build and tests pass; npm:lib resolves to 2.0.0 in the next snapshot
+  rollback: restore npm:lib to 1.0.0 and re-expand the graph

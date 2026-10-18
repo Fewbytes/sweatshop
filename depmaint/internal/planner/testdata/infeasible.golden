@@ -1,0 +1,4 @@
+upgrade npm:lib to 2.0.0
+blockers: 1
+  [constraint] npm:plug@1.0.0: requires npm:lib ~1.0.0, rejects 2.0.0
+feasible: no

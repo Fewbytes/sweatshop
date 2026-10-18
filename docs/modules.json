@@ -201,15 +201,15 @@
     "agentsh/internal/integration": {
       "entry_point_count": 0,
       "entry_points": [],
-      "hidden_coupling_ratio": 0.857,
-      "hotspot_rank": 55,
+      "hidden_coupling_ratio": 1.0,
+      "hotspot_rank": 60,
       "imported_by": [],
       "imports": [
         "agentsh/internal/executor",
         "agentsh/internal/storage"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
       "purpose": ""
     },
     "agentsh/internal/mcp": {
@@ -387,7 +387,7 @@
         "Version"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 53,
+      "hotspot_rank": 58,
       "imported_by": [
         "agentsh/cmd/agentsh",
         "agentsh/cmd/agentshd",
@@ -396,7 +396,7 @@
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
       "purpose": "Package version holds the build-time version identity shared by agentsh"
     },
     "agentsh/internal/workspace": {
@@ -445,7 +445,7 @@
         "Scan"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 28,
+      "hotspot_rank": 33,
       "imported_by": [
         "bughunt/cmd/bughunt"
       ],
@@ -458,7 +458,7 @@
         "bughunt/internal/symbol"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
       "purpose": "Package cli implements the bughunt commands."
     },
     "bughunt/internal/config": {
@@ -592,14 +592,14 @@
         "Store"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 42,
+      "hotspot_rank": 47,
       "imported_by": [
         "bughunt/internal/cli",
         "bughunt/internal/scan"
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
       "purpose": "Package store persists runs, findings, and rules. The API is written against"
     },
     "bughunt/internal/symbol": {
@@ -627,13 +627,13 @@
         "Version"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 56,
+      "hotspot_rank": 61,
       "imported_by": [
         "bughunt/cmd/bughunt"
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
       "purpose": "Package version carries build metadata injected at link time."
     },
     "depmaint/cmd/depmaint": {
@@ -667,7 +667,7 @@
         "Published"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 30,
+      "hotspot_rank": 21,
       "imported_by": [
         "depmaint/cmd/depmaint"
       ],
@@ -679,7 +679,7 @@
         "depmaint/internal/store"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
       "purpose": ""
     },
     "depmaint/internal/config": {
@@ -716,14 +716,14 @@
         "PackageVersion"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 60,
+      "hotspot_rank": 26,
       "imported_by": [
         "depmaint/internal/cli",
         "depmaint/internal/store"
       ],
       "imports": [],
       "lcom4": 2,
-      "measured_at_commit": "e913c34",
+      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
       "purpose": "Package enrich fetches published truth (latest versions, licenses,"
     },
     "depmaint/internal/expander": {
@@ -736,12 +736,13 @@
         "Register"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 59,
+      "hotspot_rank": 62,
       "imported_by": [
         "depmaint/internal/cli",
         "depmaint/internal/goexpander",
         "depmaint/internal/jvmexpander",
         "depmaint/internal/nodeexpander",
+        "depmaint/internal/planner",
         "depmaint/internal/project",
         "depmaint/internal/pyexpander",
         "depmaint/internal/snapshot",
@@ -749,7 +750,7 @@
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "4266c9bc31f6ebfe160ca7af9f46071ca949406a",
+      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
       "purpose": "Package expander defines the contract ecosystem expanders implement"
     },
     "depmaint/internal/goexpander": {
@@ -807,6 +808,33 @@
       "measured_at_commit": "4266c9bc31f6ebfe160ca7af9f46071ca949406a",
       "purpose": "Package nodeexpander implements the depmaint Node expander: it reads"
     },
+    "depmaint/internal/planner": {
+      "entry_point_count": 22,
+      "entry_points": [
+        "Accepts",
+        "Blocker",
+        "BlockerConstraint",
+        "BlockerEngine",
+        "BlockerKind",
+        "BlockerToolchain",
+        "Graph",
+        "Make",
+        "MergeRoots",
+        "ParseVersion",
+        "Plan",
+        "Registry"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 63,
+      "imported_by": [],
+      "imports": [
+        "depmaint/internal/expander",
+        "depmaint/internal/project"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
+      "purpose": "Package planner turns a project's resolved graph plus published truth into"
+    },
     "depmaint/internal/project": {
       "entry_point_count": 3,
       "entry_points": [
@@ -815,8 +843,10 @@
         "RootGraph"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 41,
-      "imported_by": [],
+      "hotspot_rank": 44,
+      "imported_by": [
+        "depmaint/internal/planner"
+      ],
       "imports": [
         "depmaint/internal/expander",
         "depmaint/internal/goexpander",
@@ -824,7 +854,7 @@
         "depmaint/internal/pyexpander"
       ],
       "lcom4": 1,
-      "measured_at_commit": "4266c9bc31f6ebfe160ca7af9f46071ca949406a",
+      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
       "purpose": "Package project derives projects from per-root dependency graphs: roots"
     },
     "depmaint/internal/pyexpander": {
@@ -894,13 +924,13 @@
         "Version"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 58,
+      "hotspot_rank": 64,
       "imported_by": [
         "depmaint/cmd/depmaint"
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
       "purpose": "Package version carries build metadata injected at link time."
     },
     "line/andon": {
@@ -1031,8 +1061,8 @@
         "DefaultMemory",
         "DefaultNeedsTimeout"
       ],
-      "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 13,
+      "hidden_coupling_ratio": 0.2,
+      "hotspot_rank": 11,
       "imported_by": [
         "agentsh/internal/config",
         "agentsh/internal/daemon",
@@ -1049,7 +1079,7 @@
         "line/attest"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
       "purpose": "Package constitution loads the line's rules. v0 holds only what the witness"
     },
     "line/deploy": {
@@ -1090,7 +1120,7 @@
         "Prompt"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 59,
+      "hotspot_rank": 65,
       "imported_by": [
         "line/cmd/sweatshop"
       ],
@@ -1102,7 +1132,7 @@
         "line/maker"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
       "purpose": "Package gemba configures the maker runner as a Gemba station: it claims"
     },
     "line/gitx": {
@@ -1398,7 +1428,7 @@
         "EventOffer",
         "EventReap"
       ],
-      "hidden_coupling_ratio": 0.0,
+      "hidden_coupling_ratio": 0.25,
       "hotspot_rank": 23,
       "imported_by": [
         "line/cmd/sweatshop",
@@ -1409,7 +1439,7 @@
         "line/report"
       ],
       "lcom4": 1,
-      "measured_at_commit": "7be996b8a5fb06391e225c32d7f9975dfcd61fae",
+      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
       "purpose": "Package linestore is the line's master database: witness runs, per-test"
     },
     "line/maker": {
@@ -1549,11 +1579,11 @@
       "entry_point_count": 0,
       "entry_points": [],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 61,
+      "hotspot_rank": 67,
       "imported_by": [],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
       "purpose": ""
     },
     "line/viceroy": {
@@ -1572,8 +1602,8 @@
         "Message",
         "Prompt"
       ],
-      "hidden_coupling_ratio": 0.5,
-      "hotspot_rank": 14,
+      "hidden_coupling_ratio": 0.714,
+      "hotspot_rank": 15,
       "imported_by": [
         "line/cmd/sweatshop"
       ],
@@ -1581,7 +1611,7 @@
         "line/station"
       ],
       "lcom4": 1,
-      "measured_at_commit": "d586f0e121c5d4e88e046f8d33939f585af123d9",
+      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
       "purpose": "Package viceroy is the wake loop of the viceroy container: wait for the"
     },
     "line/witness": {
