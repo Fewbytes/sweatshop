@@ -17,6 +17,13 @@ RUN go mod download
 COPY line/ ./
 RUN CGO_ENABLED=0 go build -o /out/sweatshop ./cmd/sweatshop
 
+# gopls, built from source at a pinned version (module checksums are verified
+# by the Go checksum database).
+# v0.20.0 is the newest gopls whose go directive (1.24.2) fits GO_VERSION; bump both together.
+FROM golang:${GO_VERSION}-bookworm@${GOLANG_DIGEST} AS gopls
+ARG GOPLS_VERSION=v0.20.0
+RUN GOBIN=/out go install golang.org/x/tools/gopls@${GOPLS_VERSION}
+
 # bookworm ships git 2.39 and bookworm-backports carries no git at all, so
 # build the witness's floor (2.45.1) or newer from the kernel.org release.
 FROM ${DEBIAN_IMAGE} AS git-builder
@@ -76,6 +83,9 @@ ARG NODE_SHA256_X64=fd47865ecd6391ebb431fc815e01b9135bf83ded5cf373247e9331e196b7
 ARG NODE_SHA256_ARM64=fd6cc729fa4448c2ac27c3fca5606019ced63c65a15c152c8df03e0cbce7f4c5
 ARG CLAUDE_CODE_VERSION=2.1.296
 ARG GIT_FLOOR=2.45.1
+ARG AST_GREP_VERSION=0.51.0
+ARG AST_GREP_SHA256_X86_64=a7eead5552d3a8daad70f5d50d935da44bd0c138e946b5b0a96b1d38169fa639
+ARG AST_GREP_SHA256_AARCH64=73af0ebe5958acee012754a5b2826a186580ef83333092408a7a01096fc30b8b
 
 COPY --from=git-builder /opt/git /opt/git
 ENV PATH=/opt/git/bin:$PATH
@@ -83,7 +93,8 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         ca-certificates curl bash ripgrep fd-find python3 \
-        build-essential pkg-config xz-utils libcurl4 libexpat1 zlib1g openssh-client less tini; \
+        build-essential pkg-config xz-utils libcurl4 libexpat1 zlib1g openssh-client less tini \
+        universal-ctags jq tree shellcheck unzip; \
     rm -rf /var/lib/apt/lists/*; \
     have="$(git --version | awk '{print $3}')"; \
     if [ "$(printf '%s\n%s\n' "$GIT_FLOOR" "$have" | sort -V | head -n1)" != "$GIT_FLOOR" ]; then \
@@ -119,6 +130,19 @@ RUN set -eux; \
     rm -rf /tmp/uv.tar.gz "/tmp/${dir}"; \
     uv --version
 
+# ast-grep: the pinned release archive, not an install script.
+RUN set -eux; \
+    case "$(uname -m)" in \
+        x86_64) arch=x86_64; sum="$AST_GREP_SHA256_X86_64" ;; \
+        aarch64) arch=aarch64; sum="$AST_GREP_SHA256_AARCH64" ;; \
+        *) echo "unsupported arch $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSLo /tmp/ast-grep.zip "https://github.com/ast-grep/ast-grep/releases/download/${AST_GREP_VERSION}/app-${arch}-unknown-linux-gnu.zip"; \
+    echo "${sum}  /tmp/ast-grep.zip" | sha256sum -c -; \
+    unzip -q /tmp/ast-grep.zip -d /usr/local/bin ast-grep sg; \
+    rm /tmp/ast-grep.zip; \
+    ast-grep --version
+
 # Node: bookworm's nodejs is v18, below claude-code's engines floor (>=22), so
 # use the official release tarball, pinned.
 RUN set -eux; \
@@ -137,10 +161,12 @@ RUN set -eux; \
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" && claude --version
 
 COPY --from=builder /usr/local/go /usr/local/go
+COPY --from=gopls /out/gopls /usr/local/bin/gopls
 ENV PATH=/usr/local/go/bin:/home/agent/go/bin:$PATH
 COPY --from=builder /out/sweatshop /usr/local/bin/sweatshop
 COPY --chmod=0755 station/entrypoint.sh /usr/local/bin/station-entrypoint
 COPY --chmod=0644 station/claude-settings.json /etc/sweatshop/claude-settings.json
+COPY --chmod=0755 station/plugin/sweatshop-tools /etc/sweatshop/plugin/sweatshop-tools
 
 RUN useradd --create-home --uid 1000 --shell /bin/bash agent \
     && mkdir -p /work && chown agent:agent /work

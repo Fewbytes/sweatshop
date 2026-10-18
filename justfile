@@ -122,5 +122,19 @@ maker-service name="maker-1" line=(env_var("HOME") / ".sweatshop/lines/sweatshop
         --security-opt label=disable \
         sweatshop-maker:{{tag}} --dir {{line}} --station {{name}}
 
+# Inside the station image, fail when a search tool or language server is
+# missing (the image is the check runner, so this guards every image build).
+station-tools:
+    #!/usr/bin/env bash
+    set -eu
+    [ -f /etc/sweatshop/claude-settings.json ] || { echo "not in the station image; skipping"; exit 0; }
+    for t in rg fd ast-grep sg ctags jq tree shellcheck gopls; do
+        command -v "$t" >/dev/null || { echo "station image lacks $t" >&2; exit 1; }
+    done
+    rg --version | head -1; fd --version; ast-grep --version; ctags --version | head -1
+    gopls version | head -1
+    test -f /etc/sweatshop/plugin/sweatshop-tools/.lsp.json
+    test "$(ls /etc/sweatshop/plugin/sweatshop-tools/skills | wc -l)" -ge 5
+
 # Everything CI runs
-ci: lint test build validate-marketplace
+ci: lint test build validate-marketplace station-tools

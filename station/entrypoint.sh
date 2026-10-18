@@ -32,6 +32,7 @@ fi
 exec claude -p "$SWEATSHOP_PROMPT" \
     --setting-sources user \
     --settings /etc/sweatshop/claude-settings.json \
+    --plugin-dir /etc/sweatshop/plugin/sweatshop-tools \
     --strict-mcp-config \
     --dangerously-skip-permissions \
     --output-format text

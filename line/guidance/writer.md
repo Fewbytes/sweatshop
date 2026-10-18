@@ -3,6 +3,11 @@
 For agents that write new code or change existing code. Rationale and evidence:
 `research-docs/llm-code-quality/README.md`.
 
+In a station, search with the installed tools and their skills, not `grep`
+or `find`: `rg` for text, `fd` for files, `ast-grep` for code structure,
+`ctags` for symbols, gopls for Go references. The `choose-a-search-tool`
+skill says which.
+
 Your output will be read mostly by other agents, which find code by searching
 it, check it with tools, and copy whatever patterns they see. Humans read the
 review surface: interfaces, tests, diffs. Write for both, in that order of

@@ -340,3 +340,6 @@ Safety:    <tests run>, <characterization tests added?>
 Behavior:  unchanged (tests: <pass count>), public API unchanged
 Follow-ups: <issue ids or none>
 ```
+
+Use `ast-grep` (see its skill) to find and rewrite a repeated shape across
+files, and gopls references before you rename or move a Go symbol.
