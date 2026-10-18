@@ -60,7 +60,8 @@ func (ExecRunner) Run(ctx context.Context, dir, command string) (RunResult, erro
 //
 // The Go module and build caches are named engine volumes (goModCacheVolume,
 // goBuildCacheVolume), shared by all check containers. A warm run reads them
-// with GOPROXY=off; see README "Go caches" for priming.
+// as an optimisation only; an empty volume is filled by the run.
+// See README "Go caches".
 //
 // Only the check's own outcome is a result. Exit 125 (the engine could not
 // start the container) and exit 137 without OOMKilled (the engine, the VM or

@@ -209,14 +209,15 @@ var errCheckTimeout = errors.New("check timed out")
 // signed predicate keeps the constitution's command unchanged.
 //   - -json makes every `go test` emit the JSON events that
 //     report.ParseGoTestJSON reads; commands that do not accept it ignore it.
-//   - -mod=readonly and GOPROXY=off make a module missing from the cache fail
-//     at once with a clear error instead of a network lookup, so a DNS blip
-//     cannot fail a check.
-const checkEnv = `export GOFLAGS="${GOFLAGS:+$GOFLAGS }-json -mod=readonly" GOPROXY=off; `
+//   - -mod=readonly keeps a check from editing go.mod or go.sum.
+//
+// The Go caches are an optimisation only: an empty volume is a normal state,
+// so GOPROXY stays at its default and the run downloads and fills the volume.
+const checkEnv = `export GOFLAGS="${GOFLAGS:+$GOFLAGS }-json -mod=readonly"; `
 
-// coldCheckEnv replaces checkEnv in a cold run: fresh throwaway caches (the
-// volumes stay untouched) and the module proxy instead of GOPROXY=off.
-const coldCheckEnv = `export GOFLAGS="${GOFLAGS:+$GOFLAGS }-json -mod=readonly" GOMODCACHE="$(mktemp -d)" GOCACHE="$(mktemp -d)" GOPROXY=https://proxy.golang.org,direct; `
+// coldCheckEnv replaces checkEnv in a cold run: fresh throwaway caches, so the
+// volumes stay untouched.
+const coldCheckEnv = checkEnv + `export GOMODCACHE="$(mktemp -d)" GOCACHE="$(mktemp -d)"; `
 
 // run executes the required checks in checkout and signs the outcome.
 func (w *Witness) run(ctx context.Context, commit, tree, checkout string) (AttestResult, error) {

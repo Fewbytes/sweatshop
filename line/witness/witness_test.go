@@ -395,14 +395,14 @@ func TestAttestEnablesGoTestJSONWithoutChangingTheSignedCommand(t *testing.T) {
 	}
 }
 
-func TestCheckEnvForbidsNetworkModuleLookups(t *testing.T) {
+func TestCheckEnvLeavesModuleProxyAloneSoEmptyCachesDownload(t *testing.T) {
 	t.Setenv("GOFLAGS", "")
 	t.Setenv("GOPROXY", "https://proxy.golang.org")
 	out, err := exec.Command("sh", "-c", checkEnv+`printf '%s|%s' "$GOFLAGS" "$GOPROXY"`).Output()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := string(out), "-json -mod=readonly|off"; got != want {
+	if got, want := string(out), "-json -mod=readonly|https://proxy.golang.org"; got != want {
 		t.Errorf("GOFLAGS|GOPROXY = %q, want %q", got, want)
 	}
 }
@@ -455,20 +455,19 @@ func TestColdRunUsesColdEnvAndColdTimeoutWarmRunKeepsWarm(t *testing.T) {
 	}
 }
 
-func TestColdCheckEnvAllowsModuleDownloadsIntoFreshCaches(t *testing.T) {
+func TestColdCheckEnvUsesFreshCaches(t *testing.T) {
 	t.Setenv("GOFLAGS", "")
-	t.Setenv("GOPROXY", "off")
 	t.Setenv("GOMODCACHE", "/warm/mod")
 	t.Setenv("GOCACHE", "/warm/build")
-	out, err := exec.Command("sh", "-c", coldCheckEnv+`printf '%s|%s|%s|%s' "$GOFLAGS" "$GOPROXY" "$GOMODCACHE" "$GOCACHE"`).Output()
+	out, err := exec.Command("sh", "-c", coldCheckEnv+`printf '%s|%s|%s' "$GOFLAGS" "$GOMODCACHE" "$GOCACHE"`).Output()
 	if err != nil {
 		t.Fatal(err)
 	}
 	parts := strings.Split(string(out), "|")
-	if len(parts) != 4 || parts[0] != "-json -mod=readonly" || parts[1] != "https://proxy.golang.org,direct" {
-		t.Fatalf("GOFLAGS|GOPROXY|... = %q", out)
+	if len(parts) != 3 || parts[0] != "-json -mod=readonly" {
+		t.Fatalf("GOFLAGS|GOMODCACHE|GOCACHE = %q", out)
 	}
-	for _, dir := range parts[2:] {
+	for _, dir := range parts[1:] {
 		if strings.HasPrefix(dir, "/warm/") || dir == "" {
 			t.Errorf("cold run kept cache %q", dir)
 		}
