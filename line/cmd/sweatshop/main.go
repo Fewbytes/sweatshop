@@ -894,6 +894,18 @@ func binaryCommit() string {
 	return "unknown"
 }
 
+// parseWithoutOperands parses args into fs and rejects any positional operand
+// with the usage error.
+func parseWithoutOperands(fs *flag.FlagSet, args []string) error {
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return errors.New(usage)
+	}
+	return nil
+}
+
 // lineClient builds the station client from the environment. The token is
 // trimmed because a secret made from a token file carries its trailing
 // newline, which net/http rejects in the Authorization header.
@@ -914,11 +926,8 @@ func lineSubmit(cmd string, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("line "+cmd, flag.ContinueOnError)
 	rev := fs.String("rev", "HEAD", "revision to submit")
 	repo := fs.String("repo", ".", "repository holding rev")
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
-	}
-	if fs.NArg() != 0 {
-		return errors.New(usage)
 	}
 	c, err := lineClient()
 	if err != nil {
@@ -1058,11 +1067,8 @@ func lineHeijunkaState(stdout io.Writer) error {
 func lineStats(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("line stats", flag.ContinueOnError)
 	since := fs.String("since", "", "only runs from the last D (36h, 7d); default all history")
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
-	}
-	if fs.NArg() != 0 {
-		return errors.New(usage)
 	}
 	c, err := lineClient()
 	if err != nil {
@@ -1082,11 +1088,8 @@ func lineCIStats(args []string, stdout io.Writer) error {
 	since := fs.String("since", "", "only runs from the last D (36h, 7d); default all history")
 	check := fs.String("check", "", "only this check")
 	commit := fs.String("commit", "", "only this commit")
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
-	}
-	if fs.NArg() != 0 {
-		return errors.New(usage)
 	}
 	c, err := lineClient()
 	if err != nil {
@@ -1106,11 +1109,8 @@ func lineEvents(args []string, stdout io.Writer) error {
 	since := fs.String("since", "", "only events from the last D (36h, 7d); default all history")
 	card := fs.String("card", "", "only events of this card")
 	stationName := fs.String("station", "", "only events by this station")
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
-	}
-	if fs.NArg() != 0 {
-		return errors.New(usage)
 	}
 	c, err := lineClient()
 	if err != nil {
@@ -1134,11 +1134,8 @@ func lineReports(args []string, stdout io.Writer) error {
 	case len(args) >= 1 && args[0] == "list":
 		fs := flag.NewFlagSet("line reports list", flag.ContinueOnError)
 		prefix := fs.String("prefix", "", "only keys with this prefix")
-		if err := fs.Parse(args[1:]); err != nil {
+		if err := parseWithoutOperands(fs, args[1:]); err != nil {
 			return err
-		}
-		if fs.NArg() != 0 {
-			return errors.New(usage)
 		}
 		keys, err := c.ListReports(ctx, *prefix)
 		if err != nil {
@@ -1148,11 +1145,8 @@ func lineReports(args []string, stdout io.Writer) error {
 	case len(args) >= 2 && args[0] == "presign":
 		fs := flag.NewFlagSet("line reports presign", flag.ContinueOnError)
 		ttl := fs.Duration("ttl", 0, "link lifetime; default is the constitution's cap")
-		if err := fs.Parse(args[2:]); err != nil {
+		if err := parseWithoutOperands(fs, args[2:]); err != nil {
 			return err
-		}
-		if fs.NArg() != 0 {
-			return errors.New(usage)
 		}
 		res, err := c.PresignReport(ctx, args[1], *ttl)
 		if err != nil {
@@ -1311,11 +1305,8 @@ func lineChannel(args []string, stdin io.Reader, stdout io.Writer) error {
 	default:
 		return errors.New(usage)
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
-	}
-	if fs.NArg() != 0 {
-		return errors.New(usage)
 	}
 	c, err := lineClient()
 	if err != nil {
@@ -1514,11 +1505,8 @@ func viceroyClient(cmd string, args []string, stdout io.Writer) error {
 	if cmd == "succeed" || cmd == "deploy" {
 		fs.StringVar(&commit, "commit", "", "commit to succeed or deploy to (default: the line's master)")
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
-	}
-	if fs.NArg() != 0 {
-		return errors.New(usage)
 	}
 	c, err := lineClient()
 	if err != nil {
