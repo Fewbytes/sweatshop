@@ -405,9 +405,10 @@ to agents, not counting (Remove type).
 
 Still open:
 
-- deps.dev behavior on very large graphs (batch ceilings, rate limits) —
-  empirical, resolved during implementation with backoff. The cache design
-  assumes it is a tuning problem, not an architecture problem.
+- ~~deps.dev behavior on very large graphs~~ Resolved (2026-10-18,
+  sweatshop-nrp): tuning, not architecture. Batch cap 5000 items (pages of
+  100), no throttling seen, single GETs plateau near 10–14 req/s. Measurements
+  and the backoff/batch policy are in `research-docs/depsdev-at-scale.md`.
 - Superseded semantics: v1 never replaces a winning attempt with a later
   verified success. Verification is identical for all racers (tests, scan,
   expected delta), so a later win is not a better outcome by the tool's own
