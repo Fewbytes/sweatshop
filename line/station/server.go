@@ -257,7 +257,7 @@ func (s *Server) OpenStore(ctx context.Context, dir string) error {
 		return err
 	}
 	s.Store = store
-	s.reporter.Runs, s.reporter.Tests = store, store
+	s.reporter.Runs, s.reporter.Tests, s.reporter.Checks = store, store, store
 	return nil
 }
 
@@ -391,6 +391,11 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 			return "", err
 		}
 		return s.ciStats(w, r, path == "/metrics")
+	case path == "/v1/ci/stats":
+		if err := requireMethod(w, r, http.MethodGet); err != nil {
+			return "", err
+		}
+		return s.checkStats(w, r)
 	case path == "/v1/cards" || strings.HasPrefix(path, "/v1/cards/"):
 		return s.routeCards(w, r, st)
 	case path == "/v1/constitution" || strings.HasPrefix(path, "/v1/constitution/"):

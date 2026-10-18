@@ -30,6 +30,13 @@ func (m *memTests) RecordTests(_ context.Context, rows []TestRow) error {
 	return nil
 }
 
+type memChecks []CheckRow
+
+func (m *memChecks) RecordChecks(_ context.Context, rows []CheckRow) error {
+	*m = append(*m, rows...)
+	return nil
+}
+
 func TestReadJSONLSkipsTornLinesAndTreatsMissingFileAsEmpty(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runs.jsonl")
 	if runs, err := ReadJSONL(path); err != nil || runs != nil {
@@ -170,6 +177,31 @@ func TestPublishRecordsPerTestRowsAndJUnitCases(t *testing.T) {
 		if !strings.Contains(xmlData, want) {
 			t.Errorf("junit lacks %q:\n%s", want, xmlData)
 		}
+	}
+}
+
+func TestPublishRecordsCheckDurationAndExitCodeButNoneForInfraRuns(t *testing.T) {
+	r := sample()
+	checks := &memChecks{}
+	if err := (Reporter{Checks: checks}).Publish(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	if len(*checks) != len(r.Checks) {
+		t.Fatalf("rows = %+v, want one per check", *checks)
+	}
+	for i, row := range *checks {
+		c := r.Checks[i]
+		if row.Check != c.Name || row.ExitCode != c.ExitCode || row.DurationMS != c.Duration.Milliseconds() || row.Commit != r.Commit {
+			t.Errorf("row %d = %+v, want check %+v of commit %s", i, row, c, r.Commit)
+		}
+	}
+	r.Infra = "run check test: timed out after 1h"
+	infra := &memChecks{}
+	if err := (Reporter{Checks: infra}).Publish(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	if len(*infra) != 0 {
+		t.Fatalf("infra run saved check rows %+v", *infra)
 	}
 }
 

@@ -25,6 +25,7 @@ import (
 
 	"github.com/Fewbytes/sweatshop/line/andon"
 	"github.com/Fewbytes/sweatshop/line/attest"
+	"github.com/Fewbytes/sweatshop/line/cistats"
 	"github.com/Fewbytes/sweatshop/line/constitution"
 	"github.com/Fewbytes/sweatshop/line/deploy"
 	"github.com/Fewbytes/sweatshop/line/gemba"
@@ -56,6 +57,8 @@ const usage = `usage:
                                         check rev and submit it to the merge guard
   sweatshop line status                 print the line's master and andon state
   sweatshop line stats [--since D]      print CI health: pass rate, durations, slow, failing and flaky tests, time to green (D: 36h, 7d)
+  sweatshop line ci stats [--since D] [--check C] [--commit SHA]
+                                        print per check: runs, failure rate, duration p50/p95/max and commits where it both passed and failed (D: 36h, 7d)
   sweatshop line events [--since D] [--card ID] [--station S]
                                         print the line's event log, oldest first, as JSON: offers, claims, releases, give-ups, closes, reaps, submits, merges, andon pulls and clears
   sweatshop line reports list [--prefix P] | get KEY | presign KEY [--ttl D]
@@ -128,6 +131,8 @@ func run(args []string, stdout io.Writer) error {
 		return lineSubmit(args[1], args[2:], stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "stats":
 		return lineStats(args[2:], stdout)
+	case len(args) >= 3 && args[0] == "line" && args[1] == "ci" && args[2] == "stats":
+		return lineCIStats(args[3:], stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "events":
 		return lineEvents(args[2:], stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "reports":
@@ -1068,6 +1073,30 @@ func lineStats(args []string, stdout io.Writer) error {
 		return err
 	}
 	_, err = io.WriteString(stdout, sum.Text())
+	return err
+}
+
+// lineCIStats implements `line ci stats`.
+func lineCIStats(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("line ci stats", flag.ContinueOnError)
+	since := fs.String("since", "", "only runs from the last D (36h, 7d); default all history")
+	check := fs.String("check", "", "only this check")
+	commit := fs.String("commit", "", "only this commit")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return errors.New(usage)
+	}
+	c, err := lineClient()
+	if err != nil {
+		return err
+	}
+	sums, err := c.CheckStats(context.Background(), *since, *check, *commit)
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(stdout, cistats.CheckText(sums))
 	return err
 }
 

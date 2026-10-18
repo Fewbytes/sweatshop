@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -657,6 +658,32 @@ func TestStatsAndMetricsRoutesServeStoredRunsAndTests(t *testing.T) {
 	if code != http.StatusOK || !strings.Contains(body, `sweatshop_ci_runs_total{outcome="failed"} 1`) ||
 		!strings.Contains(body, `sweatshop_ci_test_failure_ratio{test="p.TestBroken"} 1`) {
 		t.Fatalf("metrics: %d %s", code, body)
+	}
+}
+
+func TestCiStatsRouteServesPerCheckDurationAndFlakes(t *testing.T) {
+	r := newRig(t)
+	if code, _ := r.raw("GET", "/v1/ci/stats", "", nil); code != http.StatusUnauthorized {
+		t.Fatalf("ci stats without a token: %d", code)
+	}
+	now := time.Now()
+	if err := r.srv.Store.RecordChecks(r.ctx, []report.CheckRow{
+		{RunID: "r1", Commit: "a", StartedAt: now, Check: "test", ExitCode: 1, DurationMS: 4000},
+		{RunID: "r2", Commit: "a", StartedAt: now, Check: "test", ExitCode: 0, DurationMS: 6000},
+		{RunID: "r2", Commit: "a", StartedAt: now, Check: "lint", ExitCode: 0, DurationMS: 500}}); err != nil {
+		t.Fatal(err)
+	}
+	code, body := r.raw("GET", "/v1/ci/stats?check=test&commit=a&since=1d", r.token("andon-1"), nil)
+	var sums []cistats.CheckSummary
+	if code != http.StatusOK || json.Unmarshal([]byte(body), &sums) != nil || len(sums) != 1 ||
+		sums[0].Runs != 2 || sums[0].Failed != 1 || sums[0].DurationMaxMS != 6000 || !reflect.DeepEqual(sums[0].FlakyCommits, []string{"a"}) {
+		t.Fatalf("ci stats: %d %s", code, body)
+	}
+	if code, _ := r.raw("GET", "/v1/ci/stats?since=soon", r.token("andon-1"), nil); code != http.StatusBadRequest {
+		t.Fatalf("bad since: %d", code)
+	}
+	if code, _ := r.raw("POST", "/v1/ci/stats", r.token("andon-1"), nil); code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST: %d", code)
 	}
 }
 

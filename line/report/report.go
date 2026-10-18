@@ -148,6 +148,19 @@ type TestRow struct {
 	DurationMS int64       `json:"duration_ms"`
 }
 
+// CheckRow is one check of one run that judged its commit, as saved to the
+// check store. Infra runs save none: their exit codes say nothing about the commit.
+type CheckRow struct {
+	RunID      string    `json:"run_id"`
+	Commit     string    `json:"commit"`
+	Tree       string    `json:"tree"`
+	Role       string    `json:"role"`
+	StartedAt  time.Time `json:"started_at"`
+	Check      string    `json:"check"`
+	ExitCode   int       `json:"exit_code"`
+	DurationMS int64     `json:"duration_ms"`
+}
+
 // ObjectStore holds report blobs.
 type ObjectStore interface {
 	Put(ctx context.Context, key, contentType string, data []byte) error
@@ -182,6 +195,11 @@ var ErrObjectNotFound = errors.New("object not found")
 // RunStore saves run duration and statistics to the master database.
 type RunStore interface {
 	RecordRun(ctx context.Context, s Stats) error
+}
+
+// CheckStore saves per-check results to the master database.
+type CheckStore interface {
+	RecordChecks(ctx context.Context, rows []CheckRow) error
 }
 
 // TestStore saves per-test results to the master database.
@@ -324,6 +342,7 @@ type Reporter struct {
 	Objects ObjectStore
 	Runs    RunStore
 	Tests   TestStore
+	Checks  CheckStore
 }
 
 // Publish uploads the XML and HTML reports (keyed by commit and finish time so
@@ -345,6 +364,11 @@ func (p Reporter) Publish(ctx context.Context, r Run) error {
 	if p.Tests != nil {
 		if err := p.Tests.RecordTests(ctx, testRows(r)); err != nil {
 			errs = append(errs, fmt.Errorf("record tests: %w", err))
+		}
+	}
+	if p.Checks != nil {
+		if err := p.Checks.RecordChecks(ctx, checkRows(r)); err != nil {
+			errs = append(errs, fmt.Errorf("record checks: %w", err))
 		}
 	}
 	if p.Objects != nil {
@@ -427,6 +451,20 @@ func (s FSStore) List(_ context.Context, prefix string) ([]string, error) {
 		return nil
 	})
 	return keys, err
+}
+
+func checkRows(r Run) []CheckRow {
+	if r.Infra != "" {
+		return nil
+	}
+	rows := make([]CheckRow, 0, len(r.Checks))
+	for _, c := range r.Checks {
+		rows = append(rows, CheckRow{
+			RunID: r.ID(), Commit: r.Commit, Tree: r.Tree, Role: r.Role, StartedAt: r.StartedAt.UTC(),
+			Check: c.Name, ExitCode: c.ExitCode, DurationMS: c.Duration.Milliseconds(),
+		})
+	}
+	return rows
 }
 
 func testRows(r Run) []TestRow {

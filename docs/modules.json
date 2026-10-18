@@ -1037,9 +1037,13 @@
       "purpose": "Package attest signs and verifies DSSE envelopes carrying in-toto"
     },
     "line/cistats": {
-      "entry_point_count": 7,
+      "entry_point_count": 11,
       "entry_points": [
+        "CheckFilter",
+        "CheckSummary",
+        "CheckText",
         "Compute",
+        "ComputeChecks",
         "DayDuration",
         "Flake",
         "MetricsWindow",
@@ -1050,6 +1054,7 @@
       "hidden_coupling_ratio": 0.0,
       "hotspot_rank": 34,
       "imported_by": [
+        "line/cmd/sweatshop",
         "line/station"
       ],
       "imports": [
@@ -1068,6 +1073,7 @@
       "imports": [
         "line/andon",
         "line/attest",
+        "line/cistats",
         "line/constitution",
         "line/deploy",
         "line/gemba",
@@ -1523,9 +1529,11 @@
       "purpose": "Package maker runs a Maker station: a host-side loop that takes a ready"
     },
     "line/report": {
-      "entry_point_count": 24,
+      "entry_point_count": 26,
       "entry_points": [
         "Check",
+        "CheckRow",
+        "CheckStore",
         "ErrObjectNotFound",
         "FSStore",
         "HTML",
@@ -1534,9 +1542,7 @@
         "MaxPresignTTL",
         "NewObjectStore",
         "ObjectPresigner",
-        "ObjectReader",
-        "ObjectStore",
-        "ObjectStoreFromEnv"
+        "ObjectReader"
       ],
       "hidden_coupling_ratio": 0.333,
       "hotspot_rank": 16,

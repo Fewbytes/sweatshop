@@ -230,6 +230,14 @@ func (c Client) Stats(ctx context.Context, since string) (cistats.Summary, error
 	return sum, err
 }
 
+// CheckStats returns the per-check CI statistics; empty since, check and
+// commit match everything.
+func (c Client) CheckStats(ctx context.Context, since, check, commit string) ([]cistats.CheckSummary, error) {
+	var sums []cistats.CheckSummary
+	_, err := c.do(ctx, http.MethodGet, "/v1/ci/stats", url.Values{"since": {since}, "check": {check}, "commit": {commit}}, nil, &sums)
+	return sums, err
+}
+
 func (c Client) Status(ctx context.Context) (Status, error) {
 	var st Status
 	_, err := c.do(ctx, http.MethodGet, "/v1/status", nil, nil, &st)

@@ -129,6 +129,25 @@ func (s *Store) RecordTests(ctx context.Context, rows []report.TestRow) error {
 	return tx.Commit()
 }
 
+// RecordChecks saves one run's per-check results in one transaction. It
+// implements report.CheckStore.
+func (s *Store) RecordChecks(ctx context.Context, rows []report.CheckRow) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, r := range rows {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO check_result (run_id, commit_sha, tree, role, started_at, check_name, exit_code, duration_ms)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			r.RunID, r.Commit, r.Tree, r.Role, formatTime(r.StartedAt), r.Check, r.ExitCode, r.DurationMS); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // execer is the part of *sql.DB and *sql.Tx the inserts need.
 type execer interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
@@ -209,6 +228,30 @@ func (s *Store) Tests(ctx context.Context) ([]report.TestRow, error) {
 			return nil, err
 		}
 		r.Outcome = report.TestOutcome(outcome)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// Checks returns every saved check result, oldest first.
+func (s *Store) Checks(ctx context.Context) ([]report.CheckRow, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT run_id, commit_sha, tree, role, started_at, check_name, exit_code, duration_ms
+		 FROM check_result ORDER BY seq`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []report.CheckRow
+	for rows.Next() {
+		var r report.CheckRow
+		var started string
+		if err := rows.Scan(&r.RunID, &r.Commit, &r.Tree, &r.Role, &started, &r.Check, &r.ExitCode, &r.DurationMS); err != nil {
+			return nil, err
+		}
+		if r.StartedAt, err = parseTime(started); err != nil {
+			return nil, err
+		}
 		out = append(out, r)
 	}
 	return out, rows.Err()

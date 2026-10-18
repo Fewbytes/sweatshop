@@ -32,6 +32,20 @@ CREATE TABLE IF NOT EXISTS test_result (
   duration_ms INTEGER NOT NULL
 );
 
+-- check_result is one required check of a run that judged its commit (infra
+-- runs save none).
+CREATE TABLE IF NOT EXISTS check_result (
+  seq         INTEGER PRIMARY KEY,
+  run_id      TEXT NOT NULL,
+  commit_sha  TEXT NOT NULL,
+  tree        TEXT NOT NULL,
+  role        TEXT NOT NULL,
+  started_at  TEXT NOT NULL,
+  check_name  TEXT NOT NULL,
+  exit_code   INTEGER NOT NULL,
+  duration_ms INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS kaizen_baseline (
   seq        INTEGER PRIMARY KEY,
   commit_sha TEXT NOT NULL UNIQUE,
