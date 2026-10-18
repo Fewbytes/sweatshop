@@ -586,49 +586,39 @@ func (c *Channel) recordEpicApproval(ctx context.Context, id, via string) error 
 }
 
 func (c *Channel) approveDeploy(ctx context.Context, m InboxMessage, short string) {
-	reply := func(format string, args ...any) {
-		if err := c.Discord.Post(ctx, c.ChannelID, fmt.Sprintf(format, args...)); err != nil {
-			log.Printf("channel: reply: %v", err)
-		}
-	}
 	// Defence in depth: Poll only calls command for the king.
 	if c.King == "" || m.AuthorID != c.King {
 		return
 	}
 	if c.Deploy == nil {
-		reply("cannot approve deploy %s: not configured", short)
+		c.reply(ctx, fmt.Sprintf("cannot approve deploy %s: not configured", short))
 		return
 	}
 	commit, err := c.Deploy(ctx, short, m.ID)
 	if err != nil {
 		log.Printf("channel: approve deploy %s: %v", short, err)
-		reply("could not approve deploy %s: %v", short, err)
+		c.reply(ctx, fmt.Sprintf("could not approve deploy %s: %v", short, err))
 		return
 	}
-	reply("deploy %s approved; the deployer will roll it", commit[:min(len(commit), shortLen)])
+	c.reply(ctx, fmt.Sprintf("deploy %s approved; the deployer will roll it", commit[:min(len(commit), shortLen)]))
 }
 
 func (c *Channel) approveConstitution(ctx context.Context, m InboxMessage, num string) {
-	reply := func(format string, args ...any) {
-		if err := c.Discord.Post(ctx, c.ChannelID, fmt.Sprintf(format, args...)); err != nil {
-			log.Printf("channel: reply: %v", err)
-		}
-	}
 	// Defence in depth: Poll only calls command for the king.
 	if c.King == "" || m.AuthorID != c.King {
 		return
 	}
 	n, _ := strconv.Atoi(num)
 	if c.Constitution == nil {
-		reply("cannot approve constitution %d: not configured", n)
+		c.reply(ctx, fmt.Sprintf("cannot approve constitution %d: not configured", n))
 		return
 	}
 	if err := c.Constitution(ctx, n, m.ID); err != nil {
 		log.Printf("channel: approve constitution %d: %v", n, err)
-		reply("could not approve constitution %d: %v", n, err)
+		c.reply(ctx, fmt.Sprintf("could not approve constitution %d: %v", n, err))
 		return
 	}
-	reply("constitution proposal %d approved; reloading", n)
+	c.reply(ctx, fmt.Sprintf("constitution proposal %d approved; reloading", n))
 	if c.Restart != nil {
 		c.Restart()
 	}
