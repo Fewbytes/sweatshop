@@ -633,3 +633,25 @@ func TestEventsRecordReapFromHeijunkaStation(t *testing.T) {
 		t.Fatalf("events = %+v, %v", got, err)
 	}
 }
+
+func TestCardsOfferRepeatReturnsCurrentState(t *testing.T) {
+	cases := []struct {
+		name, show, label string
+		offered           bool
+	}{
+		{"already on the line", `{"issue_type":"feature","labels":["line"]}`, "line", true},
+		{"already proposed", `{"issue_type":"feature","labels":["line-proposed"]}`, "line-proposed", false},
+	}
+	for _, tc := range cases {
+		f := &fakeCards{show: tc.show}
+		_, _, v, _ := cardsRig(t, f)
+		out, err := v.CardOffer(context.Background(), "x-1")
+		var got Offer
+		if err != nil || json.Unmarshal(out, &got) != nil || got.Offered != tc.offered || got.Label != tc.label {
+			t.Fatalf("%s: %s %v", tc.name, out, err)
+		}
+		if len(f.labels) != 0 {
+			t.Fatalf("%s: repeat offer relabelled the card: %v", tc.name, f.labels)
+		}
+	}
+}

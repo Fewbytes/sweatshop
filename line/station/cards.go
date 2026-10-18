@@ -589,11 +589,22 @@ type Offer struct {
 }
 
 // offer puts the card on the line when a delegation covers it, else proposes
-// it to the king.
+// it to the king. It is idempotent: a card already on the line (offered, or
+// accepted by the king) answers Offered with the line label and is left
+// untouched; a card already proposed is not labelled twice.
 func (s *Server) offer(w http.ResponseWriter, r *http.Request, cards Cards, st *Station, id string) (string, error) {
 	raw, err := cards.Show(r.Context(), id)
 	if err != nil {
 		return "", err
+	}
+	var issue struct {
+		Labels []string `json:"labels"`
+	}
+	unmarshalIssue(raw, &issue)
+	if slices.Contains(issue.Labels, LabelLine) {
+		res := Offer{Offered: true, Label: LabelLine}
+		writeJSON(w, http.StatusOK, res)
+		return fmt.Sprintf("offer %s label=%s (already)", id, res.Label), nil
 	}
 	typ, ancestors := cardLineage(raw, id)
 	res := Offer{Label: LabelProposed}
@@ -604,8 +615,10 @@ func (s *Server) offer(w http.ResponseWriter, r *http.Request, cards Cards, st *
 	if s.Guard.Constitution.Delegates(typ, ancestors, inherited) {
 		res = Offer{Offered: true, Label: LabelLine}
 	}
-	if err := cards.AddLabel(r.Context(), id, res.Label); err != nil {
-		return "", err
+	if !slices.Contains(issue.Labels, res.Label) {
+		if err := cards.AddLabel(r.Context(), id, res.Label); err != nil {
+			return "", err
+		}
 	}
 	s.recordEvent(r.Context(), st, linestore.EventOffer, id, "label "+res.Label)
 	writeJSON(w, http.StatusOK, res)
