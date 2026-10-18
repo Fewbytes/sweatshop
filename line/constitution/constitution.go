@@ -34,6 +34,9 @@ type Constitution struct {
 	Channel   Channel   `toml:"channel"`
 	Viceroy   Viceroy   `toml:"viceroy"`
 	Cards     Cards     `toml:"cards"`
+	// Optional: absent means the line's own remote.git and no mirrors.
+	// Changing it is the king's call (proposals need his approval).
+	Remotes []Remote `toml:"remotes"`
 }
 
 // DefaultCommentCap is the comments an agent may leave on its own card per run.
@@ -534,6 +537,9 @@ func (c Constitution) validate() error {
 				return fmt.Errorf("guards.blobs.allow pattern %q: %w", pattern, err)
 			}
 		}
+	}
+	if err := c.validateRemotes(); err != nil {
+		return err
 	}
 	return c.validateGovernance()
 }

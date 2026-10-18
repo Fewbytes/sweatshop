@@ -1095,7 +1095,7 @@
       "purpose": "Command sweatshop administers an assembly line (witness keys, the merge"
     },
     "line/constitution": {
-      "entry_point_count": 30,
+      "entry_point_count": 34,
       "entry_points": [
         "BlobGuard",
         "Cards",

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -437,7 +438,7 @@ func TestExampleParses(t *testing.T) {
 		t.Fatal(err)
 	}
 	if c.Trust.Level != "attest" || len(c.Trust.Keys) != 1 || c.Runner.Kind != "container" ||
-		len(c.Checks.Required) != 1 || len(c.Guards.Paths) != 2 || c.Guards.Blobs.MaxBytes != 1<<20 || !c.Guards.Blobs.Allows("testdata/x.bin") ||
+		len(c.Checks.Required) != 1 || len(c.Guards.Paths) != 2 || len(c.Remotes) != 2 || c.Guards.Blobs.MaxBytes != 1<<20 || !c.Guards.Blobs.Allows("testdata/x.bin") ||
 		c.Sovereign.Discord == "" || c.Channel.Kind != "discord" ||
 		!c.Viceroy.Succession || len(c.Viceroy.Delegations) != 4 {
 		t.Fatalf("example parsed unexpectedly: %+v", c)
@@ -530,5 +531,76 @@ func TestChecksColdTimeoutDefaultsAndRejectsBad(t *testing.T) {
 	c := Constitution{Runner: Runner{Kind: "local"}, Checks: Checks{ColdTimeout: "soon"}}
 	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "checks.cold_timeout") {
 		t.Errorf("validate() = %v, want a checks.cold_timeout error", err)
+	}
+}
+
+func TestRemotesDeclareAuthoritativeAndStorageMirrors(t *testing.T) {
+	_, encoded := publicKey(t)
+	c, err := Parse([]byte(valid(encoded) + `
+[[remotes]]
+name = "line"
+kind = "authoritative"
+
+[[remotes]]
+name = "github"
+kind = "storage"
+url = "git@github.com:o/r.git"
+
+[[remotes]]
+name = "backup"
+kind = "storage"
+url = "https://example.com/r.git"
+publish = ["refs/heads/master"]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if auth, ok := c.AuthoritativeRemote(); !ok || auth.Name != "line" {
+		t.Fatalf("authoritative = %+v, %v; want line", auth, ok)
+	}
+	mirrors := c.StorageMirrors()
+	if len(mirrors) != 2 || mirrors[0].Name != "github" || mirrors[1].Name != "backup" {
+		t.Fatalf("mirrors = %+v; want github, backup", mirrors)
+	}
+	if got := mirrors[0].PublishRefs(); !slices.Equal(got, DefaultPublishRefs) {
+		t.Fatalf("default publish refs = %v; want %v", got, DefaultPublishRefs)
+	}
+	if got := mirrors[1].PublishRefs(); !slices.Equal(got, []string{"refs/heads/master"}) {
+		t.Fatalf("explicit publish refs = %v", got)
+	}
+}
+
+func TestNoRemotesMeansNoAuthoritativeDeclaration(t *testing.T) {
+	_, encoded := publicKey(t)
+	c, err := Parse([]byte(valid(encoded)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := c.AuthoritativeRemote(); ok || len(c.StorageMirrors()) != 0 {
+		t.Fatalf("remotes = %+v; want none", c.Remotes)
+	}
+}
+
+func TestParseRejectsBadRemotes(t *testing.T) {
+	_, encoded := publicKey(t)
+	base := valid(encoded)
+	const auth = "\n[[remotes]]\nname = \"line\"\nkind = \"authoritative\"\n"
+	cases := map[string]string{
+		"mirrors without an authoritative remote": base + "\n[[remotes]]\nname = \"gh\"\nkind = \"storage\"\nurl = \"u\"\n",
+		"two authoritative remotes":               base + auth + "\n[[remotes]]\nname = \"two\"\nkind = \"authoritative\"\n",
+		"mirror kind other than storage":          base + auth + "\n[[remotes]]\nname = \"gh\"\nkind = \"source\"\nurl = \"u\"\n",
+		"storage without url":                     base + auth + "\n[[remotes]]\nname = \"gh\"\nkind = \"storage\"\n",
+		"authoritative with url":                  base + "\n[[remotes]]\nname = \"line\"\nkind = \"authoritative\"\nurl = \"u\"\n",
+		"duplicate name":                          base + auth + "\n[[remotes]]\nname = \"line\"\nkind = \"storage\"\nurl = \"u\"\n",
+		"missing name":                            base + auth + "\n[[remotes]]\nkind = \"storage\"\nurl = \"u\"\n",
+		"credentials in url":                      base + auth + "\n[[remotes]]\nname = \"gh\"\nkind = \"storage\"\nurl = \"https://user:secret@github.com/o/r.git\"\n",
+		"publish entry not a ref":                 base + auth + "\n[[remotes]]\nname = \"gh\"\nkind = \"storage\"\nurl = \"u\"\npublish = [\"master\"]\n",
+	}
+	for name, doc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Parse([]byte(doc)); err == nil {
+				t.Fatalf("accepted:\n%s", doc)
+			}
+		})
 	}
 }

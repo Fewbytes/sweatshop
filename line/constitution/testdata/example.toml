@@ -91,3 +91,18 @@ ids = ["sweatshop-0mw.1.4", "sweatshop-0mw.1.7"]
 close = true
 types = ["chore"]
 labels = ["obsolete"]
+
+# How code is synced. Exactly one authoritative remote (the line remote):
+# agents read from it and land to it. Storage mirrors are write-only and
+# fast-forward-only; they publish, and the line never reads from them or
+# relies on the host's features. Push credentials stay on the host.
+[[remotes]]
+name = "line"
+kind = "authoritative"
+
+[[remotes]]
+name = "github"
+kind = "storage"
+url = "git@github.com:Fewbytes/sweatshop.git"
+# publish defaults to master, tags and attestations.
+publish = ["refs/heads/master", "refs/tags/*", "refs/sweatshop/*"]
