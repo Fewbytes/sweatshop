@@ -1,0 +1,38 @@
+# Work order dep_c1 step 2 of 2
+
+## Goal and step
+
+- campaign: dep_c1 — upgrade node:lib to 1.2.0
+- this step: move node:lib from 1.0.0 to 1.2.0 (minor)
+- attempt budget: 1 of 5 spent
+
+## Why
+
+requested upgrade
+
+## The change
+
+Edit package.json under each of: .
+
+Expected movement: node:lib 1.0.0 -> 1.2.0
+
+## Relevant subgraph
+
+- node:app@1.0.0 -> node:lib@1.0.0 (requires ^1.0.0)
+- node:plug@1.1.0 -> node:lib (requires ^1.0.0)
+
+## Prior attempts
+
+- step 1 by agent-a: succeeded
+
+## Verification
+
+- build and tests pass; node:lib resolves to 1.2.0 in the next snapshot
+- `bughunt scan` reports no new findings
+- expected snapshot delta: remove node:lib@1.0.0, add node:lib@1.2.0
+- rollback if it cannot be made green: restore node:lib to 1.0.0 and re-expand the graph
+
+## Report back
+
+depmaint campaign record dep_c1 --step 2 --verdict <succeeded|rejected|failed> \
+  --reason "..." [--pr <url>] [--executor <name>]

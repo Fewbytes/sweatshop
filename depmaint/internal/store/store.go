@@ -121,6 +121,27 @@ func (s *Store) SnapshotNodes(ctx context.Context, snapshotID string) ([]expande
 	return out, rows.Err()
 }
 
+// SnapshotEdges returns every edge in a snapshot.
+func (s *Store) SnapshotEdges(ctx context.Context, snapshotID string) ([]expander.Edge, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT from_key, to_key, requirement, resolved, internal FROM edge WHERE snapshot_id = ?
+		 ORDER BY from_key, to_key, requirement`, snapshotID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []expander.Edge
+	for rows.Next() {
+		var e expander.Edge
+		if err := rows.Scan(&e.From, &e.To, &e.Requirement, &e.Resolved, &e.Internal); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 // PruneSnapshots deletes every snapshot for root except the newest keep,
 // along with their nodes and edges.
 func (s *Store) PruneSnapshots(ctx context.Context, root string, keep int) error {

@@ -71,6 +71,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 3
 		}
 		return 0
+	case "campaign":
+		return runCampaign(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n%s\n", args[0], usage)
 		return 2
@@ -84,4 +86,5 @@ commands:
   graph [--refresh]     expand + snapshot; report drift vs previous
   outdated [--ecosystem E]    direct deps with newer published versions
   audit [--min-severity S]    advisories + EOL + deprecated → campaign worklist
+  campaign new|plan|next|record|list   drive a bounded upgrade campaign
   version               print version and exit`

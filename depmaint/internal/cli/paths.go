@@ -7,14 +7,17 @@ type Layout struct {
 	Dir    string // .depmaint
 	Config string // .depmaint/config.toml
 	DB     string // .depmaint/cache.db
+	// Campaigns is the campaign database: decisions, not cache.
+	Campaigns string // .depmaint/campaign.db
 }
 
 // Paths resolves depmaint's layout relative to a repo root.
 func Paths(root string) Layout {
 	dir := filepath.Join(root, ".depmaint")
 	return Layout{
-		Dir:    dir,
-		Config: filepath.Join(dir, "config.toml"),
-		DB:     filepath.Join(dir, "cache.db"),
+		Dir:       dir,
+		Config:    filepath.Join(dir, "config.toml"),
+		DB:        filepath.Join(dir, "cache.db"),
+		Campaigns: filepath.Join(dir, "campaign.db"),
 	}
 }

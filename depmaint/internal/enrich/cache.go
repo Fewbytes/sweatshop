@@ -16,6 +16,7 @@ type Source string
 const (
 	SourceVersions   Source = "depsdev-versions"
 	SourceVersion    Source = "depsdev-version"
+	SourceRequires   Source = "depsdev-requirements"
 	SourceAdvisories Source = "depsdev-advisory"
 	SourceEOL        Source = "endoflife"
 )
@@ -26,7 +27,7 @@ func (s Source) TTL() time.Duration {
 	switch s {
 	case SourceAdvisories:
 		return 6 * time.Hour
-	case SourceVersions, SourceVersion:
+	case SourceVersions, SourceVersion, SourceRequires:
 		return 24 * time.Hour
 	case SourceEOL:
 		return 7 * 24 * time.Hour

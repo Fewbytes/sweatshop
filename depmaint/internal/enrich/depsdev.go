@@ -43,6 +43,17 @@ type VersionDetail struct {
 	} `json:"advisoryKeys"`
 }
 
+// Requirements is the decoded requirements document. Only npm is modelled:
+// other ecosystems carry their requirements under differently named keys.
+type Requirements struct {
+	NPM struct {
+		Dependencies []struct {
+			Name        string `json:"name"`
+			Requirement string `json:"requirement"`
+		} `json:"dependencies"`
+	} `json:"npm"`
+}
+
 // Advisory is the decoded deps.dev advisory document.
 type Advisory struct {
 	AdvisoryKey struct {
@@ -131,6 +142,12 @@ func (c DepsDev) FetchPackageVersions(ctx context.Context, system, name string) 
 // FetchVersion returns the raw version document.
 func (c DepsDev) FetchVersion(ctx context.Context, system, name, version string) ([]byte, error) {
 	return c.get(ctx, "/v3/systems/"+system+"/packages/"+url.PathEscape(name)+"/versions/"+url.PathEscape(version))
+}
+
+// FetchRequirements returns the raw declared-requirements document for one
+// package version. Only deps.dev's v3alpha API serves requirements.
+func (c DepsDev) FetchRequirements(ctx context.Context, system, name, version string) ([]byte, error) {
+	return c.get(ctx, "/v3alpha/systems/"+system+"/packages/"+url.PathEscape(name)+"/versions/"+url.PathEscape(version)+":requirements")
 }
 
 // FetchAdvisory returns the raw advisory document.

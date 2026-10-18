@@ -31,21 +31,21 @@
       "entry_point_count": 0,
       "entry_points": [],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 41,
+      "hotspot_rank": 47,
       "imported_by": [],
       "imports": [
         "agentsh/internal/exporter",
         "agentsh/internal/workspace"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": ""
     },
     "agentsh/cmd/agentshd": {
       "entry_point_count": 0,
       "entry_points": [],
       "hidden_coupling_ratio": 0.5,
-      "hotspot_rank": 29,
+      "hotspot_rank": 35,
       "imported_by": [],
       "imports": [
         "agentsh/internal/config",
@@ -55,7 +55,7 @@
         "agentsh/internal/workspace"
       ],
       "lcom4": 1,
-      "measured_at_commit": "318c2ed7ed6ccc97285cc63f820a944cc2965377",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": ""
     },
     "agentsh/internal/analyzer": {
@@ -186,7 +186,7 @@
         "WriteParquet"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 33,
+      "hotspot_rank": 40,
       "imported_by": [
         "agentsh/cmd/agentsh-analytics"
       ],
@@ -195,7 +195,7 @@
         "agentsh/internal/workspace"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": ""
     },
     "agentsh/internal/integration": {
@@ -219,7 +219,7 @@
         "Server"
       ],
       "hidden_coupling_ratio": 0.5,
-      "hotspot_rank": 33,
+      "hotspot_rank": 39,
       "imported_by": [
         "agentsh/cmd/agentshd"
       ],
@@ -229,7 +229,7 @@
         "agentsh/internal/workspace"
       ],
       "lcom4": 1,
-      "measured_at_commit": "318c2ed7ed6ccc97285cc63f820a944cc2965377",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": ""
     },
     "agentsh/internal/output": {
@@ -278,7 +278,7 @@
         "BashStateRequest"
       ],
       "hidden_coupling_ratio": 0.4,
-      "hotspot_rank": 36,
+      "hotspot_rank": 41,
       "imported_by": [
         "agentsh/cmd/agentsh",
         "agentsh/internal/daemon",
@@ -286,7 +286,7 @@
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "318c2ed7ed6ccc97285cc63f820a944cc2965377",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": ""
     },
     "agentsh/internal/service": {
@@ -424,14 +424,14 @@
       "entry_point_count": 0,
       "entry_points": [],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 47,
+      "hotspot_rank": 53,
       "imported_by": [],
       "imports": [
         "bughunt/internal/cli",
         "bughunt/internal/version"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": "Command bughunt finds bugs, records them, and turns them into static checks."
     },
     "bughunt/internal/cli": {
@@ -469,14 +469,14 @@
         "Load"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 46,
+      "hotspot_rank": 51,
       "imported_by": [
         "bughunt/internal/cli",
         "bughunt/internal/scan"
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": "Package config loads .bughunt/config.yaml. An absent or empty file is valid"
     },
     "bughunt/internal/detector": {
@@ -522,14 +522,14 @@
         "SeverityMedium"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 54,
+      "hotspot_rank": 59,
       "imported_by": [
         "bughunt/internal/detector",
         "bughunt/internal/scan"
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": "Package finding defines the normalized output of every detector and the"
     },
     "bughunt/internal/gitinfo": {
@@ -541,7 +541,7 @@
         "RepoRoot"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 37,
+      "hotspot_rank": 43,
       "imported_by": [
         "bughunt/internal/cli",
         "bughunt/internal/detector",
@@ -549,7 +549,7 @@
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": "Package gitinfo reads the repository facts scan needs: the current commit and"
     },
     "bughunt/internal/scan": {
@@ -561,7 +561,7 @@
         "Run"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 23,
+      "hotspot_rank": 31,
       "imported_by": [
         "bughunt/internal/cli"
       ],
@@ -573,7 +573,7 @@
         "bughunt/internal/store"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": "Package scan runs the deterministic detectors and records what they find."
     },
     "bughunt/internal/store": {
@@ -610,14 +610,14 @@
         "Resolver"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 38,
+      "hotspot_rank": 44,
       "imported_by": [
         "bughunt/internal/cli",
         "bughunt/internal/detector"
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": "Package symbol maps a source location to the name of its enclosing"
     },
     "bughunt/internal/version": {
@@ -639,10 +639,11 @@
     "depmaint/cmd/depmaint": {
       "entry_point_count": 0,
       "entry_points": [],
-      "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 43,
+      "hidden_coupling_ratio": 0.667,
+      "hotspot_rank": 29,
       "imported_by": [],
       "imports": [
+        "depmaint/internal/campaign",
         "depmaint/internal/cli",
         "depmaint/internal/goexpander",
         "depmaint/internal/jvmexpander",
@@ -651,35 +652,72 @@
         "depmaint/internal/version"
       ],
       "lcom4": 1,
-      "measured_at_commit": "4266c9bc31f6ebfe160ca7af9f46071ca949406a",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": "Command depmaint expands, caches, and drives dependency-maintenance campaigns."
     },
+    "depmaint/internal/campaign": {
+      "entry_point_count": 31,
+      "entry_points": [
+        "Attempt",
+        "Budget",
+        "Campaign",
+        "Engine",
+        "NewSpec",
+        "Next",
+        "NextBlocked",
+        "NextDispatch",
+        "NextExhausted",
+        "NextState",
+        "NextSucceeded",
+        "OpenStore"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 23,
+      "imported_by": [
+        "depmaint/cmd/depmaint",
+        "depmaint/internal/cli"
+      ],
+      "imports": [
+        "depmaint/internal/expander",
+        "depmaint/internal/planner"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
+      "purpose": "Package campaign is depmaint's state machine: bounded upgrade campaigns"
+    },
     "depmaint/internal/cli": {
-      "entry_point_count": 8,
+      "entry_point_count": 14,
       "entry_points": [
         "Audit",
+        "CampaignList",
+        "CampaignNew",
+        "CampaignNewArgs",
+        "CampaignNext",
+        "CampaignPlan",
+        "CampaignRecord",
         "DefaultPublished",
         "Graph",
         "Init",
         "Layout",
-        "Outdated",
-        "Paths",
-        "Published"
+        "Outdated"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 21,
+      "hotspot_rank": 17,
       "imported_by": [
         "depmaint/cmd/depmaint"
       ],
       "imports": [
+        "depmaint/internal/campaign",
         "depmaint/internal/config",
         "depmaint/internal/enrich",
         "depmaint/internal/expander",
+        "depmaint/internal/planner",
+        "depmaint/internal/project",
         "depmaint/internal/snapshot",
         "depmaint/internal/store"
       ],
       "lcom4": 1,
-      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": ""
     },
     "depmaint/internal/config": {
@@ -690,17 +728,17 @@
         "Load"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 48,
+      "hotspot_rank": 54,
       "imported_by": [
         "depmaint/internal/cli"
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": "Package config loads .depmaint/config.toml \u2014 committed team posture"
     },
     "depmaint/internal/enrich": {
-      "entry_point_count": 29,
+      "entry_point_count": 31,
       "entry_points": [
         "Advisory",
         "Cached",
@@ -715,15 +753,15 @@
         "PackageKey",
         "PackageVersion"
       ],
-      "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 26,
+      "hidden_coupling_ratio": 0.333,
+      "hotspot_rank": 27,
       "imported_by": [
         "depmaint/internal/cli",
         "depmaint/internal/store"
       ],
       "imports": [],
       "lcom4": 2,
-      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": "Package enrich fetches published truth (latest versions, licenses,"
     },
     "depmaint/internal/expander": {
@@ -736,8 +774,9 @@
         "Register"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 62,
+      "hotspot_rank": 64,
       "imported_by": [
+        "depmaint/internal/campaign",
         "depmaint/internal/cli",
         "depmaint/internal/goexpander",
         "depmaint/internal/jvmexpander",
@@ -750,7 +789,7 @@
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": "Package expander defines the contract ecosystem expanders implement"
     },
     "depmaint/internal/goexpander": {
@@ -760,7 +799,7 @@
         "MainModulePath"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 26,
+      "hotspot_rank": 33,
       "imported_by": [
         "depmaint/cmd/depmaint",
         "depmaint/internal/project"
@@ -769,7 +808,7 @@
         "depmaint/internal/expander"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": "Package goexpander implements the depmaint Go expander: it reads resolved"
     },
     "depmaint/internal/jvmexpander": {
@@ -809,7 +848,7 @@
       "purpose": "Package nodeexpander implements the depmaint Node expander: it reads"
     },
     "depmaint/internal/planner": {
-      "entry_point_count": 22,
+      "entry_point_count": 23,
       "entry_points": [
         "Accepts",
         "Blocker",
@@ -817,22 +856,25 @@
         "BlockerEngine",
         "BlockerKind",
         "BlockerToolchain",
+        "ErrAlreadyAtTarget",
         "Graph",
         "Make",
         "MergeRoots",
         "ParseVersion",
-        "Plan",
-        "Registry"
+        "Plan"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 63,
-      "imported_by": [],
+      "hotspot_rank": 22,
+      "imported_by": [
+        "depmaint/internal/campaign",
+        "depmaint/internal/cli"
+      ],
       "imports": [
         "depmaint/internal/expander",
         "depmaint/internal/project"
       ],
       "lcom4": 1,
-      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": "Package planner turns a project's resolved graph plus published truth into"
     },
     "depmaint/internal/project": {
@@ -843,8 +885,9 @@
         "RootGraph"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 44,
+      "hotspot_rank": 46,
       "imported_by": [
+        "depmaint/internal/cli",
         "depmaint/internal/planner"
       ],
       "imports": [
@@ -854,7 +897,7 @@
         "depmaint/internal/pyexpander"
       ],
       "lcom4": 1,
-      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": "Package project derives projects from per-root dependency graphs: roots"
     },
     "depmaint/internal/pyexpander": {
@@ -864,7 +907,7 @@
         "MainModulePath"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 31,
+      "hotspot_rank": 36,
       "imported_by": [
         "depmaint/cmd/depmaint",
         "depmaint/internal/project"
@@ -873,7 +916,7 @@
         "depmaint/internal/expander"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": "Package pyexpander implements the depmaint Python expander: it reads"
     },
     "depmaint/internal/snapshot": {
@@ -885,7 +928,7 @@
         "Snapshot"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 45,
+      "hotspot_rank": 50,
       "imported_by": [
         "depmaint/internal/cli",
         "depmaint/internal/store"
@@ -894,7 +937,7 @@
         "depmaint/internal/expander"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": "Package snapshot builds a content-addressed graph snapshot from whatever"
     },
     "depmaint/internal/store": {
@@ -903,8 +946,8 @@
         "Open",
         "Store"
       ],
-      "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 36,
+      "hidden_coupling_ratio": 0.333,
+      "hotspot_rank": 30,
       "imported_by": [
         "depmaint/internal/cli"
       ],
@@ -914,7 +957,7 @@
         "depmaint/internal/snapshot"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": "Package store persists graph snapshots, nodes, edges, and enrichment in"
     },
     "depmaint/internal/version": {
@@ -976,7 +1019,7 @@
         "NewStatement"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 27,
+      "hotspot_rank": 32,
       "imported_by": [
         "agentsh/internal/daemon",
         "line/andon",
@@ -990,7 +1033,7 @@
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": "Package attest signs and verifies DSSE envelopes carrying in-toto"
     },
     "line/cistats": {
@@ -1005,7 +1048,7 @@
         "Summary"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 28,
+      "hotspot_rank": 34,
       "imported_by": [
         "line/station"
       ],
@@ -1013,7 +1056,7 @@
         "line/report"
       ],
       "lcom4": 1,
-      "measured_at_commit": "96da24bc59d97926a914586077287c786d3424ff",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": "Package cistats answers questions about CI health from the line's stored"
     },
     "line/cmd/sweatshop": {
@@ -1173,7 +1216,7 @@
         "Git"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 49,
+      "hotspot_rank": 55,
       "imported_by": [
         "agentsh/internal/daemon",
         "line/cmd/sweatshop",
@@ -1189,7 +1232,7 @@
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": "Package gittest builds repository fixtures for tests by running the git"
     },
     "line/guard": {
@@ -1240,7 +1283,7 @@
         "Writer"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 51,
+      "hotspot_rank": 56,
       "imported_by": [
         "line/gemba",
         "line/kaizen",
@@ -1250,7 +1293,7 @@
         "line/constitution"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": "Package guidance holds the code-quality guides the line's code-writing"
     },
     "line/harness": {
@@ -1311,7 +1354,7 @@
         "Until"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 52,
+      "hotspot_rank": 57,
       "imported_by": [
         "line/cmd/sweatshop",
         "line/maker",
@@ -1320,7 +1363,7 @@
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
       "purpose": "Package testwait is the one place line tests wait on wall-clock time. It"
     },
     "line/kaizen": {

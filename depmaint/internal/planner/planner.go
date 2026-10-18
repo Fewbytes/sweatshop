@@ -7,6 +7,7 @@
 package planner
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -14,6 +15,10 @@ import (
 	"github.com/Fewbytes/sweatshop/depmaint/internal/expander"
 	"github.com/Fewbytes/sweatshop/depmaint/internal/project"
 )
+
+// ErrAlreadyAtTarget is returned by Make when the package already resolves
+// to the requested target: the campaign's goal is met, not an input mistake.
+var ErrAlreadyAtTarget = errors.New("package already at target")
 
 // Requirement is one dependency constraint a published package version
 // declares. Package is a bare "ecosystem:name" identity.
@@ -173,7 +178,7 @@ func newSearch(g Graph, up Upgrade, reg Registry, accepts Accepts) (*search, err
 		return nil, fmt.Errorf("%s is not in the graph", up.Package)
 	}
 	if cur == up.Target {
-		return nil, fmt.Errorf("%s is already at %s", up.Package, up.Target)
+		return nil, fmt.Errorf("%s is at %s: %w", up.Package, up.Target, ErrAlreadyAtTarget)
 	}
 	return s, nil
 }
