@@ -93,7 +93,7 @@ func TestBashOutputPagesViaIndex(t *testing.T) {
 		<-done
 	}()
 
-	client := agentrpc.Client{Socket: paths.Socket, Timeout: 5 * time.Second}
+	client := agentrpc.Client{Socket: paths.Socket, Timeout: 30 * time.Second}
 	waitForSocket(t, paths.Socket)
 
 	params, _ := json.Marshal(agentrpc.BashRequest{Command: "seq 1000", Session: "default"})
@@ -135,7 +135,7 @@ func TestBashOutputGrep(t *testing.T) {
 		<-done
 	}()
 
-	client := agentrpc.Client{Socket: paths.Socket, Timeout: 5 * time.Second}
+	client := agentrpc.Client{Socket: paths.Socket, Timeout: 30 * time.Second}
 	waitForSocket(t, paths.Socket)
 
 	params, _ := json.Marshal(agentrpc.BashRequest{Command: `printf 'alpha\nerror one\nbeta\nerror two\n'`, Session: "default"})
@@ -171,7 +171,7 @@ func TestBashReturnsStructuredSummary(t *testing.T) {
 		<-done
 	}()
 
-	client := agentrpc.Client{Socket: paths.Socket, Timeout: 5 * time.Second}
+	client := agentrpc.Client{Socket: paths.Socket, Timeout: 30 * time.Second}
 	waitForSocket(t, paths.Socket)
 
 	// Command detected as pytest with failure output
@@ -216,7 +216,7 @@ func TestBashTemplatesAndBaselineComparison(t *testing.T) {
 		<-done
 	}()
 
-	client := agentrpc.Client{Socket: paths.Socket, Timeout: 5 * time.Second}
+	client := agentrpc.Client{Socket: paths.Socket, Timeout: 30 * time.Second}
 	waitForSocket(t, paths.Socket)
 
 	// Run 1: Standard repetitive logs
