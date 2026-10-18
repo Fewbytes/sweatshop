@@ -495,11 +495,7 @@ func (s *Server) bundle(w http.ResponseWriter, r *http.Request, st *Station, mer
 		return fmt.Sprintf("passed=%t guard=%s %s", res.Attestation.Passed, res.Guard.Status, res.Guard.Reason), nil
 	}
 	res, err := st.Witness.AttestBundle(r.Context(), path, commit)
-	if err != nil {
-		return "", fail(http.StatusUnprocessableEntity, "%v", err)
-	}
-	writeJSON(w, http.StatusOK, res)
-	return fmt.Sprintf("passed=%t", res.Passed), nil
+	return replyAttest(w, res, err)
 }
 
 func (s *Server) attestLine(w http.ResponseWriter, r *http.Request, st *Station) (string, error) {
@@ -508,6 +504,12 @@ func (s *Server) attestLine(w http.ResponseWriter, r *http.Request, st *Station)
 		return "", err
 	}
 	res, err := st.Witness.AttestLine(r.Context(), commit)
+	return replyAttest(w, res, err)
+}
+
+// replyAttest answers an attest route: a witness error is a 422, a failing
+// attestation is still a 200 result.
+func replyAttest(w http.ResponseWriter, res witness.AttestResult, err error) (string, error) {
 	if err != nil {
 		return "", fail(http.StatusUnprocessableEntity, "%v", err)
 	}
