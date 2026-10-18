@@ -412,3 +412,9 @@ Still open:
   verified success. Verification is identical for all racers (tests, scan,
   expected delta), so a later win is not a better outcome by the tool's own
 criteria — revisit only if dogfooding proves otherwise.
+  Decision (2026-10-18, sweatshop-qh0): deferred, v1 stands. No dogfood
+  campaign has recorded a superseded success yet, so there is no evidence.
+  Trigger to reopen: a campaign where a superseded success was measurably
+  better than the winner (smaller diff, wider verified delta, or the winner
+  later reverted) and the difference was not captured by the verification
+  criteria themselves.
