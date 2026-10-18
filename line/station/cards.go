@@ -266,9 +266,8 @@ func (s *Server) routeCards(w http.ResponseWriter, r *http.Request, st *Station)
 	default:
 		return "", fail(http.StatusNotFound, "no route %s", r.URL.Path)
 	}
-	if r.Method != want {
-		w.Header().Set("Allow", want)
-		return "", fail(http.StatusMethodNotAllowed, "use %s for %s", want, r.URL.Path)
+	if err := requireMethod(w, r, want); err != nil {
+		return "", err
 	}
 	if r.Method == http.MethodPost {
 		roles := []string{viceroyRole}

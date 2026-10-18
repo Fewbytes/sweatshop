@@ -687,9 +687,8 @@ func (s *Server) routeChannel(w http.ResponseWriter, r *http.Request, st *Statio
 	} else if path != "/v1/channel/inbox" {
 		return "", fail(http.StatusNotFound, "no route %s", path)
 	}
-	if r.Method != want {
-		w.Header().Set("Allow", want)
-		return "", fail(http.StatusMethodNotAllowed, "use %s for %s", want, path)
+	if err := requireMethod(w, r, want); err != nil {
+		return "", err
 	}
 	if st.Role != viceroyRole {
 		return "", fail(http.StatusForbidden, "role %q may not use the channel", st.Role)

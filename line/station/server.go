@@ -281,6 +281,16 @@ func fail(code int, format string, args ...any) error {
 	return &httpError{code: code, msg: fmt.Sprintf(format, args...)}
 }
 
+// requireMethod answers a request whose method is not want with 405 and an
+// Allow header.
+func requireMethod(w http.ResponseWriter, r *http.Request, want string) error {
+	if r.Method != want {
+		w.Header().Set("Allow", want)
+		return fail(http.StatusMethodNotAllowed, "use %s for %s", want, r.URL.Path)
+	}
+	return nil
+}
+
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
@@ -339,17 +349,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // response and returns an outcome for the log, or returns an error for
 // ServeHTTP to write.
 func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (string, error) {
-	method := func(want string) error {
-		if r.Method != want {
-			w.Header().Set("Allow", want)
-			return fail(http.StatusMethodNotAllowed, "use %s for %s", want, r.URL.Path)
-		}
-		return nil
-	}
 	path := r.URL.Path
 	switch {
 	case path == "/v1/attest" || path == "/v1/merge":
-		if err := method(http.MethodPost); err != nil {
+		if err := requireMethod(w, r, http.MethodPost); err != nil {
 			return "", err
 		}
 		if !s.acquire() {
@@ -358,7 +361,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 		defer s.busy.Store(false)
 		return s.bundle(w, r, st, path == "/v1/merge")
 	case path == "/v1/attest-line":
-		if err := method(http.MethodPost); err != nil {
+		if err := requireMethod(w, r, http.MethodPost); err != nil {
 			return "", err
 		}
 		if !s.acquire() {
@@ -367,24 +370,24 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 		defer s.busy.Store(false)
 		return s.attestLine(w, r, st)
 	case path == "/v1/andon/pull" || path == "/v1/andon/clear":
-		if err := method(http.MethodPost); err != nil {
+		if err := requireMethod(w, r, http.MethodPost); err != nil {
 			return "", err
 		}
 		return s.andon(w, r, st, path == "/v1/andon/pull")
 	case path == "/v1/status":
-		if err := method(http.MethodGet); err != nil {
+		if err := requireMethod(w, r, http.MethodGet); err != nil {
 			return "", err
 		}
 		return s.status(w, r)
 	case path == "/v1/stations/heartbeat":
 		return s.heartbeat(w, r, st)
 	case path == "/v1/runs":
-		if err := method(http.MethodGet); err != nil {
+		if err := requireMethod(w, r, http.MethodGet); err != nil {
 			return "", err
 		}
 		return s.runs(w, r)
 	case path == "/v1/stats" || path == "/metrics":
-		if err := method(http.MethodGet); err != nil {
+		if err := requireMethod(w, r, http.MethodGet); err != nil {
 			return "", err
 		}
 		return s.ciStats(w, r, path == "/metrics")
@@ -411,7 +414,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 	case strings.HasPrefix(path, "/v1/channel/"):
 		return s.routeChannel(w, r, st)
 	case strings.HasPrefix(path, "/v1/evidence/"):
-		if err := method(http.MethodGet); err != nil {
+		if err := requireMethod(w, r, http.MethodGet); err != nil {
 			return "", err
 		}
 		return s.evidence(w, strings.TrimPrefix(path, "/v1/evidence/"))

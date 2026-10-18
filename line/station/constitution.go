@@ -83,9 +83,8 @@ func (s *Server) routeConstitution(w http.ResponseWriter, r *http.Request, st *S
 	} else if r.URL.Path != "/v1/constitution" && r.URL.Path != "/v1/constitution/log" {
 		return "", fail(http.StatusNotFound, "no route %s", r.URL.Path)
 	}
-	if r.Method != want {
-		w.Header().Set("Allow", want)
-		return "", fail(http.StatusMethodNotAllowed, "use %s for %s", want, r.URL.Path)
+	if err := requireMethod(w, r, want); err != nil {
+		return "", err
 	}
 	head, err := repo.Ref(ctx, linedir.ConstitutionRef)
 	if err != nil {
