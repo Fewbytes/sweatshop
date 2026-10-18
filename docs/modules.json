@@ -655,12 +655,16 @@
       "purpose": "Command depmaint expands, caches, and drives dependency-maintenance campaigns."
     },
     "depmaint/internal/cli": {
-      "entry_point_count": 4,
+      "entry_point_count": 8,
       "entry_points": [
+        "Audit",
+        "DefaultPublished",
         "Graph",
         "Init",
         "Layout",
-        "Paths"
+        "Outdated",
+        "Paths",
+        "Published"
       ],
       "hidden_coupling_ratio": 0.0,
       "hotspot_rank": 30,
@@ -668,6 +672,8 @@
         "depmaint/cmd/depmaint"
       ],
       "imports": [
+        "depmaint/internal/config",
+        "depmaint/internal/enrich",
         "depmaint/internal/expander",
         "depmaint/internal/snapshot",
         "depmaint/internal/store"
@@ -685,11 +691,40 @@
       ],
       "hidden_coupling_ratio": 0.0,
       "hotspot_rank": 48,
-      "imported_by": [],
+      "imported_by": [
+        "depmaint/internal/cli"
+      ],
       "imports": [],
       "lcom4": 1,
       "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
       "purpose": "Package config loads .depmaint/config.toml \u2014 committed team posture"
+    },
+    "depmaint/internal/enrich": {
+      "entry_point_count": 29,
+      "entry_points": [
+        "Advisory",
+        "Cached",
+        "Cycle",
+        "CycleFor",
+        "Decode",
+        "DefaultDepsDevURL",
+        "DefaultEndOfLifeURL",
+        "DepsDev",
+        "EndOfLife",
+        "Fetch",
+        "PackageKey",
+        "PackageVersion"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 60,
+      "imported_by": [
+        "depmaint/internal/cli",
+        "depmaint/internal/store"
+      ],
+      "imports": [],
+      "lcom4": 2,
+      "measured_at_commit": "e913c34",
+      "purpose": "Package enrich fetches published truth (latest versions, licenses,"
     },
     "depmaint/internal/expander": {
       "entry_point_count": 5,
@@ -844,6 +879,7 @@
         "depmaint/internal/cli"
       ],
       "imports": [
+        "depmaint/internal/enrich",
         "depmaint/internal/expander",
         "depmaint/internal/snapshot"
       ],

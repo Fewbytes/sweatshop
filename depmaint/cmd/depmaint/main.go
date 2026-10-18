@@ -49,6 +49,28 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 3
 		}
 		return 0
+	case "outdated":
+		fs := flag.NewFlagSet("outdated", flag.ContinueOnError)
+		ecosystem := fs.String("ecosystem", "", "only this ecosystem: go, node, python, jvm")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		if err := cli.Outdated(context.Background(), ".", *ecosystem, cli.DefaultPublished(), stdout); err != nil {
+			fmt.Fprintf(stderr, "outdated: %v\n", err)
+			return 3
+		}
+		return 0
+	case "audit":
+		fs := flag.NewFlagSet("audit", flag.ContinueOnError)
+		minSeverity := fs.String("min-severity", "", "drop advisories below low, medium, or high (default: config severity_floor)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		if err := cli.Audit(context.Background(), ".", *minSeverity, cli.DefaultPublished(), stdout); err != nil {
+			fmt.Fprintf(stderr, "audit: %v\n", err)
+			return 3
+		}
+		return 0
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n%s\n", args[0], usage)
 		return 2
@@ -60,4 +82,6 @@ const usage = `usage: depmaint <command> [flags]
 commands:
   init                  create .depmaint/ and default config
   graph [--refresh]     expand + snapshot; report drift vs previous
+  outdated [--ecosystem E]    direct deps with newer published versions
+  audit [--min-severity S]    advisories + EOL + deprecated → campaign worklist
   version               print version and exit`

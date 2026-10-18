@@ -7,8 +7,11 @@ import (
 	"context"
 	"database/sql"
 	_ "embed"
+	"fmt"
 	"strings"
+	"time"
 
+	"github.com/Fewbytes/sweatshop/depmaint/internal/enrich"
 	"github.com/Fewbytes/sweatshop/depmaint/internal/expander"
 	"github.com/Fewbytes/sweatshop/depmaint/internal/snapshot"
 
@@ -162,4 +165,31 @@ func (s *Store) PruneSnapshots(ctx context.Context, root string, keep int) error
 		}
 	}
 	return tx.Commit()
+}
+
+// GetEnrichment returns the cached payload for (source, key), if any.
+func (s *Store) GetEnrichment(ctx context.Context, source enrich.Source, key string) (enrich.Row, bool, error) {
+	var payload, fetchedAt string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT payload, fetched_at FROM enrichment WHERE source = ? AND key = ?`,
+		string(source), key).Scan(&payload, &fetchedAt)
+	if err == sql.ErrNoRows {
+		return enrich.Row{}, false, nil
+	}
+	if err != nil {
+		return enrich.Row{}, false, err
+	}
+	t, err := time.Parse(time.RFC3339, fetchedAt)
+	if err != nil {
+		return enrich.Row{}, false, fmt.Errorf("enrichment %s %s: bad fetched_at %q: %w", source, key, fetchedAt, err)
+	}
+	return enrich.Row{Payload: []byte(payload), FetchedAt: t}, true, nil
+}
+
+// PutEnrichment stores or replaces the payload for (source, key).
+func (s *Store) PutEnrichment(ctx context.Context, source enrich.Source, key string, row enrich.Row) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO enrichment (source, key, payload, fetched_at) VALUES (?, ?, ?, ?)`,
+		string(source), key, string(row.Payload), row.FetchedAt.UTC().Format(time.RFC3339))
+	return err
 }
