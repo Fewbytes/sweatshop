@@ -84,6 +84,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 3
 		}
 		return 0
+	case "sync":
+		if err := cli.Sync(context.Background(), ".", cli.ExecRunner, stdout); err != nil {
+			fmt.Fprintf(stderr, "sync: %v\n", err)
+			return 3
+		}
+		return 0
 	case "campaign":
 		return runCampaign(args[1:], stdout, stderr)
 	default:
@@ -101,4 +107,5 @@ commands:
   audit [--min-severity S]    advisories + EOL + deprecated → campaign worklist
   campaign new|plan|next|record|report|list   drive a bounded upgrade campaign
   escalate <id> --reason R    hand a stalled campaign to humans via beads
+  sync                  pull and push the campaign database over refs/dolt/depmaint/data
   version               print version and exit`

@@ -672,7 +672,7 @@
         "NextExhausted"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 23,
+      "hotspot_rank": 18,
       "imported_by": [
         "depmaint/cmd/depmaint",
         "depmaint/internal/cli"
@@ -682,11 +682,11 @@
         "depmaint/internal/planner"
       ],
       "lcom4": 1,
-      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
+      "measured_at_commit": "941a4801b78fea5d04280ae68f7105d2f9adfce2",
       "purpose": "Package campaign is depmaint's state machine: bounded upgrade campaigns"
     },
     "depmaint/internal/cli": {
-      "entry_point_count": 17,
+      "entry_point_count": 21,
       "entry_points": [
         "Audit",
         "BdFiler",
@@ -697,12 +697,12 @@
         "CampaignPlan",
         "CampaignRecord",
         "CampaignReport",
+        "CommandRunner",
         "DefaultPublished",
-        "Escalate",
-        "Graph"
+        "DoltRef"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 17,
+      "hotspot_rank": 15,
       "imported_by": [
         "depmaint/cmd/depmaint"
       ],
@@ -717,7 +717,7 @@
         "depmaint/internal/store"
       ],
       "lcom4": 1,
-      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
+      "measured_at_commit": "941a4801b78fea5d04280ae68f7105d2f9adfce2",
       "purpose": ""
     },
     "depmaint/internal/config": {
@@ -1566,11 +1566,11 @@
         "Volumes"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 24,
+      "hotspot_rank": 29,
       "imported_by": [],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "941a4801b78fea5d04280ae68f7105d2f9adfce2",
       "purpose": "Package runner is the one interface the line uses to run station and"
     },
     "line/station": {

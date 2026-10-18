@@ -1,0 +1,62 @@
+name: depmaint
+
+# Scheduled hygiene: refresh the graph, sync the campaign database, render
+# open campaigns' reports, and (opt-in) drive next/record headless.
+on:
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+    inputs:
+      drive:
+        description: 'Run the headless next/record loop (needs DEPMAINT_DRIVER_CMD)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  maintain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: depmaint/go.mod
+
+      - uses: extractions/setup-just@v2
+
+      - name: install dolt
+        run: curl -fsSL https://github.com/dolthub/dolt/releases/latest/download/install.sh | sudo bash
+
+      - name: build
+        run: just build
+
+      - name: refresh graph and sync campaigns
+        run: |
+          bin/depmaint graph --refresh
+          bin/depmaint sync
+
+      - name: render reports for open campaigns
+        run: |
+          for id in $(bin/depmaint campaign list --status running | awk '{print $1}'); do
+            bin/depmaint campaign report "$id"
+          done
+
+      # Opt-in: DEPMAINT_DRIVER_CMD is a headless agent runner that takes a
+      # campaign id, executes `depmaint campaign next` output and records the verdict.
+      - name: drive campaigns headless
+        if: ${{ inputs.drive && vars.DEPMAINT_DRIVER_CMD != '' }}
+        run: |
+          for id in $(bin/depmaint campaign list --status running | awk '{print $1}'); do
+            ${{ vars.DEPMAINT_DRIVER_CMD }} "$id"
+          done
+          bin/depmaint sync
+
+      - name: commit reports and work orders
+        run: |
+          git config user.name depmaint
+          git config user.email depmaint@users.noreply.github.com
+          git add .depmaint/reports .depmaint/work
+          git diff --cached --quiet || (git commit -m "chore(depmaint): scheduled report refresh" && git push)
