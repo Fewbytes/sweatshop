@@ -244,7 +244,7 @@ const noReportNote = "; the maker left no failure report and no output"
 
 func (f *fakeBeads) CommentCount(context.Context, string) (int, error) { return f.comments, nil }
 
-func (f *fakeBeads) GiveUp(_ context.Context, id string, escalateToKing bool) error {
+func (f *fakeBeads) GiveUp(_ context.Context, id, reason string, escalateToKing bool) error {
 	f.calls = append(f.calls, "giveup "+id)
 	if escalateToKing {
 		f.calls[len(f.calls)-1] += " needs:king"
@@ -581,7 +581,7 @@ func TestBeadsCLI(t *testing.T) {
 	if err := b.Release(ctx, "b-1", "no luck"); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.GiveUp(ctx, "b-1", true); err != nil {
+	if err := b.GiveUp(ctx, "b-1", "out of ideas", true); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
@@ -589,6 +589,7 @@ func TestBeadsCLI(t *testing.T) {
 		"update b-1 --claim --actor maker-1",
 		"close b-1 --reason landed via line --actor maker-1",
 		"unclaim b-1 --reason no luck --actor maker-1",
+		"comments add -- b-1 gave up: out of ideas --actor maker-1",
 		"label add b-1 " + GaveUpLabel + " --actor maker-1",
 		"label add b-1 needs:king --actor maker-1",
 	}

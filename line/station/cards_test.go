@@ -322,11 +322,30 @@ func TestCardsGiveUpEscalatesToKingWhenAsked(t *testing.T) {
 	f := &fakeCards{show: `[{"id":"x-1","assignee":"m"}]`}
 	srv, _, _, m := cardsRig(t, f)
 	srv.Stations[1].AgentID = "m"
-	if err := m.CardGiveUp(context.Background(), "x-1", true); err != nil {
+	if err := m.CardGiveUp(context.Background(), "x-1", "stuck", true); err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{LabelGaveUp, LabelNeedsPrefix + "king"}; !slices.Equal(f.labels, want) {
 		t.Fatalf("labels %q, want %q", f.labels, want)
+	}
+}
+
+func TestCardsGiveUpRequiresReasonAndCommentsIt(t *testing.T) {
+	f := &fakeCards{show: `[{"id":"x-1","assignee":"m"}]`}
+	srv, _, _, m := cardsRig(t, f)
+	srv.Stations[1].AgentID = "m"
+	ctx := context.Background()
+	if err := m.CardGiveUp(ctx, "x-1", "  ", false); err == nil || !strings.Contains(err.Error(), "400") {
+		t.Fatalf("blank reason: err = %v, want 400", err)
+	}
+	if len(f.labels) != 0 {
+		t.Fatalf("labels %q added despite rejected give-up", f.labels)
+	}
+	if err := m.CardGiveUp(ctx, "x-1", "tests need a missing fixture", false); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(f.calls, "comment x-1 gave up: tests need a missing fixture") {
+		t.Fatalf("calls %q lack the give-up comment", f.calls)
 	}
 }
 
@@ -344,7 +363,7 @@ func TestCardsMakerSettlementRoutes(t *testing.T) {
 	if err := m.CardClose(ctx, "x-1", "done"); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.CardGiveUp(ctx, "x-1", false); err != nil {
+	if err := m.CardGiveUp(ctx, "x-1", "stuck", false); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := m.CardsList(ctx, ListFilter{Label: "line", Ready: true}); err != nil || !strings.Contains(string(out), "x-1") {
@@ -358,7 +377,7 @@ func TestCardsMakerSettlementRoutes(t *testing.T) {
 	}
 	want := []string{
 		"claim x-1 m", "show x-1", "release x-1 m again", "show x-1", "close x-1 m done", "show x-1",
-		"label x-1 " + LabelGaveUp, "list /line/",
+		"comment x-1 gave up: stuck", "label x-1 " + LabelGaveUp, "list /line/",
 	}
 	if !slices.Equal(f.calls, want) {
 		t.Fatalf("calls %q, want %q", f.calls, want)
@@ -575,7 +594,7 @@ func TestEventsRecordCardActionsAndAreReadableByEveryRole(t *testing.T) {
 	if err := m.CardRelease(ctx, "x-1", "stuck"); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.CardGiveUp(ctx, "x-1", false); err != nil {
+	if err := m.CardGiveUp(ctx, "x-1", "stuck", false); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.CardClose(ctx, "x-1", "done"); err != nil {

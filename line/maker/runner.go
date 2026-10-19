@@ -42,9 +42,10 @@ type Beads interface {
 	// CommentCount is how many comments the card has, so the runner can tell
 	// whether a run left a failure report.
 	CommentCount(ctx context.Context, id string) (int, error)
-	// GiveUp labels the bead GaveUpLabel so no maker picks it again. With
-	// escalateToKing it also labels it needs:king: nobody else can unstick it.
-	GiveUp(ctx context.Context, id string, escalateToKing bool) error
+	// GiveUp comments reason on the bead and labels it GaveUpLabel so no
+	// maker picks it again. With escalateToKing it also labels it needs:king:
+	// nobody else can unstick it.
+	GiveUp(ctx context.Context, id, reason string, escalateToKing bool) error
 	// Claimed lists the in_progress cards assigned to agent.
 	Claimed(ctx context.Context, agent string) ([]Bead, error)
 }
@@ -304,7 +305,7 @@ func (r *Runner) settleStep(ctx context.Context, id, what string, fn func() erro
 // duplicate.
 func (r *Runner) escalateUnsettled(ctx context.Context, id string, cause error) error {
 	r.logf("%s: Once returned without settling: %v", id, cause)
-	if err := r.Beads.GiveUp(ctx, id, true); err != nil {
+	if err := r.Beads.GiveUp(ctx, id, "could not settle after the run: "+cause.Error(), true); err != nil {
 		return errors.Join(cause, fmt.Errorf("%s: escalate unsettled card: %w", id, err))
 	}
 	return cause
@@ -525,7 +526,7 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 		delete(r.attempts, b.ID)
 		// An andon card holds the line stopped, and Pick offers nothing else
 		// meanwhile, so a given-up one must reach the king or the line idles.
-		return true, errors.Join(runErr, r.Beads.GiveUp(settle, b.ID, slices.Contains(b.Labels, "andon")))
+		return true, errors.Join(runErr, r.Beads.GiveUp(settle, b.ID, note, slices.Contains(b.Labels, "andon")))
 	}
 	return true, runErr
 }
@@ -716,9 +717,15 @@ func (b BeadsCLI) CommentCount(ctx context.Context, id string) (int, error) {
 	return len(comments), nil
 }
 
-// GiveUp adds GaveUpLabel; Ready and Pick then skip the bead.
-func (b BeadsCLI) GiveUp(ctx context.Context, id string, escalateToKing bool) error {
+// GiveUp comments reason and adds GaveUpLabel; Ready and Pick then skip the bead.
+func (b BeadsCLI) GiveUp(ctx context.Context, id, reason string, escalateToKing bool) error {
 	if err := checkID(id); err != nil {
+		return err
+	}
+	if strings.TrimSpace(reason) == "" {
+		return errors.New("give up: reason is required")
+	}
+	if _, err := b.bd(ctx, "comments", "add", "--", id, "gave up: "+reason); err != nil {
 		return err
 	}
 	labels := []string{GaveUpLabel}
@@ -810,8 +817,8 @@ func (a APICards) Claimed(ctx context.Context, agent string) ([]Bead, error) {
 	return mine, nil
 }
 
-func (a APICards) GiveUp(ctx context.Context, id string, escalateToKing bool) error {
-	return a.Client.CardGiveUp(ctx, id, escalateToKing)
+func (a APICards) GiveUp(ctx context.Context, id, reason string, escalateToKing bool) error {
+	return a.Client.CardGiveUp(ctx, id, reason, escalateToKing)
 }
 
 // DockerEngine runs station containers with a docker-compatible CLI.

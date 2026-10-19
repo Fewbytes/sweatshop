@@ -430,7 +430,7 @@ func (s *Server) viceroyClose(w http.ResponseWriter, r *http.Request, cards Card
 	return "close " + id, nil
 }
 
-// requireReason rejects a close or release reason that is blank, longer than
+// requireReason rejects a close, release or give-up reason that is blank, longer than
 // maxDesc bytes or not UTF-8.
 func requireReason(reason string) error {
 	if strings.TrimSpace(reason) == "" || len(reason) > maxDesc || !utf8.ValidString(reason) {
@@ -518,12 +518,7 @@ func (s *Server) settle(w http.ResponseWriter, r *http.Request, cards Cards, st 
 		Reason         string `json:"reason"`
 		EscalateToKing bool   `json:"escalate_to_king"`
 	}
-	if action == "give-up" {
-		if err := decodeBody(w, r, &body); err != nil {
-			return "", err
-		}
-	}
-	if action == "close" || action == "release" {
+	if action == "close" || action == "release" || action == "give-up" {
 		if err := decodeBody(w, r, &body); err != nil {
 			return "", err
 		}
@@ -555,7 +550,10 @@ func (s *Server) settle(w http.ResponseWriter, r *http.Request, cards Cards, st 
 	case "release":
 		err = cards.Release(ctx, id, st.AgentID, body.Reason)
 	case "give-up":
-		err = cards.AddLabel(ctx, id, LabelGaveUp)
+		err = cards.Comment(ctx, id, "gave up: "+body.Reason)
+		if err == nil {
+			err = cards.AddLabel(ctx, id, LabelGaveUp)
+		}
 		if err == nil && body.EscalateToKing {
 			err = cards.AddLabel(ctx, id, LabelNeedsPrefix+needsKing)
 		}
