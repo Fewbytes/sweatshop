@@ -91,6 +91,10 @@ type Server struct {
 	kaizenMu      sync.Mutex
 	kaizenRequest *KaizenRequest
 
+	// budgetMu serialises usage reports so each sees the usage before it and
+	// announces a threshold crossing once.
+	budgetMu sync.Mutex
+
 	// commentCounts tallies comments non-viceroy agents made this run.
 	commentMu     sync.Mutex
 	commentCounts map[commentKey]int
@@ -140,6 +144,8 @@ type Status struct {
 	KaizenRequest *KaizenRequest `json:"kaizen_request,omitempty"`
 	// Held is every open line card that makers are not offered, with why.
 	Held []HeldCard `json:"held,omitempty"`
+	// Budgets is the spend against each constitution token budget.
+	Budgets []BudgetStatus `json:"budgets,omitempty"`
 }
 
 // HeldCard is an open line card hidden from makers by Reason.
@@ -404,6 +410,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 		return s.routeTestament(w, r, st)
 	case path == "/v1/reports" || path == "/v1/reports/object" || path == "/v1/reports/presign":
 		return s.routeReports(w, r, st)
+	case path == "/v1/usage":
+		return s.routeUsage(w, r, st)
 	case path == "/v1/events":
 		return s.routeEvents(w, r, st)
 	case path == "/v1/heijunka/levels":
@@ -572,7 +580,11 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) (string, error) 
 	if err != nil {
 		log.Printf("status: held cards: %v", err)
 	}
-	writeJSON(w, http.StatusOK, Status{Master: master, Event: id, Andon: event, Stations: s.liveness.snapshot(s.Stations, time.Now()), KaizenRequest: s.latestKaizenRequest(), Held: held})
+	budgets, _, err := s.currentBudgets(r.Context(), time.Now())
+	if err != nil {
+		log.Printf("status: token budgets: %v", err)
+	}
+	writeJSON(w, http.StatusOK, Status{Master: master, Event: id, Andon: event, Stations: s.liveness.snapshot(s.Stations, time.Now()), KaizenRequest: s.latestKaizenRequest(), Held: held, Budgets: budgets})
 	return "master=" + master + " event=" + id, nil
 }
 

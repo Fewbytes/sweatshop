@@ -604,3 +604,39 @@ func TestParseRejectsBadRemotes(t *testing.T) {
 		})
 	}
 }
+
+func TestBudgetsDeclareLimitsAndRejectBad(t *testing.T) {
+	_, key := publicKey(t)
+	base := valid(key)
+	c, err := Parse([]byte(base))
+	if err != nil || len(c.Budgets) != 0 {
+		t.Fatalf("no budgets: %+v %v", c.Budgets, err)
+	}
+	good := "[[budgets]]\nscope = \"line\"\ntokens = 5000000\nperiod = \"24h\"\n\n" +
+		"[[budgets]]\nscope = \"maker\"\ntokens = 2000000\nperiod = \"168h\"\nwarn_percent = 90\n\n" +
+		"[[budgets]]\nscope = \"card\"\ntokens = 300000\nperiod = \"72h\"\n\n"
+	c, err = Parse([]byte(good + base))
+	if err != nil || len(c.Budgets) != 3 {
+		t.Fatalf("good budgets: %+v %v", c.Budgets, err)
+	}
+	if got := c.Budgets[0]; got.WarnPercentOrDefault() != DefaultBudgetWarnPercent || got.PeriodDuration() != 24*time.Hour {
+		t.Errorf("defaults: warn %d period %s", got.WarnPercentOrDefault(), got.PeriodDuration())
+	}
+	if got := c.Budgets[1].WarnPercentOrDefault(); got != 90 {
+		t.Errorf("explicit warn_percent = %d, want 90", got)
+	}
+	for name, bad := range map[string]string{
+		"unknown scope":  "scope = \"team\"\ntokens = 1\nperiod = \"1h\"",
+		"zero tokens":    "scope = \"line\"\ntokens = 0\nperiod = \"1h\"",
+		"no period":      "scope = \"line\"\ntokens = 1",
+		"bad period":     "scope = \"line\"\ntokens = 1\nperiod = \"soon\"",
+		"negative":       "scope = \"line\"\ntokens = 1\nperiod = \"-1h\"",
+		"warn too high":  "scope = \"line\"\ntokens = 1\nperiod = \"1h\"\nwarn_percent = 100",
+		"warn negative":  "scope = \"line\"\ntokens = 1\nperiod = \"1h\"\nwarn_percent = -5",
+		"duplicate line": "scope = \"line\"\ntokens = 1\nperiod = \"1h\"\n\n[[budgets]]\nscope = \"line\"\ntokens = 2\nperiod = \"1h\"",
+	} {
+		if _, err := Parse([]byte("[[budgets]]\n" + bad + "\n\n" + base)); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+}

@@ -119,3 +119,32 @@ default 24h) and applies `heijunka.DecideStaleNeed`:
 
 Each action comments on the card, which restarts the clock. Splitting a card
 needs judgment about its content, so the viceroy does it after a reroute.
+
+## Token budgets
+
+Spend is a leveled, visible quantity like flow. Policy lives in the
+constitution; the line only meters and gates.
+
+```toml
+[[budgets]]
+scope = "line"       # "line", "card" (each card separately) or a role such as "maker"
+tokens = 5000000
+period = "24h"       # rolling window, not a calendar day
+warn_percent = 80    # optional, 1..99, default 80
+```
+
+- Usage is self-reported by stations: `sweatshop line usage --card ID --tokens N`
+  (`POST /v1/usage`). The line takes station and role from the token, so a
+  station cannot report for another. A proxy would meter without trusting the
+  agent, but no proxy exists on the line yet; reports are the stable
+  interface a proxy can feed later. Wiring the maker runner to report each
+  run's tokens is follow-up work.
+- Exhaustion pauses offers, never work: makers get no ready cards from
+  `GET /v1/cards?ready=true` in an exhausted scope, a claim there is refused
+  with 429, and running work keeps going and keeps reporting.
+- The channel is told once when a budget crosses `warn_percent` and once when
+  it is exhausted. Usage ageing out of the window lifts the pause by itself.
+- `sweatshop line status` (`GET /v1/status`, `budgets`) shows used, remaining
+  and exhausted per budget.
+- Budgets are part of the constitution, so changing them takes the king's
+  approval like any other proposal.

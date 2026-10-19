@@ -56,6 +56,8 @@ const usage = `usage:
   sweatshop line merge [--rev HEAD] [--repo .]
                                         check rev and submit it to the merge guard
   sweatshop line status                 print the line's master and andon state
+  sweatshop line usage --card ID --tokens N
+                                        report tokens this station spent on a card, counted against the constitution's token budgets
   sweatshop line stats [--since D]      print CI health: pass rate, durations, slow, failing and flaky tests, time to green (D: 36h, 7d)
   sweatshop line ci stats [--since D] [--check C] [--commit SHA]
                                         print per check: runs, failure rate, duration p50/p95/max and commits where it both passed and failed (D: 36h, 7d)
@@ -129,6 +131,8 @@ func run(args []string, stdout io.Writer) error {
 		return lineServe(args[2:], stdout)
 	case len(args) >= 2 && args[0] == "line" && (args[1] == "attest" || args[1] == "merge"):
 		return lineSubmit(args[1], args[2:], stdout)
+	case len(args) >= 2 && args[0] == "line" && args[1] == "usage":
+		return lineUsage(args[2:])
 	case len(args) >= 2 && args[0] == "line" && args[1] == "stats":
 		return lineStats(args[2:], stdout)
 	case len(args) >= 3 && args[0] == "line" && args[1] == "ci" && args[2] == "stats":
@@ -1018,6 +1022,34 @@ func stationLine(s station.StationStatus) string {
 	return line
 }
 
+// budgetLine is one token budget's row in `line status`.
+func budgetLine(b station.BudgetStatus) string {
+	scope := b.Scope
+	if b.Card != "" {
+		scope += " " + b.Card
+	}
+	line := fmt.Sprintf("budget %s: %d of %d tokens used (%d%%), %d remaining, per %s", scope, b.Used, b.Limit, b.Percent, max(b.Limit-b.Used, 0), b.Period)
+	if b.Exhausted {
+		line += " EXHAUSTED"
+	}
+	return line
+}
+
+// lineUsage implements `line usage`.
+func lineUsage(args []string) error {
+	fs := flag.NewFlagSet("line usage", flag.ContinueOnError)
+	card := fs.String("card", "", "card the tokens were spent on")
+	tokens := fs.Int64("tokens", 0, "tokens spent")
+	if err := parseWithoutOperands(fs, args); err != nil {
+		return err
+	}
+	c, err := lineClient()
+	if err != nil {
+		return err
+	}
+	return c.ReportTokenUsage(context.Background(), *card, *tokens)
+}
+
 func lineStatus(stdout io.Writer) error {
 	c, err := lineClient()
 	if err != nil {
@@ -1033,6 +1065,9 @@ func lineStatus(stdout io.Writer) error {
 	}
 	for _, h := range st.Held {
 		fmt.Fprintf(stdout, "held %s: %s\n", h.ID, h.Reason)
+	}
+	for _, b := range st.Budgets {
+		fmt.Fprintln(stdout, budgetLine(b))
 	}
 	if st.Event == "" {
 		fmt.Fprintln(stdout, "andon clear")

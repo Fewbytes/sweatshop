@@ -1095,23 +1095,23 @@
       "purpose": "Command sweatshop administers an assembly line (witness keys, the merge"
     },
     "line/constitution": {
-      "entry_point_count": 34,
+      "entry_point_count": 38,
       "entry_points": [
         "BlobGuard",
+        "Budget",
+        "BudgetScopeCard",
+        "BudgetScopeLine",
         "Cards",
         "Channel",
         "Check",
         "Checks",
         "Constitution",
         "DefaultBlobMaxBytes",
-        "DefaultCPUs",
-        "DefaultCheckTimeout",
-        "DefaultCommentCap",
-        "DefaultMemory",
-        "DefaultNeedsTimeout"
+        "DefaultBudgetWarnPercent",
+        "DefaultCPUs"
       ],
       "hidden_coupling_ratio": 0.2,
-      "hotspot_rank": 11,
+      "hotspot_rank": 8,
       "imported_by": [
         "agentsh/internal/config",
         "agentsh/internal/daemon",
@@ -1128,7 +1128,7 @@
         "line/attest"
       ],
       "lcom4": 1,
-      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
+      "measured_at_commit": "4465cd001a76fbd337804ea6694a7eae54bb346f",
       "purpose": "Package constitution loads the line's rules. v0 holds only what the witness"
     },
     "line/deploy": {
@@ -1463,7 +1463,7 @@
       "purpose": "Package linedir creates and loads a line directory: the on-disk home of one"
     },
     "line/linestore": {
-      "entry_point_count": 26,
+      "entry_point_count": 27,
       "entry_points": [
         "Event",
         "EventAcceptanceAnswer",
@@ -1479,7 +1479,7 @@
         "EventMerge"
       ],
       "hidden_coupling_ratio": 0.2,
-      "hotspot_rank": 24,
+      "hotspot_rank": 23,
       "imported_by": [
         "line/cmd/sweatshop",
         "line/heijunka",
@@ -1489,7 +1489,7 @@
         "line/report"
       ],
       "lcom4": 1,
-      "measured_at_commit": "4db5223f52befbdb2d907dfceab85c21cc3eb15a",
+      "measured_at_commit": "4465cd001a76fbd337804ea6694a7eae54bb346f",
       "purpose": "Package linestore is the line's master database: witness runs, per-test"
     },
     "line/maker": {
@@ -1581,7 +1581,7 @@
       "purpose": "Package runner is the one interface the line uses to run station and"
     },
     "line/station": {
-      "entry_point_count": 92,
+      "entry_point_count": 93,
       "entry_points": [
         "AcceptanceAccepted",
         "AcceptanceAdd",
@@ -1623,7 +1623,7 @@
         "line/witness"
       ],
       "lcom4": 1,
-      "measured_at_commit": "4db5223f52befbdb2d907dfceab85c21cc3eb15a",
+      "measured_at_commit": "4465cd001a76fbd337804ea6694a7eae54bb346f",
       "purpose": "Package station is the station API: the only way containerized agents reach"
     },
     "line/testhygiene": {

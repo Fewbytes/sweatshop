@@ -289,7 +289,7 @@ func (s *Server) routeCards(w http.ResponseWriter, r *http.Request, st *Station)
 	}
 	ctx := r.Context()
 	if rest == "" && r.Method == http.MethodGet {
-		return s.serveCardList(w, r, cards)
+		return s.serveCardList(w, r, cards, st)
 	}
 	if rest == "" {
 		return s.serveCardCreate(w, r, cards)
@@ -324,7 +324,7 @@ func (s *Server) routeCards(w http.ResponseWriter, r *http.Request, st *Station)
 }
 
 // serveCardList handles GET /v1/cards.
-func (s *Server) serveCardList(w http.ResponseWriter, r *http.Request, cards Cards) (string, error) {
+func (s *Server) serveCardList(w http.ResponseWriter, r *http.Request, cards Cards, st *Station) (string, error) {
 	q := r.URL.Query()
 	f := ListFilter{Status: q.Get("status"), Label: q.Get("label"), Parent: q.Get("parent"), Ready: q.Get("ready") == "true"}
 	for _, v := range []string{f.Status, f.Label} {
@@ -340,6 +340,11 @@ func (s *Server) serveCardList(w http.ResponseWriter, r *http.Request, cards Car
 	out, err := cards.List(r.Context(), f)
 	if err != nil {
 		return "", err
+	}
+	if f.Ready && st.Role == makerRole {
+		if out, err = s.dropBudgetBlocked(r.Context(), out, st.Role); err != nil {
+			return "", err
+		}
 	}
 	return "list", writeRaw(w, out)
 }
@@ -529,6 +534,13 @@ func (s *Server) settle(w http.ResponseWriter, r *http.Request, cards Cards, st 
 	var err error
 	switch action {
 	case "claim":
+		reason, berr := s.budgetBlockFor(ctx, st.Role, id)
+		if berr != nil {
+			return "", berr
+		}
+		if reason != "" {
+			return "", fail(http.StatusTooManyRequests, "%s", reason)
+		}
 		err = cards.Claim(ctx, id, st.AgentID)
 		if err == nil {
 			s.commentMu.Lock()

@@ -92,3 +92,14 @@ CREATE TABLE IF NOT EXISTS line_event (
   station TEXT NOT NULL,
   detail  TEXT NOT NULL
 );
+
+-- token_usage is one station self-report of tokens spent on a card. station and
+-- role are the reporter's, taken from its token, not from the report.
+CREATE TABLE IF NOT EXISTS token_usage (
+  seq     INTEGER PRIMARY KEY,
+  at      TEXT NOT NULL,
+  station TEXT NOT NULL,
+  role    TEXT NOT NULL,
+  card    TEXT NOT NULL,
+  tokens  INTEGER NOT NULL
+);
