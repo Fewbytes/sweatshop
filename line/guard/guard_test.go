@@ -68,7 +68,7 @@ func newFixture(t *testing.T) *fixture {
 	return f
 }
 
-func (f *fixture) commit(name, content string) string {
+func (f *fixture) write(name, content string) {
 	f.t.Helper()
 	full := filepath.Join(f.work.Dir, name)
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
@@ -77,6 +77,11 @@ func (f *fixture) commit(name, content string) string {
 	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
 		f.t.Fatal(err)
 	}
+}
+
+func (f *fixture) commit(name, content string) string {
+	f.t.Helper()
+	f.write(name, content)
 	ok(f.t)(gittest.Git(f.ctx, f.work.Dir, "add", "-A"))
 	ok(f.t)(gittest.Git(f.ctx, f.work.Dir, "commit", "--quiet", "-m", "change "+name))
 	sha, err := f.work.Commit(f.ctx, "HEAD")
@@ -354,4 +359,44 @@ func TestRejectsNonexistentCommit(t *testing.T) {
 	if f.master() != before {
 		t.Fatal("master moved on a rejected merge")
 	}
+}
+
+func (f *fixture) allowDocsOnlySkips() {
+	f.guard.Constitution.Checks.DocsPaths = []string{"docs/**"}
+	f.guard.Constitution.Checks.Required[0].SkipForDocsOnly = true
+}
+
+func skipCheck(p *attest.ChecksPredicate) {
+	p.Checks[0] = attest.CheckResult{Name: "ci", Command: "sh check.sh", Skipped: attest.SkippedDocsOnly}
+}
+
+func TestMergeAcceptsSkippedCheckOnDocsOnlyCommit(t *testing.T) {
+	f := newFixture(t)
+	f.allowDocsOnlySkips()
+	commit := f.commit("docs/a.md", "x")
+	f.candidate(commit)
+	result, err := f.guard.Merge(f.ctx, commit, f.envelope(commit, f.key, skipCheck))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != Merged || f.master() != commit {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestRejectsSkippedCheckOnMixedCommit(t *testing.T) {
+	f := newFixture(t)
+	f.allowDocsOnlySkips()
+	f.write("docs/a.md", "x")
+	commit := f.commit("src/a.go", "package a")
+	f.candidate(commit)
+	f.expectRejected(commit, f.envelope(commit, f.key, skipCheck), ReasonChecksMissing)
+}
+
+func TestRejectsSkippedCheckTheConstitutionDoesNotAllowSkipping(t *testing.T) {
+	f := newFixture(t)
+	f.guard.Constitution.Checks.DocsPaths = []string{"docs/**"}
+	commit := f.commit("docs/a.md", "x")
+	f.candidate(commit)
+	f.expectRejected(commit, f.envelope(commit, f.key, skipCheck), ReasonChecksMissing)
 }

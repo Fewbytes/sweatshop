@@ -298,6 +298,18 @@ type Checks struct {
 	// defaultColdCheckTimeout): empty caches make the checks download and
 	// compile everything, which takes longer than a warm run.
 	ColdTimeout string `toml:"cold_timeout,omitempty"`
+	// DocsPaths are the path patterns (MatchPath syntax) of documentation. A
+	// commit is docs-only when it changes at least one path and every changed
+	// path matches one; checks marked SkipForDocsOnly do not run for it.
+	DocsPaths []string `toml:"docs_paths,omitempty"`
+}
+
+// DocsOnly reports whether every one of the changed paths is documentation. An
+// empty change is not docs-only.
+func (c Checks) DocsOnly(changed []string) bool {
+	return len(changed) > 0 && !slices.ContainsFunc(changed, func(p string) bool {
+		return !slices.ContainsFunc(c.DocsPaths, func(pattern string) bool { return MatchPath(pattern, p) })
+	})
 }
 
 const (
@@ -326,6 +338,10 @@ func (c Checks) TimeoutDuration() time.Duration {
 type Check struct {
 	Name    string `toml:"name"`
 	Command string `toml:"command"`
+	// SkipForDocsOnly lets the witness skip this check, and the guard accept
+	// the skip, when the commit changed only Checks.DocsPaths. The skip is
+	// recorded in the attestation (attest.CheckResult.Skipped).
+	SkipForDocsOnly bool `toml:"skip_for_docs_only,omitempty"`
 }
 
 type Runner struct {
@@ -505,6 +521,14 @@ func (c Constitution) validate() error {
 			return fmt.Errorf("duplicate required check %q", check.Name)
 		}
 		seen[check.Name] = true
+		if check.SkipForDocsOnly && len(c.Checks.DocsPaths) == 0 {
+			return fmt.Errorf("check %q skips docs-only commits but checks.docs_paths is empty", check.Name)
+		}
+	}
+	for _, pattern := range c.Checks.DocsPaths {
+		if _, err := path.Match(pattern, ""); err != nil {
+			return fmt.Errorf("checks.docs_paths pattern %q: %w", pattern, err)
+		}
 	}
 	if _, err := c.TrustedKeys(); err != nil {
 		return err

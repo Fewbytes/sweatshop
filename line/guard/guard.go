@@ -102,7 +102,15 @@ func (g Guard) Merge(ctx context.Context, commit string, env attest.Envelope) (R
 		return *rejected, nil
 	}
 	predicate := v.statement.Predicate
-	if reason, detail := checkResults(g.Constitution.Checks.Required, predicate.Checks); reason != "" {
+	docsOnly := false
+	if slices.ContainsFunc(predicate.Checks, func(r attest.CheckResult) bool { return r.Skipped != "" }) {
+		paths, hasParent, err := g.Repo.FirstParentChange(ctx, commit)
+		if err != nil {
+			return Result{}, err
+		}
+		docsOnly = hasParent && g.Constitution.Checks.DocsOnly(paths)
+	}
+	if reason, detail := checkResults(g.Constitution.Checks.Required, predicate.Checks, docsOnly); reason != "" {
 		return reject(reason, detail)
 	}
 
@@ -179,7 +187,10 @@ func isValidHexCommit(commit string) bool {
 	return hexCommitPattern.MatchString(commit)
 }
 
-func checkResults(required []constitution.Check, results []attest.CheckResult) (Reason, string) {
+// checkResults accepts a skipped check only when the constitution allows
+// skipping it and the guard itself found the commit docs-only; the witness's
+// word is not enough.
+func checkResults(required []constitution.Check, results []attest.CheckResult, docsOnly bool) (Reason, string) {
 	byName := make(map[string]attest.CheckResult, len(results))
 	for _, r := range results {
 		byName[r.Name] = r
@@ -188,6 +199,12 @@ func checkResults(required []constitution.Check, results []attest.CheckResult) (
 		r, ok := byName[check.Name]
 		if !ok || r.Command != check.Command {
 			return ReasonChecksMissing, fmt.Sprintf("required check %q (%s) is not attested", check.Name, check.Command)
+		}
+		if r.Skipped != "" {
+			if !check.SkipForDocsOnly || !docsOnly {
+				return ReasonChecksMissing, fmt.Sprintf("required check %q was skipped (%s) but the commit is not a docs-only change the constitution lets it skip", check.Name, r.Skipped)
+			}
+			continue
 		}
 		if r.ExitCode != 0 {
 			return ReasonChecksFailed, fmt.Sprintf("check %q exited %d", check.Name, r.ExitCode)

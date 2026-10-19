@@ -231,7 +231,9 @@ func (g Guard) Clear(ctx context.Context, env attest.Envelope) (Result, error) {
 		r.Detail = "clearing needs a passing run on a master newer than the failing commit"
 		return r, nil
 	}
-	if reason, detail := checkResults(g.Constitution.Checks.Required, v.statement.Predicate.Checks); reason != "" {
+	// Skipped checks never clear the line: the failure being cleared was
+	// found by running them.
+	if reason, detail := checkResults(g.Constitution.Checks.Required, v.statement.Predicate.Checks, false); reason != "" {
 		return Result{Status: Rejected, Reason: reason, Detail: detail, Commit: v.commit, Base: base}, nil
 	}
 	if err := g.Repo.DeleteRefIf(ctx, StopRef, id); err != nil {

@@ -640,3 +640,21 @@ func TestBudgetsDeclareLimitsAndRejectBad(t *testing.T) {
 		}
 	}
 }
+
+func TestChecksDocsOnlyNeedsEveryChangedPathToBeDocs(t *testing.T) {
+	checks := Checks{DocsPaths: []string{"docs/**", "*.md"}}
+	cases := []struct {
+		changed []string
+		want    bool
+	}{
+		{[]string{"docs/a/b.txt", "README.md"}, true},
+		{[]string{"docs/a.md", "src/a.go"}, false},
+		{[]string{"sub/README.md"}, false},
+		{nil, false},
+	}
+	for _, c := range cases {
+		if got := checks.DocsOnly(c.changed); got != c.want {
+			t.Errorf("DocsOnly(%v) = %v, want %v", c.changed, got, c.want)
+		}
+	}
+}

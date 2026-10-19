@@ -27,10 +27,15 @@ cpus = "2"
 # checks.required: every check must pass before the merge guard lands a commit.
 [checks]
 timeout = "30m"           # per-check bound; default 30m
+# A commit is docs-only when every path it changes matches one of these (same
+# syntax as guards.paths). Checks with skip_for_docs_only are then skipped, and
+# the attestation records the skip; mixed commits run every check.
+docs_paths = ["docs/**", "*.md"]
 
 [[checks.required]]
 name = "ci"
 command = "just ci"
+skip_for_docs_only = true
 
 # guards.paths: paths only the listed roles may change. First match wins;
 # a trailing /** matches a directory and everything beneath it.

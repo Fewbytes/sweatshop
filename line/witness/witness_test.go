@@ -118,6 +118,38 @@ func TestAttestSignsPassingCommit(t *testing.T) {
 	}
 }
 
+func TestAttestSkipsDocsOnlyChecksAndRecordsWhy(t *testing.T) {
+	s := newSource(t)
+	w, _ := newWitness(t)
+	w.Constitution.Checks.DocsPaths = []string{"docs/**"}
+	w.Constitution.Checks.Required[0].SkipForDocsOnly = true
+	w.Runner = &commandRecordingRunner{}
+
+	docs := s.commit("docs/a.md", "x")
+	result, err := w.Attest(s.ctx, s.repo.Dir, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := result.Statement.Predicate.Checks
+	if !result.Passed || len(got) != 1 || got[0].Skipped != attest.SkippedDocsOnly || got[0].EvidenceID != "" {
+		t.Fatalf("docs-only commit %s: passed=%v checks=%+v", docs, result.Passed, got)
+	}
+	if ran := w.Runner.(*commandRecordingRunner).command; ran != "" {
+		t.Fatalf("docs-only commit ran %q", ran)
+	}
+
+	s.write("docs/b.md", "y")
+	s.commit("src/a.go", "package a")
+	result, err = w.Attest(s.ctx, s.repo.Dir, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = result.Statement.Predicate.Checks
+	if len(got) != 1 || got[0].Skipped != "" || w.Runner.(*commandRecordingRunner).command == "" {
+		t.Fatalf("mixed commit must run every check: %+v", got)
+	}
+}
+
 // modeRecordingRunner records the permission bits of everything in the
 // checkout it is asked to run in, then passes.
 type modeRecordingRunner struct{ modes map[string]os.FileMode }

@@ -187,6 +187,17 @@ func (r Repo) ChangedPaths(ctx context.Context, from, to string) ([]string, erro
 	return paths, nil
 }
 
+// FirstParentChange lists the paths commit changes against its first parent.
+// A root commit has no parent to compare with: it reports hasParent false.
+func (r Repo) FirstParentChange(ctx context.Context, commit string) (paths []string, hasParent bool, err error) {
+	parents, err := r.Parents(ctx, commit)
+	if err != nil || len(parents) == 0 {
+		return nil, false, err
+	}
+	paths, err = r.ChangedPaths(ctx, parents[0], commit)
+	return paths, true, err
+}
+
 // BlobHeadBytes is how much of each changed blob ChangedBlobs reads: enough
 // to reach a PE header from the DOS stub's pointer to it.
 const BlobHeadBytes = 1024

@@ -187,12 +187,12 @@ func (w *Witness) attest(ctx context.Context, fetch func(context.Context, gitx.R
 	if len(w.Constitution.Checks.Required) == 0 {
 		return AttestResult{}, errors.New("constitution has no required checks; refusing to attest")
 	}
-	commit, tree, checkout, cleanup, err := w.prepare(ctx, fetch)
+	commit, tree, checkout, docsOnly, cleanup, err := w.prepare(ctx, fetch)
 	if err != nil {
 		return AttestResult{}, err
 	}
 	defer cleanup()
-	return w.run(ctx, commit, tree, checkout)
+	return w.run(ctx, commit, tree, checkout, docsOnly)
 }
 
 // unreferencedGrace is how long an object no ref reaches stays in the cache,
@@ -219,8 +219,10 @@ const checkEnv = `export GOFLAGS="${GOFLAGS:+$GOFLAGS }-json -mod=readonly"; `
 // volumes stay untouched.
 const coldCheckEnv = checkEnv + `export GOMODCACHE="$(mktemp -d)" GOCACHE="$(mktemp -d)"; `
 
-// run executes the required checks in checkout and signs the outcome.
-func (w *Witness) run(ctx context.Context, commit, tree, checkout string) (AttestResult, error) {
+// run executes the required checks in checkout and signs the outcome. For a
+// docsOnly commit, checks marked skip_for_docs_only are recorded as skipped
+// instead of run.
+func (w *Witness) run(ctx context.Context, commit, tree, checkout string, docsOnly bool) (AttestResult, error) {
 	predicate := attest.ChecksPredicate{
 		Role: w.Role, AgentID: w.AgentID,
 		Constitution: w.ConstitutionDigest, Runner: w.Constitution.Runner.ID(),
@@ -233,6 +235,12 @@ func (w *Witness) run(ctx context.Context, commit, tree, checkout string) (Attes
 		timeout, prefix = w.Constitution.Checks.ColdTimeoutDuration(), coldCheckEnv
 	}
 	for _, check := range w.Constitution.Checks.Required {
+		if docsOnly && check.SkipForDocsOnly {
+			predicate.Checks = append(predicate.Checks, attest.CheckResult{
+				Name: check.Name, Command: check.Command, Skipped: attest.SkippedDocsOnly,
+			})
+			continue
+		}
 		checkCtx, cancel := context.WithTimeoutCause(ctx, timeout, errCheckTimeout)
 		checkStart := w.now()
 		run, err := w.Runner.Run(checkCtx, checkout, prefix+check.Command)
@@ -298,29 +306,34 @@ func (w *Witness) publish(ctx context.Context, run report.Run) {
 
 // prepare serializes access to the shared cache: fetch, resolve, and check
 // out under the lock; checks themselves run outside it.
-func (w *Witness) prepare(ctx context.Context, fetch func(context.Context, gitx.Repo) (string, error)) (commit, tree, checkout string, cleanup func(), err error) {
+func (w *Witness) prepare(ctx context.Context, fetch func(context.Context, gitx.Repo) (string, error)) (commit, tree, checkout string, docsOnly bool, cleanup func(), err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	cache, err := w.cache(ctx)
 	if err != nil {
-		return "", "", "", nil, err
+		return "", "", "", false, nil, err
 	}
 	w.sweepStaleRefs(ctx, cache)
 	// Rejected candidates and finished attestations leave unreferenced
 	// objects; prune them once they pass the grace period.
 	if err = cache.PruneUnreachable(ctx, unreferencedGrace); err != nil {
-		return "", "", "", nil, err
+		return "", "", "", false, nil, err
 	}
 	if commit, err = fetch(ctx, cache); err != nil {
-		return "", "", "", nil, err
+		return "", "", "", false, nil, err
 	}
 	if tree, err = cache.Tree(ctx, commit); err != nil {
-		return "", "", "", nil, err
+		return "", "", "", false, nil, err
 	}
+	paths, hasParent, err := cache.FirstParentChange(ctx, commit)
+	if err != nil {
+		return "", "", "", false, nil, err
+	}
+	docsOnly = hasParent && w.Constitution.Checks.DocsOnly(paths)
 	if checkout, cleanup, err = w.checkout(ctx, cache, commit); err != nil {
-		return "", "", "", nil, err
+		return "", "", "", false, nil, err
 	}
-	return commit, tree, checkout, cleanup, nil
+	return commit, tree, checkout, docsOnly, cleanup, nil
 }
 
 func (w *Witness) now() time.Time {

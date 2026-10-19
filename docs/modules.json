@@ -1003,7 +1003,7 @@
       "purpose": "Package andon is the host-side watcher that keeps the line honest: it"
     },
     "line/attest": {
-      "entry_point_count": 25,
+      "entry_point_count": 26,
       "entry_points": [
         "CheckResult",
         "ChecksPredicate",

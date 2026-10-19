@@ -27,7 +27,15 @@ type CheckResult struct {
 	Command    string `json:"command"`
 	ExitCode   int    `json:"exit_code"`
 	EvidenceID string `json:"evidence_id,omitempty"`
+	// Skipped is why the witness did not run the check (the commit changed
+	// only docs); empty when it ran. A skipped check has exit code 0 and no
+	// evidence.
+	Skipped string `json:"skipped,omitempty"`
 }
+
+// SkippedDocsOnly is the CheckResult.Skipped reason for a check the
+// constitution lets a docs-only commit skip.
+const SkippedDocsOnly = "docs-only change"
 
 type ChecksPredicate struct {
 	Role         string        `json:"role"`
