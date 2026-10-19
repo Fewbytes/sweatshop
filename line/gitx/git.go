@@ -22,6 +22,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/plumbing/storer"
 )
 
 var ErrRefMoved = errors.New("ref moved")
@@ -676,11 +677,76 @@ func storeEncoded(repo *git.Repository, o encodable) (string, error) {
 }
 
 // PruneUnreachable deletes loose objects that no ref reaches and that are
-// older than grace. Objects inside packs are kept.
+// older than grace. Objects inside packs are kept. It does its own walk
+// because go-git's Prune fails on a ref that points straight at a blob, which
+// the andon cord's ref does.
 func (r Repo) PruneUnreachable(ctx context.Context, grace time.Duration) error {
 	repo, err := r.open(ctx)
 	if err != nil {
 		return err
 	}
-	return repo.Prune(git.PruneOptions{OnlyObjectsOlderThan: time.Now().Add(-grace), Handler: repo.DeleteObject})
+	loose, ok := repo.Storer.(storer.LooseObjectStorer)
+	if !ok {
+		return git.ErrLooseObjectsNotSupported
+	}
+	reachable := map[plumbing.Hash]bool{}
+	refs, err := repo.Storer.IterReferences()
+	if err != nil {
+		return err
+	}
+	err = refs.ForEach(func(ref *plumbing.Reference) error {
+		if ref.Type() != plumbing.HashReference {
+			return nil
+		}
+		return markReachable(repo.Storer, ref.Hash(), reachable)
+	})
+	if err != nil {
+		return err
+	}
+	cutoff := time.Now().Add(-grace)
+	return loose.ForEachObjectHash(func(h plumbing.Hash) error {
+		if reachable[h] {
+			return nil
+		}
+		// A packed or concurrently deleted object has no loose time; skip it.
+		if t, err := loose.LooseObjectTime(h); err != nil || !t.Before(cutoff) {
+			return nil
+		}
+		return repo.DeleteObject(h)
+	})
+}
+
+func markReachable(s storer.EncodedObjectStorer, h plumbing.Hash, reachable map[plumbing.Hash]bool) error {
+	if reachable[h] {
+		return nil
+	}
+	reachable[h] = true
+	obj, err := object.GetObject(s, h)
+	if err != nil {
+		return fmt.Errorf("read object %s: %w", h, err)
+	}
+	switch o := obj.(type) {
+	case *object.Commit:
+		if err := markReachable(s, o.TreeHash, reachable); err != nil {
+			return err
+		}
+		for _, parent := range o.ParentHashes {
+			if err := markReachable(s, parent, reachable); err != nil {
+				return err
+			}
+		}
+	case *object.Tree:
+		for _, e := range o.Entries {
+			if e.Mode == filemode.Dir {
+				if err := markReachable(s, e.Hash, reachable); err != nil {
+					return err
+				}
+			} else {
+				reachable[e.Hash] = true
+			}
+		}
+	case *object.Tag:
+		return markReachable(s, o.Target, reachable)
+	}
+	return nil
 }

@@ -63,6 +63,10 @@ type Guard struct {
 	Constitution       constitution.Constitution
 	ConstitutionDigest string
 	Now                func() time.Time // defaults to time.Now
+	// RejectedObjectGrace is how old an unreferenced object must be before a
+	// rejected candidate's cleanup deletes it, so that a concurrent candidate
+	// whose ref is not yet set keeps its objects. Zero deletes them at once.
+	RejectedObjectGrace time.Duration
 }
 
 func (g Guard) now() time.Time {
@@ -72,7 +76,10 @@ func (g Guard) now() time.Time {
 	return time.Now()
 }
 
-func (g Guard) Merge(ctx context.Context, commit string, env attest.Envelope) (Result, error) {
+// Merge decides whether the candidate may advance g.Ref. Whatever the outcome
+// the candidate ref is deleted, and unless it merged the candidate's objects
+// are pruned, so a rejected candidate is not readable through the remote.
+func (g Guard) Merge(ctx context.Context, commit string, env attest.Envelope) (result Result, err error) {
 	reject := func(reason Reason, detail string) (Result, error) {
 		return Result{Status: Rejected, Reason: reason, Detail: detail, Commit: commit}, nil
 	}
@@ -92,7 +99,16 @@ func (g Guard) Merge(ctx context.Context, commit string, env attest.Envelope) (R
 	}
 
 	// Now safe to defer cleanup using validated ID
-	defer g.Repo.DeleteRef(context.WithoutCancel(ctx), CandidatePrefix+commit)
+	defer func() {
+		cleanupCtx := context.WithoutCancel(ctx)
+		g.Repo.DeleteRef(cleanupCtx, CandidatePrefix+commit)
+		if result.Status == Merged {
+			return
+		}
+		if pruneErr := g.Repo.PruneUnreachable(cleanupCtx, g.RejectedObjectGrace); pruneErr != nil && err == nil {
+			err = fmt.Errorf("prune rejected candidate %s: %w", commit, pruneErr)
+		}
+	}()
 
 	v, rejected, err := g.verify(env, commit, commit)
 	if err != nil {

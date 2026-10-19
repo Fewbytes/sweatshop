@@ -36,6 +36,9 @@ const (
 	defaultMaxBundle = 256 << 20
 	// maxEnvelope bounds andon request bodies; an envelope is a few KiB.
 	maxEnvelope = 1 << 20
+	// rejectedObjectGrace keeps a rejected candidate's objects only long
+	// enough for a concurrently pushed candidate to get its ref.
+	rejectedObjectGrace = time.Minute
 )
 
 type Station struct {
@@ -193,7 +196,7 @@ func NewFromLine(l linedir.Line) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{
-		Guard: guard.Guard{Repo: repo, Ref: "refs/heads/master", Constitution: c, ConstitutionDigest: digest},
+		Guard: guard.Guard{Repo: repo, Ref: "refs/heads/master", Constitution: c, ConstitutionDigest: digest, RejectedObjectGrace: rejectedObjectGrace},
 		EvidenceDir: func(st *Station) string {
 			return filepath.Join(st.StateDir, "evidence")
 		},

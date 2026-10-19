@@ -237,6 +237,16 @@ func TestRejectsFailedCheckEvenWhenSigned(t *testing.T) {
 	f.expectRejected(commit, f.envelope(commit, f.key, func(p *attest.ChecksPredicate) { p.Checks[0].ExitCode = 1 }), ReasonChecksFailed)
 }
 
+func TestRejectedCandidateObjectsAreNotReadableFromRemote(t *testing.T) {
+	f := newFixture(t)
+	commit := f.commit("src/a.go", "package a")
+	f.candidate(commit)
+	f.expectRejected(commit, f.envelope(commit, f.key, func(p *attest.ChecksPredicate) { p.Checks[0].ExitCode = 1 }), ReasonChecksFailed)
+	if _, err := f.remote.Commit(f.ctx, commit); err == nil {
+		t.Fatalf("rejected candidate %s is still readable from the remote", commit)
+	}
+}
+
 func TestRejectsWhenLineStopped(t *testing.T) {
 	f := newFixture(t)
 	ok(t)(gittest.Git(f.ctx, f.remote.Dir, "update-ref", StopRef, f.master()))
