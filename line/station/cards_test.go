@@ -207,8 +207,8 @@ func TestCardsViceroyLabels(t *testing.T) {
 		want   string // "" means applied
 		calls  []string
 	}{
-		{"unpark", LabelChange{Remove: []string{"line-gave-up"}}, "", []string{"unlabel x-1 line-gave-up"}},
-		{"needs and constitution label", LabelChange{Add: []string{"needs:king", "triage:a"}, Remove: []string{"line-gave-up"}}, "", []string{"label x-1 needs:king", "label x-1 triage:a", "unlabel x-1 line-gave-up"}},
+		{"unpark", LabelChange{Remove: []string{"line-gave-up"}}, "", []string{"unlabel x-1 line-gave-up", "comment x-1 label line-gave-up removed by v (viceroy)"}},
+		{"needs and constitution label", LabelChange{Add: []string{"needs:king", "triage:a"}, Remove: []string{"line-gave-up"}}, "", []string{"label x-1 needs:king", "comment x-1 label needs:king added by v (viceroy)", "label x-1 triage:a", "comment x-1 label triage:a added by v (viceroy)", "unlabel x-1 line-gave-up", "comment x-1 label line-gave-up removed by v (viceroy)"}},
 		{"line label is not the viceroy's", LabelChange{Add: []string{"line"}}, "403", nil},
 		{"one forbidden label blocks all", LabelChange{Add: []string{"needs:maker"}, Remove: []string{"line"}}, "403", nil},
 		{"same label both ways", LabelChange{Add: []string{"needs:maker"}, Remove: []string{"needs:maker"}}, "400", nil},
@@ -228,7 +228,7 @@ func TestCardsViceroyLabels(t *testing.T) {
 			t.Fatalf("%s: calls %v, want %v", tc.name, f.calls, tc.calls)
 		}
 		events, _ := v.Events(context.Background(), "", "x-1", "")
-		if len(events) != len(tc.calls) {
+		if len(events) != len(tc.calls)/2 {
 			t.Fatalf("%s: events %+v, want one per call", tc.name, events)
 		}
 		for _, e := range events {
