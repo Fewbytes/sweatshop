@@ -1052,7 +1052,7 @@
         "Summary"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 34,
+      "hotspot_rank": 28,
       "imported_by": [
         "line/cmd/sweatshop",
         "line/station"
@@ -1061,7 +1061,7 @@
         "line/report"
       ],
       "lcom4": 1,
-      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
+      "measured_at_commit": "4db5223f52befbdb2d907dfceab85c21cc3eb15a",
       "purpose": "Package cistats answers questions about CI health from the line's stored"
     },
     "line/cmd/sweatshop": {
@@ -1169,7 +1169,7 @@
         "Prompt"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 65,
+      "hotspot_rank": 66,
       "imported_by": [
         "line/cmd/sweatshop"
       ],
@@ -1178,10 +1178,11 @@
         "line/gitx/gittest",
         "line/guidance",
         "line/linedir",
-        "line/maker"
+        "line/maker",
+        "line/station"
       ],
       "lcom4": 1,
-      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
+      "measured_at_commit": "4db5223f52befbdb2d907dfceab85c21cc3eb15a",
       "purpose": "Package gemba configures the maker runner as a Gemba station: it claims"
     },
     "line/gitx": {
@@ -1462,9 +1463,11 @@
       "purpose": "Package linedir creates and loads a line directory: the on-disk home of one"
     },
     "line/linestore": {
-      "entry_point_count": 24,
+      "entry_point_count": 26,
       "entry_points": [
         "Event",
+        "EventAcceptanceAnswer",
+        "EventAcceptanceRequest",
         "EventAndonClear",
         "EventAndonPull",
         "EventClaim",
@@ -1473,12 +1476,10 @@
         "EventGiveUp",
         "EventKind",
         "EventLabel",
-        "EventMerge",
-        "EventOffer",
-        "EventReap"
+        "EventMerge"
       ],
-      "hidden_coupling_ratio": 0.25,
-      "hotspot_rank": 23,
+      "hidden_coupling_ratio": 0.2,
+      "hotspot_rank": 24,
       "imported_by": [
         "line/cmd/sweatshop",
         "line/heijunka",
@@ -1488,7 +1489,7 @@
         "line/report"
       ],
       "lcom4": 1,
-      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
+      "measured_at_commit": "4db5223f52befbdb2d907dfceab85c21cc3eb15a",
       "purpose": "Package linestore is the line's master database: witness runs, per-test"
     },
     "line/maker": {
@@ -1580,26 +1581,27 @@
       "purpose": "Package runner is the one interface the line uses to run station and"
     },
     "line/station": {
-      "entry_point_count": 76,
+      "entry_point_count": 92,
       "entry_points": [
-        "BeadsCards",
-        "CLIEngine",
-        "Cards",
-        "Channel",
-        "Client",
-        "CommandChoice",
-        "ConstitutionEntry",
-        "ContainerName",
-        "ContainerSpec",
-        "DefaultCheckinTimeout",
-        "DeployRequest",
-        "DeployState"
+        "AcceptanceAccepted",
+        "AcceptanceAdd",
+        "AcceptanceAnswer",
+        "AcceptanceAnswerState",
+        "AcceptanceChange",
+        "AcceptanceDeclined",
+        "AcceptanceEvidenceKind",
+        "AcceptanceFix",
+        "AcceptanceRequest",
+        "AcceptanceRequested",
+        "AcceptanceRetire",
+        "BeadsCards"
       ],
       "hidden_coupling_ratio": 0.0,
       "hotspot_rank": 1,
       "imported_by": [
         "line/andon",
         "line/cmd/sweatshop",
+        "line/gemba",
         "line/harness",
         "line/heijunka",
         "line/kaizen",
@@ -1621,7 +1623,7 @@
         "line/witness"
       ],
       "lcom4": 1,
-      "measured_at_commit": "7be996b8a5fb06391e225c32d7f9975dfcd61fae",
+      "measured_at_commit": "4db5223f52befbdb2d907dfceab85c21cc3eb15a",
       "purpose": "Package station is the station API: the only way containerized agents reach"
     },
     "line/testhygiene": {

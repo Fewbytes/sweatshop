@@ -22,6 +22,10 @@ const (
 	EventMerge      EventKind = "merge"
 	EventAndonPull  EventKind = "andon-pull"
 	EventAndonClear EventKind = "andon-clear"
+	// EventAcceptanceRequest and EventAcceptanceAnswer are the track record of
+	// requests to change acceptance tests and Gemba's answers to them.
+	EventAcceptanceRequest EventKind = "acceptance-request"
+	EventAcceptanceAnswer  EventKind = "acceptance-answer"
 )
 
 // MaxEvents bounds one Events call: the newest MaxEvents matching events.

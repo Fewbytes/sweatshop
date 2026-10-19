@@ -16,6 +16,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/guidance"
 	"github.com/Fewbytes/sweatshop/line/linedir"
 	"github.com/Fewbytes/sweatshop/line/maker"
+	"github.com/Fewbytes/sweatshop/line/station"
 )
 
 // labelledBeads offers, like bd and the cards API, only the cards that carry
@@ -173,5 +174,11 @@ func TestPromptEndsWithGembaGuidance(t *testing.T) {
 	}
 	if strings.Index(p, "RESULT: merged") > strings.Index(p, guide) {
 		t.Error("guide precedes the line protocol")
+	}
+}
+
+func TestLabelIsTheOneAcceptanceRequestsAreFiledUnder(t *testing.T) {
+	if Label != station.LabelGemba {
+		t.Fatalf("runner claims %q but requests are labelled %q", Label, station.LabelGemba)
 	}
 }

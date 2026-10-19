@@ -412,6 +412,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 		return s.routeHeijunkaState(w, r)
 	case strings.HasPrefix(path, "/v1/kaizen/"):
 		return s.routeKaizen(w, r, st)
+	case strings.HasPrefix(path, "/v1/acceptance/"):
+		return s.routeAcceptance(w, r, st)
 	case strings.HasPrefix(path, "/v1/deploy/"):
 		return s.routeDeploy(w, r, st)
 	case strings.HasPrefix(path, "/v1/viceroy/"):
