@@ -523,6 +523,10 @@ func (c *Channel) command(ctx context.Context, m InboxMessage) {
 		c.reply(ctx, c.deferCard(ctx, sub[1], sub[3], "discord message "+m.ID))
 		return
 	}
+	if sub := answerRe.FindStringSubmatch(m.Text); sub != nil {
+		c.reply(ctx, c.answerCard(ctx, sub[1], sub[3], "discord message "+m.ID))
+		return
+	}
 	sub := approveRe.FindStringSubmatch(m.Text)
 	if sub == nil {
 		return

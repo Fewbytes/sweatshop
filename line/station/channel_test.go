@@ -333,3 +333,41 @@ func TestChannelEmptyStartDeliversFirstMessage(t *testing.T) {
 		t.Fatalf("inbox %v %v", got, err)
 	}
 }
+
+func TestChannelKingAnswerUnblocksNeedsKingCard(t *testing.T) {
+	cards := &fakeCards{show: `{"id":"x-4","labels":["line","needs:king"]}`}
+	ch, fd := newChan(t, cards)
+	ctx := context.Background()
+	fd.add("1", "5", "x")
+	_ = ch.Poll(ctx)
+	fd.add("2", "5", "answer x-4 yes, go ahead") // stranger: data only
+	fd.add("3", kingID, "answer x-4 use option B\nit is cheaper")
+	if err := ch.Poll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"show x-4", "comment x-4 answer from the king (discord message 3):\nuse option B\nit is cheaper", "unlabel x-4 needs:king"}
+	if strings.Join(cards.calls, "|") != strings.Join(want, "|") {
+		t.Fatalf("calls %q, want %q", cards.calls, want)
+	}
+	if len(fd.posted) != 1 || fd.posted[0] != "answered x-4" {
+		t.Fatalf("reply %v", fd.posted)
+	}
+}
+
+func TestChannelKingAnswerIgnoresCardNotWaitingOnKing(t *testing.T) {
+	cards := &fakeCards{show: `{"id":"x-4","labels":["line","needs:maker"]}`}
+	ch, fd := newChan(t, cards)
+	ctx := context.Background()
+	fd.add("1", "5", "x")
+	_ = ch.Poll(ctx)
+	fd.add("2", kingID, "answer x-4 hello")
+	if err := ch.Poll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(cards.calls, "|") != "show x-4" {
+		t.Fatalf("calls %q, want only a show", cards.calls)
+	}
+	if len(fd.posted) != 1 || fd.posted[0] != "x-4 is not waiting on the king" {
+		t.Fatalf("reply %v", fd.posted)
+	}
+}
