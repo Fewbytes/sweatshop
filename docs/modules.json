@@ -85,26 +85,23 @@
       "purpose": ""
     },
     "agentsh/internal/config": {
-      "entry_point_count": 6,
+      "entry_point_count": 5,
       "entry_points": [
         "Candidates",
         "Config",
         "LegacyEnvVars",
         "Load",
-        "Turso",
-        "Witness"
+        "Turso"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 22,
+      "hotspot_rank": 31,
       "imported_by": [
         "agentsh/cmd/agentshd",
         "agentsh/internal/daemon"
       ],
-      "imports": [
-        "line/constitution"
-      ],
+      "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "6d7eb899137582bbfdb16c10de464402f89ef47a",
       "purpose": "Package config loads agentsh daemon settings from a file."
     },
     "agentsh/internal/daemon": {
@@ -114,8 +111,8 @@
         "NewWithConfig",
         "Server"
       ],
-      "hidden_coupling_ratio": 0.25,
-      "hotspot_rank": 6,
+      "hidden_coupling_ratio": 0.3,
+      "hotspot_rank": 11,
       "imported_by": [
         "agentsh/cmd/agentshd"
       ],
@@ -129,16 +126,10 @@
         "agentsh/internal/storage",
         "agentsh/internal/testwait",
         "agentsh/internal/version",
-        "agentsh/internal/workspace",
-        "line/attest",
-        "line/constitution",
-        "line/gitx",
-        "line/gitx/gittest",
-        "line/guard",
-        "line/witness"
+        "agentsh/internal/workspace"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "6d7eb899137582bbfdb16c10de464402f89ef47a",
       "purpose": ""
     },
     "agentsh/internal/executor": {
@@ -262,7 +253,7 @@
       "purpose": ""
     },
     "agentsh/internal/rpc": {
-      "entry_point_count": 42,
+      "entry_point_count": 39,
       "entry_points": [
         "BashGCRequest",
         "BashHistoryRequest",
@@ -286,7 +277,7 @@
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
+      "measured_at_commit": "6d7eb899137582bbfdb16c10de464402f89ef47a",
       "purpose": ""
     },
     "agentsh/internal/service": {
@@ -333,9 +324,8 @@
       "purpose": ""
     },
     "agentsh/internal/storage": {
-      "entry_point_count": 27,
+      "entry_point_count": 26,
       "entry_points": [
-        "Attestation",
         "BlobStore",
         "BlobWriter",
         "BuildLineIndex",
@@ -346,10 +336,11 @@
         "Failure",
         "GCResult",
         "IndexEntry",
-        "Invocation"
+        "Invocation",
+        "InvocationState"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 7,
+      "hotspot_rank": 8,
       "imported_by": [
         "agentsh/cmd/agentsh",
         "agentsh/internal/daemon",
@@ -360,7 +351,7 @@
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "318c2ed7ed6ccc97285cc63f820a944cc2965377",
+      "measured_at_commit": "6d7eb899137582bbfdb16c10de464402f89ef47a",
       "purpose": ""
     },
     "agentsh/internal/testwait": {
@@ -1019,9 +1010,8 @@
         "NewStatement"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 32,
+      "hotspot_rank": 30,
       "imported_by": [
-        "agentsh/internal/daemon",
         "line/andon",
         "line/cmd/sweatshop",
         "line/constitution",
@@ -1033,7 +1023,7 @@
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
+      "measured_at_commit": "6d7eb899137582bbfdb16c10de464402f89ef47a",
       "purpose": "Package attest signs and verifies DSSE envelopes carrying in-toto"
     },
     "line/cistats": {
@@ -1114,8 +1104,6 @@
       "hidden_coupling_ratio": 0.429,
       "hotspot_rank": 5,
       "imported_by": [
-        "agentsh/internal/config",
-        "agentsh/internal/daemon",
         "line/cmd/sweatshop",
         "line/guard",
         "line/guidance",
@@ -1129,7 +1117,7 @@
         "line/attest"
       ],
       "lcom4": 1,
-      "measured_at_commit": "87fb48747326259c719a27da09fc6cd8ae71ee84",
+      "measured_at_commit": "6d7eb899137582bbfdb16c10de464402f89ef47a",
       "purpose": "Package constitution loads the line's rules. v0 holds only what the witness"
     },
     "line/deploy": {
@@ -1199,7 +1187,6 @@
       "hidden_coupling_ratio": 0.333,
       "hotspot_rank": 7,
       "imported_by": [
-        "agentsh/internal/daemon",
         "line/cmd/sweatshop",
         "line/deploy",
         "line/gemba",
@@ -1215,7 +1202,7 @@
         "line/gitx/gittest"
       ],
       "lcom4": 1,
-      "measured_at_commit": "87fb48747326259c719a27da09fc6cd8ae71ee84",
+      "measured_at_commit": "6d7eb899137582bbfdb16c10de464402f89ef47a",
       "purpose": "Package gitx reads and writes git repositories for line components, in"
     },
     "line/gitx/gittest": {
@@ -1224,9 +1211,8 @@
         "Git"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 55,
+      "hotspot_rank": 56,
       "imported_by": [
-        "agentsh/internal/daemon",
         "line/cmd/sweatshop",
         "line/gemba",
         "line/gitx",
@@ -1240,7 +1226,7 @@
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
+      "measured_at_commit": "6d7eb899137582bbfdb16c10de464402f89ef47a",
       "purpose": "Package gittest builds repository fixtures for tests by running the git"
     },
     "line/guard": {
@@ -1260,9 +1246,8 @@
         "ReasonBlobForbidden"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 14,
+      "hotspot_rank": 17,
       "imported_by": [
-        "agentsh/internal/daemon",
         "line/andon",
         "line/cmd/sweatshop",
         "line/harness",
@@ -1279,7 +1264,7 @@
         "line/gitx/gittest"
       ],
       "lcom4": 2,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "6d7eb899137582bbfdb16c10de464402f89ef47a",
       "purpose": "Package guard is the merge guard: the only writer of the guarded branch."
     },
     "line/guidance": {
@@ -1703,7 +1688,6 @@
       "hidden_coupling_ratio": 0.125,
       "hotspot_rank": 10,
       "imported_by": [
-        "agentsh/internal/daemon",
         "line/andon",
         "line/cmd/sweatshop",
         "line/harness",
@@ -1719,7 +1703,7 @@
         "line/report"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "6d7eb899137582bbfdb16c10de464402f89ef47a",
       "purpose": "Package witness attests commits: it runs the constitution's required checks"
     },
     "packages/agentsh/pi/extensions": {

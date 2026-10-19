@@ -245,8 +245,7 @@ against the puller's track record. Evidence plus consequence; no identity gate.
   check run. That run executes the candidate's own check definition (`justfile`,
   station image); the constitution gates `justfile` and `station/**` to role
   gemba (owner-only in M1), but the tests themselves stay agent-editable until
-  acceptance paths and a gemba station exist. agentshd's
-  `line_attest`/`line_merge` are the trust-`none` dev path.
+  acceptance paths and a gemba station exist.
 
 Crypto is used only where trust crosses a boundary at rest (attestations,
 commits). Agent → witness uses the station API (loopback HTTP, one bearer token

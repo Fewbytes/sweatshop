@@ -19,7 +19,6 @@ func TestDispatchTableCoversEveryDeclaredOp(t *testing.T) {
 		agentrpc.OpBashInput, agentrpc.OpBashKill, agentrpc.OpBashState, agentrpc.OpBashHistory,
 		agentrpc.OpBashReplay, agentrpc.OpBashProcesses, agentrpc.OpBashGC, agentrpc.OpBashTemplates,
 		agentrpc.OpBashService, agentrpc.OpBashServiceStatus, agentrpc.OpBashServiceKill, agentrpc.OpBashServiceLogs,
-		agentrpc.OpLineAttest, agentrpc.OpLineMerge,
 	}
 	for _, op := range ops {
 		if _, ok := handlers[op]; !ok {

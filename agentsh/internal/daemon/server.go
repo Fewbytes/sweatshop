@@ -24,8 +24,6 @@ import (
 	"github.com/Fewbytes/sweatshop/agentsh/internal/storage"
 	"github.com/Fewbytes/sweatshop/agentsh/internal/version"
 	"github.com/Fewbytes/sweatshop/agentsh/internal/workspace"
-	"github.com/Fewbytes/sweatshop/line/guard"
-	"github.com/Fewbytes/sweatshop/line/witness"
 )
 
 type Server struct {
@@ -42,13 +40,9 @@ type Server struct {
 	// site — it's a plain value wrapping two paths, cheap to build, but
 	// there's no reason for four call sites to each build their own copy.
 	blobs storage.BlobStore
-	// witness and guard are set only when Config.Witness is present; the
-	// line_* ops report witness_disabled otherwise.
-	witness *witness.Witness
-	guard   guard.Guard
-	stop    chan struct{}
-	once    sync.Once
-	wg      sync.WaitGroup
+	stop  chan struct{}
+	once  sync.Once
+	wg    sync.WaitGroup
 
 	// Grace overrides the executor's kill grace period (SIGTERM-to-SIGKILL
 	// wait) when > 0. Set before calling Serve; tests use it to keep
@@ -99,13 +93,6 @@ func (s *Server) Serve(ctx context.Context) error {
 	s.exec = executor.New(store, s.blobs)
 	if s.Grace > 0 {
 		s.exec.Grace = s.Grace
-	}
-	if s.Config.Witness != nil {
-		if err := s.setupWitness(); err != nil {
-			_ = ln.Close()
-			store.Close()
-			return err
-		}
 	}
 	defer store.Close()
 	if _, err := store.Reconcile(ctx, processAlive); err != nil {
@@ -259,8 +246,6 @@ var handlers = map[string]opHandler{
 	agentrpc.OpBashReplay:        handleBashReplay,
 	agentrpc.OpBashGC:            handleBashGC,
 	agentrpc.OpBashTemplates:     handleBashTemplates,
-	agentrpc.OpLineAttest:        handleLineAttest,
-	agentrpc.OpLineMerge:         handleLineMerge,
 }
 
 func (s *Server) dispatch(ctx context.Context, request agentrpc.Request) (agentrpc.Response, func()) {

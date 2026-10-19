@@ -40,8 +40,7 @@ heijunka, Kaizen/Gemba, lifetimes), scoped andon, circuit breaker auto-revert.
 - **The witness leaves agentshd.** Witnessing is line infrastructure, not an
   agent tool. `sweatshop line serve` hosts every station's witness on the host.
   agentshd stays the agent's shell tool, inside the container if used at all,
-  and untrusted. Its `line_attest`/`line_merge` ops remain as the trust-`none`
-  dev path and are removed later. This resolves `sweatshop-qp5`: no agent
+  and untrusted. Its former `line_attest`/`line_merge` dev ops are gone. This resolves `sweatshop-qp5`: no agent
   command ever runs as the witness's uid.
 - **Station API.** HTTP on `127.0.0.1:<port>`. Containers reach it through the
   engine's host alias (`host.containers.internal`; verified with podman

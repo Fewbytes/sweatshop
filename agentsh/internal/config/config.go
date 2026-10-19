@@ -11,11 +11,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
-
-	"github.com/Fewbytes/sweatshop/line/constitution"
 )
 
 // LegacyEnvVars were read directly by the daemon before settings moved to a
@@ -37,31 +34,11 @@ type Turso struct {
 	SyncIntervalSeconds int `json:"sync_interval_seconds,omitempty"`
 }
 
-// Witness binds this daemon to one agent and role for its lifetime and gives
-// it a signing key. Everything here must be out of the agent's reach: a config
-// the agent could edit would let it pick its own role and key.
-type Witness struct {
-	KeyFile      string `json:"key_file"`
-	Role         string `json:"role"`
-	AgentID      string `json:"agent_id"`
-	Constitution string `json:"constitution"`
-	StateDir     string `json:"state_dir"`
-	Remote       string `json:"remote"`
-	Ref          string `json:"ref,omitempty"`
-}
-
 type Config struct {
 	Turso Turso `json:"turso"`
 
-	Witness *Witness `json:"witness,omitempty"`
-
 	// Path is the file this came from, empty when no file was found.
 	Path string `json:"-"`
-
-	// WitnessPath is the file the witness section came from. It differs from
-	// Path when a workspace config without a witness section is backed by an
-	// operator config that has one.
-	WitnessPath string `json:"-"`
 
 	// Warnings are non-fatal problems worth surfacing to the operator.
 	Warnings []string `json:"-"`
@@ -114,22 +91,6 @@ func Load(explicitPath, workspaceRoot string) (Config, error) {
 			}
 			return config, fmt.Errorf("read config %s: %w", path, err)
 		}
-		if config.Path != "" {
-			// A later candidate only contributes its witness section. Without
-			// this, a workspace config the agent wrote could shadow the
-			// operator's witness binding just by existing.
-			var outer struct {
-				Witness *Witness `json:"witness"`
-			}
-			if err := json.Unmarshal(data, &outer); err != nil {
-				return config, fmt.Errorf("parse config %s: %w", path, err)
-			}
-			if outer.Witness != nil {
-				config.Witness, config.WitnessPath = outer.Witness, path
-				break
-			}
-			continue
-		}
 		if err := json.Unmarshal(data, &config); err != nil {
 			return config, fmt.Errorf("parse config %s: %w", path, err)
 		}
@@ -137,10 +98,7 @@ func Load(explicitPath, workspaceRoot string) (Config, error) {
 		if warning := permissionWarning(path, config); warning != "" {
 			config.Warnings = append(config.Warnings, warning)
 		}
-		if config.Witness != nil {
-			config.WitnessPath = path
-			break
-		}
+		break
 	}
 
 	if err := config.resolveToken(); err != nil {
@@ -149,98 +107,7 @@ func Load(explicitPath, workspaceRoot string) (Config, error) {
 	if config.Turso.AuthToken != "" && config.Turso.URL == "" {
 		return config, fmt.Errorf("config %s sets turso.auth_token without turso.url", config.Path)
 	}
-	if err := config.validateWitness(workspaceRoot); err != nil {
-		return config, err
-	}
 	return config, nil
-}
-
-func (c *Config) validateWitness(workspaceRoot string) error {
-	w := c.Witness
-	if w == nil {
-		return nil
-	}
-	fields := []struct {
-		name  string
-		value *string
-		path  bool
-	}{
-		{"key_file", &w.KeyFile, true}, {"role", &w.Role, false}, {"agent_id", &w.AgentID, false},
-		{"constitution", &w.Constitution, true}, {"state_dir", &w.StateDir, true}, {"remote", &w.Remote, true},
-	}
-	for _, f := range fields {
-		if *f.value == "" {
-			return fmt.Errorf("config %s: witness.%s is required", c.WitnessPath, f.name)
-		}
-		if !f.path {
-			continue
-		}
-		expanded, err := expandHome(*f.value)
-		if err != nil {
-			return err
-		}
-		if *f.value, err = filepath.Abs(expanded); err != nil {
-			return err
-		}
-	}
-	if !slices.Contains(constitution.Roles, w.Role) {
-		return fmt.Errorf("config %s: witness.role %q is not one of %v", c.WitnessPath, w.Role, constitution.Roles)
-	}
-	if w.Ref == "" {
-		w.Ref = "refs/heads/master"
-	}
-	if !strings.HasPrefix(w.Ref, "refs/") || slices.Contains(strings.Split(w.Ref, "/"), "..") {
-		return fmt.Errorf("config %s: witness.ref %q must start with refs/ and contain no .. component", c.WitnessPath, w.Ref)
-	}
-	if workspaceRoot == "" {
-		return nil
-	}
-	root, err := filepath.Abs(workspaceRoot)
-	if err != nil {
-		return err
-	}
-	roots := []string{root, resolveExisting(root)}
-	configPath, err := filepath.Abs(c.WitnessPath)
-	if err != nil {
-		return err
-	}
-	checked := []struct{ name, path string }{
-		{"the config file", configPath}, {"witness.key_file", w.KeyFile}, {"witness.constitution", w.Constitution},
-		{"witness.state_dir", w.StateDir}, {"witness.remote", w.Remote},
-	}
-	for _, item := range checked {
-		for _, p := range []string{item.path, resolveExisting(item.path)} {
-			for _, r := range roots {
-				if within(p, r) {
-					return fmt.Errorf("%s (%s) is inside the workspace %s, where the agent can change it; keep witness settings outside", item.name, item.path, root)
-				}
-			}
-		}
-	}
-	return nil
-}
-
-// resolveExisting resolves symlinks in the longest existing prefix of an
-// absolute path and re-joins the part that does not exist yet.
-func resolveExisting(p string) string {
-	p = filepath.Clean(p)
-	rest := ""
-	for cur := p; ; {
-		if resolved, err := filepath.EvalSymlinks(cur); err == nil {
-			return filepath.Join(resolved, rest)
-		}
-		parent := filepath.Dir(cur)
-		if parent == cur {
-			return p
-		}
-		rest = filepath.Join(filepath.Base(cur), rest)
-		cur = parent
-	}
-}
-
-func within(p, root string) bool {
-	rel, err := filepath.Rel(root, p)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func (c *Config) resolveToken() error {
