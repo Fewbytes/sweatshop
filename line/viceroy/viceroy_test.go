@@ -379,3 +379,12 @@ func TestPromptTellsViceroyToScanAllCardsAndCommentsReadOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestPromptTellsViceroyToRecordVerdictsAndProposeDelegation(t *testing.T) {
+	p := Prompt(PromptInput{Wake: WakeMessages})
+	for _, want := range []string{"the king's verdict on each", "approved\n  unchanged", "proposal card to\n  delegate that class", "priority ceiling"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("prompt lacks %q", want)
+		}
+	}
+}
