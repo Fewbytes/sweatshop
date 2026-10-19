@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"slices"
 	"time"
 
@@ -15,6 +16,10 @@ import (
 
 // maxReportedTokens bounds one usage report so a typo cannot exhaust a budget.
 const maxReportedTokens = 1_000_000_000
+
+// kaizenRunIDRe matches the run ID a kaizen station reports under, since it
+// works no card (kaizen/runner.go builds it from the start time).
+var kaizenRunIDRe = regexp.MustCompile(`^kaizen-[0-9]{8}T[0-9]{6}Z$`)
 
 // BudgetStatus is how much of one constitution budget is spent. A card-scope
 // budget has one status per card with usage in the window (Card names it).
@@ -158,7 +163,7 @@ func (s *Server) dropBudgetBlocked(ctx context.Context, list json.RawMessage, ro
 }
 
 // routeUsage serves POST /v1/usage {card, tokens}: a station reports tokens it
-// spent on a card. Usage is self-reported; the line trusts the station's token
+// spent on a card. Usage is reported by the station's entrypoint; the line trusts the station's token
 // for who reports, and bounds one report by maxReportedTokens. Crossing a
 // budget's warning or full mark posts to the channel once.
 func (s *Server) routeUsage(w http.ResponseWriter, r *http.Request, st *Station) (string, error) {
@@ -175,8 +180,10 @@ func (s *Server) routeUsage(w http.ResponseWriter, r *http.Request, st *Station)
 	if err := decodeBody(w, r, &body); err != nil {
 		return "", err
 	}
-	if err := validID(body.Card); err != nil {
-		return "", err
+	if !kaizenRunIDRe.MatchString(body.Card) {
+		if err := validID(body.Card); err != nil {
+			return "", err
+		}
 	}
 	if body.Tokens < 1 || body.Tokens > maxReportedTokens {
 		return "", fail(http.StatusBadRequest, "tokens must be 1..%d", maxReportedTokens)

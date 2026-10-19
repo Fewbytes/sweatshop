@@ -1143,7 +1143,7 @@
         "Release"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 17,
+      "hotspot_rank": 22,
       "imported_by": [
         "line/cmd/sweatshop",
         "line/station"
@@ -1152,7 +1152,7 @@
         "line/gitx"
       ],
       "lcom4": 1,
-      "measured_at_commit": "318c2ed7ed6ccc97285cc63f820a944cc2965377",
+      "measured_at_commit": "5644c663c06feb1d18751f526835f37f35216151",
       "purpose": "Package deploy rolls a release onto the host. The line decides what to"
     },
     "line/gemba": {
@@ -1591,7 +1591,7 @@
       "purpose": "Package runner is the one interface the line uses to run station and"
     },
     "line/station": {
-      "entry_point_count": 94,
+      "entry_point_count": 96,
       "entry_points": [
         "AcceptanceAccepted",
         "AcceptanceAdd",
@@ -1633,8 +1633,8 @@
         "line/report",
         "line/witness"
       ],
-      "lcom4": 1,
-      "measured_at_commit": "87fb48747326259c719a27da09fc6cd8ae71ee84",
+      "lcom4": 2,
+      "measured_at_commit": "5644c663c06feb1d18751f526835f37f35216151",
       "purpose": "Package station is the station API: the only way containerized agents reach"
     },
     "line/testhygiene": {

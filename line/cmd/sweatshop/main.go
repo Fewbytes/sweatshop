@@ -57,8 +57,8 @@ const usage = `usage:
   sweatshop line merge [--rev HEAD] [--repo .]
                                         check rev and submit it to the merge guard
   sweatshop line status                 print the line's master and andon state
-  sweatshop line usage --card ID --tokens N
-                                        report tokens this station spent on a card, counted against the constitution's token budgets
+  sweatshop line usage --card ID (--tokens N | --claude-output FILE)
+                                        report tokens this station spent on a card, counted against the constitution's token budgets; with --claude-output, read the tokens from a claude -p --output-format json result and print its text
   sweatshop line stats [--since D]      print CI health: pass rate, durations, slow, failing and flaky tests, time to green (D: 36h, 7d)
   sweatshop line ci stats [--since D] [--check C] [--commit SHA]
                                         print per check: runs, failure rate, duration p50/p95/max and commits where it both passed and failed (D: 36h, 7d)
@@ -135,7 +135,7 @@ func run(args []string, stdout io.Writer) error {
 	case len(args) >= 2 && args[0] == "line" && (args[1] == "attest" || args[1] == "merge"):
 		return lineSubmit(args[1], args[2:], stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "usage":
-		return lineUsage(args[2:])
+		return lineUsage(args[2:], stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "stats":
 		return lineStats(args[2:], stdout)
 	case len(args) >= 3 && args[0] == "line" && args[1] == "ci" && args[2] == "stats":
@@ -1057,13 +1057,31 @@ func budgetLine(b station.BudgetStatus) string {
 	return line
 }
 
-// lineUsage implements `line usage`.
-func lineUsage(args []string) error {
+// lineUsage implements `line usage`. With --claude-output it prints the run's
+// text before reporting, so a failed report never hides what the agent said.
+func lineUsage(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("line usage", flag.ContinueOnError)
 	card := fs.String("card", "", "card the tokens were spent on")
 	tokens := fs.Int64("tokens", 0, "tokens spent")
+	claudeOutput := fs.String("claude-output", "", "file holding a claude -p --output-format json result to report instead of --tokens")
 	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
+	}
+	if *claudeOutput != "" {
+		if *tokens != 0 {
+			return errors.New("line usage: --tokens and --claude-output are exclusive")
+		}
+		data, err := os.ReadFile(*claudeOutput)
+		if err != nil {
+			return err
+		}
+		run, err := station.ParseClaudeRun(data)
+		if err != nil {
+			fmt.Fprintf(stdout, "%s\n", data) // not a result object (claude crashed): keep what it printed
+			return err
+		}
+		fmt.Fprintln(stdout, run.Result)
+		*tokens = run.Tokens
 	}
 	c, err := lineClient()
 	if err != nil {

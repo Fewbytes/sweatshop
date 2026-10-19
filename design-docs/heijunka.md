@@ -133,12 +133,29 @@ period = "24h"       # rolling window, not a calendar day
 warn_percent = 80    # optional, 1..99, default 80
 ```
 
-- Usage is self-reported by stations: `sweatshop line usage --card ID --tokens N`
-  (`POST /v1/usage`). The line takes station and role from the token, so a
-  station cannot report for another. A proxy would meter without trusting the
-  agent, but no proxy exists on the line yet; reports are the stable
-  interface a proxy can feed later. Wiring the maker runner to report each
-  run's tokens is follow-up work.
+- Station containers are meant to report automatically. `sweatshop line usage
+  --card ID --claude-output FILE` prints the text of a `claude -p
+  --output-format json` result and reports its input, output and
+  cache-creation tokens (`POST /v1/usage`); kaizen reports under its run ID.
+  Usage lands when a run ends, so a budget is checked per run, not per turn.
+  Nothing calls it yet: `station/**` is gemba-only, so gemba must change the
+  last lines of `station/entrypoint.sh` to
+
+  ```sh
+  claude_out=$(mktemp)
+  claude_status=0
+  claude -p "$SWEATSHOP_PROMPT" ... --output-format json >"$claude_out" || claude_status=$?
+  sweatshop line usage --card "$SWEATSHOP_BEAD" --claude-output "$claude_out" ||
+      echo "entrypoint: token usage not reported" >&2
+  exit "$claude_status"
+  ```
+
+  (`...` are the existing flags). Until then, stations may still self-report
+  with `--tokens N`.
+  The line takes station and role from the token, so a station cannot report
+  for another. A station's own script could in principle skip the report; a
+  proxy would meter without trusting the station, and reports are the stable
+  interface it can feed later.
 - Exhaustion pauses offers, never work: makers get no ready cards from
   `GET /v1/cards?ready=true` in an exhausted scope, a claim there is refused
   with 429, and running work keeps going and keeps reporting.
@@ -148,3 +165,13 @@ warn_percent = 80    # optional, 1..99, default 80
   and exhausted per budget.
 - Budgets are part of the constitution, so changing them takes the king's
   approval like any other proposal.
+- Proposed initial budget, for the viceroy to propose and the king to approve
+  (a line-wide ceiling that warns before it pauses; tune from `line status`):
+
+  ```toml
+  [[budgets]]
+  scope = "line"
+  tokens = 20000000
+  period = "24h"
+  warn_percent = 80
+  ```

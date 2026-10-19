@@ -188,3 +188,30 @@ func TestBudgetStatusesCountOnlyUsageInsideTheRollingWindow(t *testing.T) {
 		t.Fatalf("statuses = %+v, want 300 used and not exhausted: the 25h-old report aged out", got)
 	}
 }
+
+func TestClaudeRunTokensAreMeteredAgainstTheBudgetForCardAndKaizenRun(t *testing.T) {
+	r := newBudgetRig(t, constitution.Budget{Scope: "line", Tokens: 1000, Period: "24h"})
+	run, err := ParseClaudeRun([]byte(`{"type":"result","result":"done","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":25,"cache_read_input_tokens":9000}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Result != "done" || run.Tokens != 175 {
+		t.Fatalf("run = %+v, want result done and 175 tokens (cache reads not counted)", run)
+	}
+	r.report(t, "x-1", run.Tokens)
+	r.report(t, "kaizen-20261019T120000Z", run.Tokens)
+	if got := r.budgets(t); len(got) != 1 || got[0].Used != 350 {
+		t.Fatalf("status budgets = %+v, want 350 used", got)
+	}
+}
+
+func TestParseClaudeRunRejectsOutputWithoutUsage(t *testing.T) {
+	for name, out := range map[string]string{
+		"plain text":   "Error: rate limited",
+		"no usage key": `{"type":"result","result":"done"}`,
+	} {
+		if _, err := ParseClaudeRun([]byte(out)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

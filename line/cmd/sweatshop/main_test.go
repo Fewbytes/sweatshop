@@ -125,6 +125,9 @@ func serveLine(t *testing.T, dir, stationName string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := srv.OpenStore(context.Background(), l.Dir); err != nil {
+		t.Fatal(err)
+	}
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
 	for _, s := range l.Stations {
@@ -840,5 +843,32 @@ func TestMutationTrendPrintsUnavailableReasonsNotNumbers(t *testing.T) {
 		"bbbbbbbbbbbb card   python     mutmut  a.py,b.py unavailable: mutmut is not installed in 3ms\n"
 	if got != want {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestLineUsageClaudeOutputPrintsResultAndReports(t *testing.T) {
+	dir, _ := initLine(t)
+	serveLine(t, dir, "maker-1")
+	file := filepath.Join(t.TempDir(), "claude.json")
+	if err := os.WriteFile(file, []byte(`{"result":"all done","usage":{"input_tokens":10,"output_tokens":5}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"line", "usage", "--card", "x-1", "--claude-output", file}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "all done\n" {
+		t.Fatalf("output = %q, want the agent's text", out.String())
+	}
+
+	if err := os.WriteFile(file, []byte("Error: rate limited"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := run([]string{"line", "usage", "--card", "x-1", "--claude-output", file}, &out); err == nil {
+		t.Fatal("unparseable claude output was reported as usage")
+	}
+	if !strings.Contains(out.String(), "rate limited") {
+		t.Fatalf("output = %q, want the raw claude output kept", out.String())
 	}
 }
