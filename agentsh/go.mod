@@ -1,6 +1,6 @@
 module github.com/Fewbytes/sweatshop/agentsh
 
-go 1.24.9
+go 1.27.2
 
 require (
 	github.com/parquet-go/parquet-go v0.32.0

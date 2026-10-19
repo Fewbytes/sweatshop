@@ -3,10 +3,10 @@
 # toolchain. Build from the repository root: `just station-image`.
 
 # Keep in step with the `go` directive in line/go.mod (and agentsh/go.mod).
-ARG GO_VERSION=1.24.9
+ARG GO_VERSION=1.27.2
 # Base images are pinned by multi-arch index digest. Bump the tag and digest
 # together (the digest is the index digest of golang:<GO_VERSION>-bookworm).
-ARG GOLANG_DIGEST=sha256:737b40b61ce956d738bed59f18ba854d8d67e7a4c4fa63f64437f4c70247ac5b
+ARG GOLANG_DIGEST=sha256:55395706e9703db746cc507abfc4eb2aea75918f8a8024e4848e2cb81004f5ad
 # Index digest of debian:bookworm-slim.
 ARG DEBIAN_IMAGE=debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 
@@ -19,9 +19,9 @@ RUN CGO_ENABLED=0 go build -o /out/sweatshop ./cmd/sweatshop
 
 # gopls, built from source at a pinned version (module checksums are verified
 # by the Go checksum database).
-# v0.20.0 is the newest gopls whose go directive (1.24.2) fits GO_VERSION; bump both together.
+# gopls v0.24.0 needs Go 1.27; keep GO_VERSION at or above the gopls go directive when bumping either.
 FROM golang:${GO_VERSION}-bookworm@${GOLANG_DIGEST} AS gopls
-ARG GOPLS_VERSION=v0.20.0
+ARG GOPLS_VERSION=v0.24.0
 RUN GOBIN=/out go install golang.org/x/tools/gopls@${GOPLS_VERSION}
 
 # bookworm ships git 2.39 and bookworm-backports carries no git at all, so

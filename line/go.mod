@@ -1,13 +1,12 @@
 module github.com/Fewbytes/sweatshop/line
 
-go 1.24.9
-
-require github.com/pelletier/go-toml/v2 v2.4.3
+go 1.27.2
 
 require (
 	github.com/coder/websocket v1.8.15
 	github.com/go-git/go-billy/v5 v5.6.2
 	github.com/go-git/go-git/v5 v5.16.5
+	github.com/pelletier/go-toml/v2 v2.4.3
 	turso.tech/database/tursogo v0.7.2
 )
 

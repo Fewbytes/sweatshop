@@ -1,6 +1,6 @@
 module github.com/Fewbytes/sweatshop/bughunt
 
-go 1.24.9
+go 1.27.2
 
 require (
 	gopkg.in/yaml.v3 v3.0.1

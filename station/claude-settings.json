@@ -8,7 +8,11 @@
       "PushNotification",
       "SendMessage",
       "ListAgents",
-      "DesignSync"
+      "DesignSync",
+      "Bash(grep:*)",
+      "Bash(egrep:*)",
+      "Bash(fgrep:*)",
+      "Bash(find:*)"
     ]
   }
 }
