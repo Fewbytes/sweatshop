@@ -123,8 +123,8 @@ heijunka, Kaizen/Gemba, lifetimes), scoped andon, circuit breaker auto-revert.
 
 - **Andon station (scripted, no LLM).** A host-side loop: poll the line master;
   for each new tip, call `/attest` for that commit with the andon token; fail →
-  `/andon/pull` + card; pass while stopped → `/andon/clear`. An LLM Andon (for
-  triage) is deferred.
+  `/andon/pull` + card; pass while stopped → `/andon/clear`. With `--triage`, a tool-less model
+  also comments a triage on each new andon card.
 - **Maker station.** A host-side runner loop:
   1. Pick a ready bead with label `line` (P0 andon cards first). Claim it on the
      host (`bd update --claim`). Beads are not exposed in the container in M1.

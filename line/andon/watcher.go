@@ -64,6 +64,7 @@ type Watcher struct {
 	Log      *log.Logger
 	last     string            // last master attested
 	carded   map[string]string // andon event -> card last seen, for logging
+	triaged  map[string]bool   // card IDs already triaged
 }
 
 func (w *Watcher) logf(format string, args ...any) {
@@ -266,7 +267,25 @@ func (w *Watcher) ensureCard(ctx context.Context, event string, ev guard.AndonEv
 		w.carded[event] = id
 		w.logf("card %s for event %s", id, event)
 	}
+	w.triageCard(ctx, id, ev, master)
 	return nil
+}
+
+// triageCard asks Cards, when it can triage, to analyse a card once. Triage is
+// advice: a failure is logged and not retried, so a model outage cannot hold
+// up carding or the clear.
+func (w *Watcher) triageCard(ctx context.Context, card string, ev guard.AndonEvent, master string) {
+	t, ok := w.Cards.(Triager)
+	if !ok || w.triaged[card] {
+		return
+	}
+	if w.triaged == nil {
+		w.triaged = map[string]bool{}
+	}
+	w.triaged[card] = true
+	if err := t.Triage(ctx, card, ev, master); err != nil {
+		w.logf("triage card %s: %v", card, err)
+	}
 }
 
 // eventFromResult reconstructs what the card needs from the failing
@@ -459,4 +478,20 @@ func (b BeadCards) RaiseFlake(ctx context.Context, f Flake) (string, error) {
 		"-t", "bug", "-l", "line", "-l", "flake", "-d", desc, "--json")
 	cmd.Dir = b.Dir
 	return runBdCreate(cmd)
+}
+
+// Comment adds a comment to a card with `bd comments add`.
+func (b BeadCards) Comment(ctx context.Context, card, text string) error {
+	cmd := exec.CommandContext(ctx, "bd", "comments", "add", "--", card, text)
+	cmd.Dir = b.Dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("bd comments add %s: %w: %s", card, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// TriagedBeadCards is BeadCards whose new andon cards also get an LLM triage.
+type TriagedBeadCards struct {
+	BeadCards
+	LLMTriage
 }

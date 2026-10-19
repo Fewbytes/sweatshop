@@ -461,7 +461,7 @@ A testament has two parts:
 
 - **Host-side witnessing of agent commands.** M1 does not witness what the
   agent runs in its container; agent logs are untrusted evidence.
-- **LLM Andon (triage).** M1's Andon station is a script: attest, pull, clear.
+- **LLM Andon (full).** The Andon station is a script: attest, pull, clear. With `--triage` it also has a tool-less model comment a cause, kind and fix-or-revert advice on each new andon card; the model never pulls or clears. An agent that investigates the repository is deferred.
 - **Dependency-closure re-attestation.** Optimization of the lost-race path;
   v1 always re-attests. Needs per-language reverse-dependency graphs (`go list`,
   Bazel `rdeps`, Python import graph), later supplied by the structure analyzer.

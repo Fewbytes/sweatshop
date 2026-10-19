@@ -968,14 +968,20 @@
       "purpose": "Package version carries build metadata injected at link time."
     },
     "line/andon": {
-      "entry_point_count": 6,
+      "entry_point_count": 13,
       "entry_points": [
         "API",
+        "Agent",
         "BeadCards",
+        "CardCommenter",
         "Cards",
+        "ClaudeText",
         "Flake",
+        "LLMTriage",
         "Resolver",
-        "Watcher"
+        "TriagePrompt",
+        "TriagedBeadCards",
+        "Triager"
       ],
       "hidden_coupling_ratio": 0.0,
       "hotspot_rank": 19,

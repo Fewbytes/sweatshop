@@ -83,7 +83,7 @@ const usage = `usage:
                                         viceroy: request succession to C (default: master) / ask the king to redeploy the line to C / report this generation is up
   sweatshop line deployer --dir D [--backend B]
                                         the privileged actuator: apply the king-approved release with backend launchd or k8s (line.toml [deploy])
-  sweatshop line andon --beads DIR [--interval 30s]
+  sweatshop line andon --beads DIR [--interval 30s] [--triage]
                                         watch master; pull/clear the andon cord (andon station token)
   sweatshop line heijunka --beads DIR [--interval 5m] [--min-agents 1] [--max-agents 4]
                                         level flow: publish agent and WIP-limit levels to the line (SIGUSR1 wakes it now)
@@ -412,6 +412,7 @@ func lineAndon(args []string) error {
 	fs := flag.NewFlagSet("line andon", flag.ContinueOnError)
 	beads := fs.String("beads", "", "directory whose beads database receives andon cards")
 	interval := fs.Duration("interval", 30*time.Second, "how often to look at master")
+	triage := fs.Bool("triage", false, "have a tool-less claude -p comment a triage on each new andon card")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -424,8 +425,17 @@ func lineAndon(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	var cards andon.Cards = andon.BeadCards{Dir: *beads}
+	if *triage {
+		bead := andon.BeadCards{Dir: *beads}
+		cards = andon.TriagedBeadCards{BeadCards: bead, LLMTriage: andon.LLMTriage{
+			Agent:    andon.ClaudeText{Timeout: 5 * time.Minute},
+			Evidence: c.Evidence,
+			Comments: bead,
+		}}
+	}
 	w := &andon.Watcher{
-		API: c, Cards: andon.BeadCards{Dir: *beads}, Interval: *interval,
+		API: c, Cards: cards, Interval: *interval,
 		Log: componentLogger(c, "andon: "),
 	}
 	return w.Run(ctx)
