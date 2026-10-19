@@ -1000,20 +1000,20 @@
       "purpose": "Package andon is the host-side watcher that keeps the line honest: it"
     },
     "line/attest": {
-      "entry_point_count": 26,
+      "entry_point_count": 32,
       "entry_points": [
         "CheckResult",
         "ChecksPredicate",
         "ChecksPredicateType",
+        "CommandEventPredicate",
+        "CommandEventStatement",
         "CommitDigestAlgorithm",
         "CommitSubjectName",
         "EncodePublicKey",
         "Envelope",
         "ErrNoTrustedSignature",
-        "GenerateKeyFile",
-        "KeyID",
-        "LoadPrivateKey",
-        "NewStatement"
+        "EventPredicateType",
+        "GenerateKeyFile"
       ],
       "hidden_coupling_ratio": 0.0,
       "hotspot_rank": 30,
