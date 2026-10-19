@@ -14,8 +14,8 @@
     "agentsh/cmd/agentsh": {
       "entry_point_count": 0,
       "entry_points": [],
-      "hidden_coupling_ratio": 0.857,
-      "hotspot_rank": 16,
+      "hidden_coupling_ratio": 0.75,
+      "hotspot_rank": 21,
       "imported_by": [],
       "imports": [
         "agentsh/internal/rpc",
@@ -24,7 +24,7 @@
         "agentsh/internal/workspace"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "87fb48747326259c719a27da09fc6cd8ae71ee84",
       "purpose": ""
     },
     "agentsh/cmd/agentsh-analytics": {
@@ -1067,7 +1067,7 @@
     "line/cmd/sweatshop": {
       "entry_point_count": 0,
       "entry_points": [],
-      "hidden_coupling_ratio": 0.133,
+      "hidden_coupling_ratio": 0.091,
       "hotspot_rank": 2,
       "imported_by": [],
       "imports": [
@@ -1084,6 +1084,7 @@
         "line/internal/testwait",
         "line/kaizen",
         "line/linedir",
+        "line/linelog",
         "line/linestore",
         "line/maker",
         "line/station",
@@ -1091,7 +1092,7 @@
         "line/witness"
       ],
       "lcom4": 1,
-      "measured_at_commit": "7be996b8a5fb06391e225c32d7f9975dfcd61fae",
+      "measured_at_commit": "87fb48747326259c719a27da09fc6cd8ae71ee84",
       "purpose": "Command sweatshop administers an assembly line (witness keys, the merge"
     },
     "line/constitution": {
@@ -1110,8 +1111,8 @@
         "DefaultBudgetWarnPercent",
         "DefaultCPUs"
       ],
-      "hidden_coupling_ratio": 0.2,
-      "hotspot_rank": 8,
+      "hidden_coupling_ratio": 0.429,
+      "hotspot_rank": 5,
       "imported_by": [
         "agentsh/internal/config",
         "agentsh/internal/daemon",
@@ -1128,7 +1129,7 @@
         "line/attest"
       ],
       "lcom4": 1,
-      "measured_at_commit": "4465cd001a76fbd337804ea6694a7eae54bb346f",
+      "measured_at_commit": "87fb48747326259c719a27da09fc6cd8ae71ee84",
       "purpose": "Package constitution loads the line's rules. v0 holds only what the witness"
     },
     "line/deploy": {
@@ -1195,8 +1196,8 @@
         "LogEntry",
         "Repo"
       ],
-      "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 9,
+      "hidden_coupling_ratio": 0.333,
+      "hotspot_rank": 7,
       "imported_by": [
         "agentsh/internal/daemon",
         "line/cmd/sweatshop",
@@ -1214,7 +1215,7 @@
         "line/gitx/gittest"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "87fb48747326259c719a27da09fc6cd8ae71ee84",
       "purpose": "Package gitx reads and writes git repositories for line components, in"
     },
     "line/gitx/gittest": {
@@ -1462,8 +1463,26 @@
       "measured_at_commit": "318c2ed7ed6ccc97285cc63f820a944cc2965377",
       "purpose": "Package linedir creates and loads a line directory: the on-disk home of one"
     },
+    "line/linelog": {
+      "entry_point_count": 3,
+      "entry_points": [
+        "Placeholder",
+        "Redact",
+        "Tee"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 55,
+      "imported_by": [
+        "line/cmd/sweatshop",
+        "line/station"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "87fb48747326259c719a27da09fc6cd8ae71ee84",
+      "purpose": "Package linelog redacts secrets from line component logs."
+    },
     "line/linestore": {
-      "entry_point_count": 27,
+      "entry_point_count": 32,
       "entry_points": [
         "Event",
         "EventAcceptanceAnswer",
@@ -1478,8 +1497,8 @@
         "EventLabel",
         "EventMerge"
       ],
-      "hidden_coupling_ratio": 0.2,
-      "hotspot_rank": 23,
+      "hidden_coupling_ratio": 0.333,
+      "hotspot_rank": 19,
       "imported_by": [
         "line/cmd/sweatshop",
         "line/heijunka",
@@ -1489,7 +1508,7 @@
         "line/report"
       ],
       "lcom4": 1,
-      "measured_at_commit": "4465cd001a76fbd337804ea6694a7eae54bb346f",
+      "measured_at_commit": "87fb48747326259c719a27da09fc6cd8ae71ee84",
       "purpose": "Package linestore is the line's master database: witness runs, per-test"
     },
     "line/maker": {
@@ -1581,7 +1600,7 @@
       "purpose": "Package runner is the one interface the line uses to run station and"
     },
     "line/station": {
-      "entry_point_count": 93,
+      "entry_point_count": 94,
       "entry_points": [
         "AcceptanceAccepted",
         "AcceptanceAdd",
@@ -1618,12 +1637,13 @@
         "line/guard",
         "line/internal/testwait",
         "line/linedir",
+        "line/linelog",
         "line/linestore",
         "line/report",
         "line/witness"
       ],
       "lcom4": 1,
-      "measured_at_commit": "4465cd001a76fbd337804ea6694a7eae54bb346f",
+      "measured_at_commit": "87fb48747326259c719a27da09fc6cd8ae71ee84",
       "purpose": "Package station is the station API: the only way containerized agents reach"
     },
     "line/testhygiene": {

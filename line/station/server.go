@@ -414,6 +414,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 		return s.routeUsage(w, r, st)
 	case path == "/v1/events":
 		return s.routeEvents(w, r, st)
+	case path == "/v1/logs":
+		return s.routeLogs(w, r, st)
 	case path == "/v1/heijunka/levels":
 		return s.routeHeijunkaLevels(w, r, st)
 	case path == "/v1/heijunka/state":

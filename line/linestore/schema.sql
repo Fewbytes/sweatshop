@@ -103,3 +103,13 @@ CREATE TABLE IF NOT EXISTS token_usage (
   card    TEXT NOT NULL,
   tokens  INTEGER NOT NULL
 );
+
+-- component_log is the bounded, already-redacted log of line components:
+-- source is the station that posted the line, or "serve" for the station API
+-- itself. at is fixed-width UTC (see eventTimeFormat).
+CREATE TABLE IF NOT EXISTS component_log (
+  seq    INTEGER PRIMARY KEY,
+  at     TEXT NOT NULL,
+  source TEXT NOT NULL,
+  line   TEXT NOT NULL
+)

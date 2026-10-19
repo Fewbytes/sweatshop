@@ -85,6 +85,11 @@ environment):
   oldest first: offers, claims, releases, give-ups, closes, reaps, submits,
   merges, andon pulls and clears; use it to see why a card stalled or a
   station idled instead of inferring it from card state)
+- sweatshop line logs [--since D] [--station S] (read-only, oldest first, at
+  most the newest 1000 lines: what the station API (S=serve), heijunka, andon
+  and API-mode makers logged, with tokens and credentials redacted; use it
+  when events and cards do not explain a stall such as a silent give-up or
+  a reap; makers run with --cards beads log to the host only)
 - sweatshop line cards list [--status S] [--label L] [--parent ID] | show ID |
   create --title T --type TYPE --priority N [--parent ID] [--acceptance A]
   (description on stdin) | comment ID (text on stdin) | offer ID |

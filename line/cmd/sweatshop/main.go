@@ -34,6 +34,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/heijunka"
 	"github.com/Fewbytes/sweatshop/line/kaizen"
 	"github.com/Fewbytes/sweatshop/line/linedir"
+	"github.com/Fewbytes/sweatshop/line/linelog"
 	"github.com/Fewbytes/sweatshop/line/linestore"
 	"github.com/Fewbytes/sweatshop/line/maker"
 	"github.com/Fewbytes/sweatshop/line/station"
@@ -63,6 +64,8 @@ const usage = `usage:
                                         print per check: runs, failure rate, duration p50/p95/max and commits where it both passed and failed (D: 36h, 7d)
   sweatshop line events [--since D] [--card ID] [--station S]
                                         print the line's event log, oldest first, as JSON: offers, claims, releases, give-ups, closes, reaps, submits, merges, andon pulls and clears
+  sweatshop line logs [--since D] [--station S]
+                                        print recent redacted logs of line components (viceroy only; S=serve is the station API)
   sweatshop line reports list [--prefix P] | get KEY | presign KEY [--ttl D]
                                         viceroy only, read-only: list keys in the reports bucket as JSON / print one object / print a time-limited read URL for a kaizen report (D: 15m, at most the constitution's viceroy.presign_max_ttl)
   sweatshop line evidence ID            print a check log
@@ -139,6 +142,8 @@ func run(args []string, stdout io.Writer) error {
 		return lineCIStats(args[3:], stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "events":
 		return lineEvents(args[2:], stdout)
+	case len(args) >= 2 && args[0] == "line" && args[1] == "logs":
+		return lineLogs(args[2:], stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "reports":
 		return lineReports(args[2:], stdout)
 	case len(args) == 2 && args[0] == "line" && args[1] == "status":
@@ -309,6 +314,12 @@ func lineServe(args []string, stdout io.Writer) error {
 		return err
 	}
 	defer srv.Close()
+	serveLog := linelog.Tee{Out: os.Stderr, Secrets: srv.StationTokens(), Record: func(entry string) {
+		if err := srv.RecordLog(context.Background(), station.ServeLogSource, entry); err != nil {
+			fmt.Fprintf(os.Stderr, "sweatshop: record log line: %v\n", err)
+		}
+	}}
+	log.SetOutput(serveLog)
 	if *beads != "" {
 		srv.Cards = station.BeadsCards{Dir: *beads}
 	}
@@ -335,7 +346,7 @@ func lineServe(args []string, stdout io.Writer) error {
 			}
 		}
 	}
-	sup := station.NewSupervisor(srv, l, station.CLIEngine{Bin: l.Engine, Log: log.New(os.Stderr, "viceroy: ", log.LstdFlags)})
+	sup := station.NewSupervisor(srv, l, station.CLIEngine{Bin: l.Engine, Log: log.New(serveLog, "viceroy: ", log.LstdFlags)})
 	if err := sup.Resume(context.Background()); err != nil {
 		log.Printf("viceroy: resume: %v", err)
 	}
@@ -415,7 +426,7 @@ func lineAndon(args []string) error {
 	defer stop()
 	w := &andon.Watcher{
 		API: c, Cards: andon.BeadCards{Dir: *beads}, Interval: *interval,
-		Log: log.New(os.Stderr, "andon: ", log.LstdFlags),
+		Log: componentLogger(c, "andon: "),
 	}
 	return w.Run(ctx)
 }
@@ -460,7 +471,7 @@ func lineHeijunka(args []string) error {
 	if err != nil {
 		return fmt.Errorf("constitution: %w", err)
 	}
-	logger := log.New(os.Stderr, "heijunka: ", log.LstdFlags)
+	logger := componentLogger(c, "heijunka: ")
 	w := &heijunka.Worker{
 		Needs:    &heijunka.NeedsTriager{Cards: heijunka.BeadsNeeds{Dir: *beads}, Timeout: needsTimeout, Log: logger},
 		Reaper:   &heijunka.Reaper{Cards: heijunka.BeadsReap{BeadsNeeds: heijunka.BeadsNeeds{Dir: *beads}}, Events: c, Log: logger},
@@ -529,6 +540,7 @@ func lineMaker(args []string) error {
 			return err
 		}
 		cards, token, heartbeats = maker.APICards{Client: c}, c.Token, c
+		logger = componentLogger(c, "maker: ")
 	}
 	r := &maker.Runner{
 		Line: l, Station: *st, URL: *url, Timeout: *timeout, MaxAttempts: *maxAttempts,
