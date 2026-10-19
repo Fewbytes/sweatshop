@@ -83,6 +83,8 @@ sweatshop line init --dir ~/line --source /path/to/repo [--engine docker] [--ima
 sweatshop line serve --dir ~/line        # station API on 127.0.0.1:<port>; --addr, --unsafe-listen for non-loopback
 ```
 
+Onboarding another project (custom image on the station base, one container per station): [`docs/onboarding/new-project.md`](docs/onboarding/new-project.md).
+
 `init` creates the line directory (it must be empty or absent, and outside any workspace): the line's bare remote seeded from the source's master, the constitution (trust `attest`, check `ci = "just ci"`, `justfile` and `station/**` gated to role `gemba`), and stations `maker-1` and `andon-1`, each with a signing key and a bearer token under `stations/<name>/`.
 
 Run the other stations in their own shells. Client commands and the andon watcher read the station API URL and a station token:

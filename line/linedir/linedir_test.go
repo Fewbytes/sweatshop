@@ -295,3 +295,34 @@ func TestInitWritesGovernance(t *testing.T) {
 		t.Fatal("sovereign name without discord ID accepted")
 	}
 }
+
+// TestOnboardingExampleExtendsDefaultStationImage keeps the worked example in
+// docs/onboarding on the image `line init` defaults to, and on the base's user
+// and entrypoint contract.
+func TestOnboardingExampleExtendsDefaultStationImage(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "docs", "onboarding", "example-project", "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for _, l := range strings.Split(string(raw), "\n") {
+		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
+			lines = append(lines, l)
+		}
+	}
+	l, _ := initLine(t)
+	if want := "ARG BASE_IMAGE=" + l.Image; lines[0] != want {
+		t.Errorf("example starts with %q, want %q", lines[0], want)
+	}
+	if want := "FROM ${BASE_IMAGE}"; lines[1] != want {
+		t.Errorf("example second instruction is %q, want %q", lines[1], want)
+	}
+	if last := lines[len(lines)-1]; last != "USER agent" {
+		t.Errorf("example ends with %q, want USER agent", last)
+	}
+	for _, l := range lines {
+		if strings.HasPrefix(l, "ENTRYPOINT") || strings.HasPrefix(l, "CMD") {
+			t.Errorf("example overrides the base entrypoint contract: %q", l)
+		}
+	}
+}
