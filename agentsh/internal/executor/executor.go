@@ -31,6 +31,12 @@ const (
 	// reach EOF once bash has exited.
 	controlDrainGrace = 200 * time.Millisecond
 
+	// outputDrainGrace bounds how long Wait lingers for the output pipes to
+	// close once bash has exited. A daemon that inherited stdout or stderr
+	// holds them open indefinitely; without a bound, Wait blocks until the
+	// command timeout, which then kills the whole tree including the daemon.
+	outputDrainGrace = 2 * time.Second
+
 	// maxControlBytes bounds the fd-3 "control pipe" used to capture shell
 	// state (cwd/env) after a command runs. It should only ever carry a few
 	// KB; the cap guards against a command that writes to fd 3 (deliberately
@@ -286,6 +292,7 @@ func (e *Executor) start(ctx context.Context, r *run, request Request) (err erro
 
 	cmd := exec.CommandContext(ctx, "bash", "--noprofile", "--norc", "-c", script)
 	cmd.Dir, cmd.Env = request.CWD, cleanEnvironment()
+	cmd.WaitDelay = outputDrainGrace
 	cmd.Stdout = activityWriter{dest: stdout, last: &r.lastOutput}
 	cmd.Stderr = activityWriter{dest: stderr, last: &r.lastOutput}
 	cmd.ExtraFiles = []*os.File{controlWrite}
@@ -348,6 +355,11 @@ waitLoop:
 	for {
 		select {
 		case err = <-wait:
+			// bash exited and only a descendant still holds an output pipe:
+			// the command itself succeeded.
+			if errors.Is(err, exec.ErrWaitDelay) {
+				err = nil
+			}
 			break waitLoop
 		case <-timer.C:
 			e.mu.Lock()

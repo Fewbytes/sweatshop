@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -201,5 +202,40 @@ func TestExecuteReturnsWhenBackgroundChildKeepsControlPipeOpen(t *testing.T) {
 	}
 	if inv.State != storage.StateExited || inv.CWDAfter == nil {
 		t.Fatalf("shell state not captured: %+v", inv)
+	}
+}
+
+// A daemon started with inherited stdout holds the output pipe open for as long
+// as it lives. Execute must return once bash exits, and must leave the daemon
+// running rather than waiting for the timeout and killing the whole tree.
+func TestExecuteReturnsAndSparesDaemonHoldingOutputPipe(t *testing.T) {
+	exec, _, root := testExecutor(t)
+	started := time.Now()
+	inv, err := exec.Execute(context.Background(), Request{
+		Command: `mkfifo hold; setsid cat hold & echo $! > daemon.pid`,
+		CWD:     root,
+		Timeout: 30 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pidText, err := os.ReadFile(filepath.Join(root, "daemon.pid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(pidText)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+
+	if elapsed := time.Since(started); elapsed > 10*time.Second {
+		t.Fatalf("Execute blocked %s on a daemon holding the output pipe", elapsed)
+	}
+	if inv.State != storage.StateExited || inv.Reason == nil || *inv.Reason != "ok" {
+		t.Fatalf("want exited/ok, got state=%s reason=%v", inv.State, inv.Reason)
+	}
+	if err := syscall.Kill(pid, 0); err != nil {
+		t.Fatalf("daemon %d did not survive the invocation: %v", pid, err)
 	}
 }
