@@ -388,3 +388,12 @@ func TestPromptTellsViceroyToRecordVerdictsAndProposeDelegation(t *testing.T) {
 		}
 	}
 }
+
+func TestPromptTellsViceroyToFileAnomalyCardsAndAskOnlyByRequest(t *testing.T) {
+	p := Prompt(PromptInput{Wake: WakeHeartbeat})
+	for _, want := range []string{"File cards for anomalies", "the agent may\n  decline", "do not clear the andon cord"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("prompt lacks %q", want)
+		}
+	}
+}
