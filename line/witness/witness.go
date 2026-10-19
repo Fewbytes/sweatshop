@@ -391,7 +391,12 @@ func (w *Witness) checkout(ctx context.Context, cache gitx.Repo, commit string) 
 		return "", nil, err
 	}
 	cleanup := func() {
-		_ = os.RemoveAll(dir)
+		// Files a container created under another uid (rootful podman on
+		// Linux) can make this fail for a non-root witness; say so rather
+		// than leak the checkout silently.
+		if err := os.RemoveAll(dir); err != nil {
+			log.Printf("witness: remove checkout %s: %v", dir, err)
+		}
 		_ = cache.DeleteRef(context.WithoutCancel(ctx), ref)
 	}
 	if err := (gitx.Repo{Dir: dir}).CheckoutDetached(ctx, cache, commit); err != nil {

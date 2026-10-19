@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -199,6 +200,45 @@ func TestCheckoutIsReadableAndWritableByAnyUID(t *testing.T) {
 	if recorder.modes["src/a.go"]&0o001 != 0 {
 		t.Errorf("src/a.go became executable: %o", recorder.modes["src/a.go"])
 	}
+}
+
+// foreignFileRunner leaves a file the witness cannot remove, as a container
+// running under another uid would: a read-only directory holding a file.
+type foreignFileRunner struct{ locked *string }
+
+func (r foreignFileRunner) Run(_ context.Context, dir, _ string) (RunResult, error) {
+	locked := filepath.Join(dir, "locked")
+	*r.locked = locked
+	if err := os.Mkdir(locked, 0o755); err != nil {
+		return RunResult{}, err
+	}
+	if err := os.WriteFile(filepath.Join(locked, "f"), nil, 0o644); err != nil {
+		return RunResult{}, err
+	}
+	return RunResult{}, os.Chmod(locked, 0o555)
+}
+
+func TestAttestLogsCheckoutItCannotRemove(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can remove any file")
+	}
+	s := newSource(t)
+	w, _ := newWitness(t)
+	var locked string
+	w.Runner = foreignFileRunner{locked: &locked}
+	var logged strings.Builder
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	if _, err := w.Attest(s.ctx, s.repo.Dir, "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(logged.String(), "witness: remove checkout") {
+		t.Fatalf("log = %q, want a remove-checkout failure", logged.String())
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(locked, 0o755)
+		_ = os.RemoveAll(filepath.Dir(locked))
+	})
 }
 
 // blockingRunner waits for its context, like a check that never finishes,
