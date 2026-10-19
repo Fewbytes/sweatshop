@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Fewbytes/sweatshop/line/constitution"
 	"github.com/Fewbytes/sweatshop/line/linestore"
@@ -672,5 +673,31 @@ func TestCardsOfferRepeatReturnsCurrentState(t *testing.T) {
 		if len(f.labels) != 0 {
 			t.Fatalf("%s: repeat offer relabelled the card: %v", tc.name, f.labels)
 		}
+	}
+}
+
+func TestViceroyCloseGrantExpiresAndRecordsConstitutionVersion(t *testing.T) {
+	f := &fakeCards{show: `{"issue_type":"task","labels":["line-gave-up"],"comments":[{"text":"superseded"}]}`}
+	srv, _, v, _ := cardsRig(t, f)
+	srv.Store = openTestStore(t)
+	srv.Stations[0].AgentID = "vice"
+	srv.Guard.ConstitutionDigest = "sha256:abc"
+	grant := constitution.Delegation{
+		Close: true, All: true, Types: []string{"task"}, Labels: []string{"line-gave-up"},
+		Expires: time.Now().Add(time.Hour),
+	}
+	srv.Guard.Constitution.Viceroy.Delegations = []constitution.Delegation{grant}
+	ctx := context.Background()
+	if err := v.CardClose(ctx, "x-1", "superseded by x-2"); err != nil {
+		t.Fatal(err)
+	}
+	events, err := v.Events(ctx, "", "x-1", "")
+	if err != nil || len(events) != 1 || events[0].Kind != linestore.EventClose || !strings.Contains(events[0].Detail, "sha256:abc") {
+		t.Fatalf("close events = %+v, %v", events, err)
+	}
+	grant.Expires = time.Now().Add(-time.Hour)
+	srv.Guard.Constitution.Viceroy.Delegations = []constitution.Delegation{grant}
+	if err := v.CardClose(ctx, "x-1", "again"); err == nil || !strings.Contains(err.Error(), "403") {
+		t.Fatalf("expired grant: %v", err)
 	}
 }

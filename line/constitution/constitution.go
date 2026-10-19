@@ -139,8 +139,11 @@ func (v Viceroy) MayLabel(label string) bool {
 // matches a card by issue type, by having Parent in its ancestor chain, or
 // (Inherit) by having an approved epic in its ancestor chain; epics are never
 // covered by Inherit. A close matches the listed IDs, descendants of Parent, cards of a listed issue
-// type, or cards carrying a listed label. Types are the safer category: any
-// agent may set a label, while a card's issue type is harder to game.
+// type, or cards carrying a listed label; with All it matches only cards that
+// satisfy every category the delegation lists. Types are the safer category:
+// any agent may set a label, while a card's issue type is harder to game.
+// ExceptLabels carves cards out of a close (andon cards share the bug type,
+// so only their label tells them apart), and Expires, when set, ends it.
 type Delegation struct {
 	Offer  string   `toml:"offer"`
 	Close  bool     `toml:"close"`
@@ -151,6 +154,10 @@ type Delegation struct {
 	Inherit bool     `toml:"inherit"`
 	IDs     []string `toml:"ids"`
 	Labels  []string `toml:"labels"`
+	// All, ExceptLabels and Expires apply to close delegations only.
+	All          bool      `toml:"all"`
+	ExceptLabels []string  `toml:"except_labels"`
+	Expires      time.Time `toml:"expires"`
 }
 
 // Delegates reports whether some offer delegation covers a card of cardType
@@ -174,20 +181,34 @@ func (c Constitution) Delegates(cardType string, ancestors []string, underApprov
 	return false
 }
 
-// DelegatesClose reports whether some close delegation covers card id, given
-// its issue type, labels and ancestor chain.
-func (c Constitution) DelegatesClose(id, cardType string, labels, ancestors []string) bool {
+// DelegatesClose reports whether some close delegation, unexpired at now,
+// covers card id, given its issue type, labels and ancestor chain.
+func (c Constitution) DelegatesClose(id, cardType string, labels, ancestors []string, now time.Time) bool {
 	for _, d := range c.Viceroy.Delegations {
-		if !d.Close {
+		if !d.Close || (!d.Expires.IsZero() && !now.Before(d.Expires)) {
 			continue
 		}
-		if slices.Contains(d.IDs, id) || (d.Parent != "" && slices.Contains(ancestors, d.Parent)) {
-			return true
+		if slices.ContainsFunc(labels, func(l string) bool { return slices.Contains(d.ExceptLabels, l) }) {
+			continue
 		}
-		if cardType != "" && slices.Contains(d.Types, cardType) {
-			return true
+		matches := []struct {
+			listed, hit bool
+		}{
+			{len(d.IDs) > 0, slices.Contains(d.IDs, id)},
+			{d.Parent != "", slices.Contains(ancestors, d.Parent)},
+			{len(d.Types) > 0, cardType != "" && slices.Contains(d.Types, cardType)},
+			{len(d.Labels) > 0, slices.ContainsFunc(labels, func(l string) bool { return slices.Contains(d.Labels, l) })},
 		}
-		if slices.ContainsFunc(labels, func(l string) bool { return slices.Contains(d.Labels, l) }) {
+		covered := d.All
+		for _, m := range matches {
+			if d.All && m.listed && !m.hit {
+				covered = false
+			}
+			if !d.All && m.hit {
+				covered = true
+			}
+		}
+		if covered {
 			return true
 		}
 	}
@@ -248,6 +269,9 @@ func (c Constitution) validateGovernance() error {
 				}
 			}
 		} else {
+			if d.All || len(d.ExceptLabels) > 0 || !d.Expires.IsZero() {
+				return fmt.Errorf("viceroy.delegations[%d]: all, except_labels and expires apply only to a close delegation", i)
+			}
 			if d.Offer != "line" {
 				return fmt.Errorf("viceroy.delegations[%d].offer %q: want line (or close = true)", i, d.Offer)
 			}
@@ -263,6 +287,9 @@ func (c Constitution) validateGovernance() error {
 		}
 		if slices.Contains(d.Labels, "") {
 			return fmt.Errorf("viceroy.delegations[%d].labels: empty label", i)
+		}
+		if slices.Contains(d.ExceptLabels, "") {
+			return fmt.Errorf("viceroy.delegations[%d].except_labels: empty label", i)
 		}
 		if slices.Contains(d.Types, "") {
 			return fmt.Errorf("viceroy.delegations[%d].types: empty issue type", i)

@@ -410,7 +410,7 @@ func (s *Server) viceroyClose(w http.ResponseWriter, r *http.Request, cards Card
 		Labels []string `json:"labels"`
 	}
 	unmarshalIssue(raw, &labelled)
-	if !s.Guard.Constitution.DelegatesClose(id, cardType, labelled.Labels, ancestors) {
+	if !s.Guard.Constitution.DelegatesClose(id, cardType, labelled.Labels, ancestors, time.Now()) {
 		return "", fail(http.StatusForbidden, "no constitution delegation lets the viceroy close %s", id)
 	}
 	var issue struct {
@@ -425,7 +425,7 @@ func (s *Server) viceroyClose(w http.ResponseWriter, r *http.Request, cards Card
 	if err := s.revokeEpicApproval(id); err != nil {
 		return "", err
 	}
-	s.recordEvent(r.Context(), st, linestore.EventClose, id, body.Reason)
+	s.recordEvent(r.Context(), st, linestore.EventClose, id, body.Reason+" (viceroy close delegation, constitution "+s.Guard.ConstitutionDigest+")")
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	return "close " + id, nil
 }

@@ -97,6 +97,18 @@ close = true
 types = ["chore"]
 labels = ["obsolete"]
 
+# Parked cards the viceroy may close once it has commented the decision. all =
+# true requires every listed category to match, except_labels carves cards out
+# (andon cards are bugs, so only their label tells them apart), and expires is
+# the king's chosen end of the grant.
+[[viceroy.delegations]]
+close = true
+all = true
+types = ["bug", "task", "chore"]
+labels = ["line-gave-up"]
+except_labels = ["andon", "line-proposed"]
+expires = 2027-01-19T00:00:00Z
+
 # How code is synced. Exactly one authoritative remote (the line remote):
 # agents read from it and land to it. Storage mirrors are write-only and
 # fast-forward-only; they publish, and the line never reads from them or

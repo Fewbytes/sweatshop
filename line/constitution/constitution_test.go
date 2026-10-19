@@ -387,12 +387,66 @@ func TestDelegatesClose(t *testing.T) {
 		{"empty type matches nothing", "m-7", "", nil, nil, false},
 	}
 	for _, tc := range cases {
-		if got := c.DelegatesClose(tc.id, tc.typ, tc.labels, tc.ancestors); got != tc.want {
+		if got := c.DelegatesClose(tc.id, tc.typ, tc.labels, tc.ancestors, time.Time{}); got != tc.want {
 			t.Errorf("%s: got %v want %v", tc.name, got, tc.want)
 		}
 	}
 	if c.Delegates("task", []string{"m-2"}, false) {
 		t.Error("close delegation grants offer")
+	}
+}
+
+func TestDelegatesCloseBounds(t *testing.T) {
+	expires := time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)
+	c := Constitution{Viceroy: Viceroy{Delegations: []Delegation{{
+		Close:        true,
+		All:          true,
+		Types:        []string{"bug", "task", "chore"},
+		Labels:       []string{"line-gave-up"},
+		ExceptLabels: []string{"andon", "line-proposed"},
+		Expires:      expires,
+	}}}}
+	gaveUp := []string{"line", "line-gave-up"}
+	cases := []struct {
+		name   string
+		typ    string
+		labels []string
+		now    time.Time
+		want   bool
+	}{
+		{"parked task", "task", gaveUp, expires.Add(-time.Hour), true},
+		{"label alone is not enough", "epic", gaveUp, expires.Add(-time.Hour), false},
+		{"type alone is not enough", "bug", []string{"line"}, expires.Add(-time.Hour), false},
+		{"andon card", "bug", append([]string{"andon"}, gaveUp...), expires.Add(-time.Hour), false},
+		{"unapproved proposal", "task", append([]string{"line-proposed"}, gaveUp...), expires.Add(-time.Hour), false},
+		{"at expiry", "task", gaveUp, expires, false},
+		{"after expiry", "task", gaveUp, expires.Add(time.Hour), false},
+	}
+	for _, tc := range cases {
+		if got := c.DelegatesClose("m-1", tc.typ, tc.labels, nil, tc.now); got != tc.want {
+			t.Errorf("%s: got %v want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestCloseBoundFieldsParseAndApplyOnlyToClose(t *testing.T) {
+	_, key := publicKey(t)
+	grant := "[[viceroy.delegations]]\nclose = true\nall = true\ntypes = [\"bug\"]\nlabels = [\"line-gave-up\"]\nexcept_labels = [\"andon\"]\nexpires = 2026-11-19T00:00:00Z\n"
+	c, err := Parse([]byte(valid(key) + grant))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := c.Viceroy.Delegations[0]
+	if !d.All || d.ExceptLabels[0] != "andon" || !d.Expires.Equal(time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("parsed %+v", d)
+	}
+	for _, extra := range []string{"all = true\n", "except_labels = [\"x\"]\n", "expires = 2026-11-19T00:00:00Z\n"} {
+		if _, err := Parse([]byte(valid(key) + "[[viceroy.delegations]]\noffer = \"line\"\ntypes = [\"bug\"]\n" + extra)); err == nil {
+			t.Errorf("offer delegation accepted %q", extra)
+		}
+	}
+	if _, err := Parse([]byte(valid(key) + "[[viceroy.delegations]]\nclose = true\ntypes = [\"bug\"]\nexcept_labels = [\"\"]\n")); err == nil {
+		t.Error("empty except label accepted")
 	}
 }
 
@@ -440,7 +494,7 @@ func TestExampleParses(t *testing.T) {
 	if c.Trust.Level != "attest" || len(c.Trust.Keys) != 1 || c.Runner.Kind != "container" ||
 		len(c.Checks.Required) != 1 || len(c.Guards.Paths) != 2 || len(c.Remotes) != 2 || c.Guards.Blobs.MaxBytes != 1<<20 || !c.Guards.Blobs.Allows("testdata/x.bin") ||
 		c.Sovereign.Discord == "" || c.Channel.Kind != "discord" ||
-		!c.Viceroy.Succession || len(c.Viceroy.Delegations) != 4 {
+		!c.Viceroy.Succession || len(c.Viceroy.Delegations) != 5 {
 		t.Fatalf("example parsed unexpectedly: %+v", c)
 	}
 }
