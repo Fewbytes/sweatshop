@@ -15,9 +15,9 @@ func (s *Server) checkStats(w http.ResponseWriter, r *http.Request) (string, err
 		return "", fail(http.StatusServiceUnavailable, "no run store")
 	}
 	q := r.URL.Query()
-	since, err := cistats.ParseSince(q.Get("since"), time.Now())
+	since, err := sinceQuery(q, time.Now())
 	if err != nil {
-		return "", fail(http.StatusBadRequest, "%v", err)
+		return "", err
 	}
 	rows, err := s.Store.Checks(r.Context())
 	if err != nil {

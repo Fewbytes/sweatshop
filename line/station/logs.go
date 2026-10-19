@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/Fewbytes/sweatshop/line/cistats"
 	"github.com/Fewbytes/sweatshop/line/linelog"
 	"github.com/Fewbytes/sweatshop/line/linestore"
 )
@@ -51,9 +50,9 @@ func (s *Server) routeLogs(w http.ResponseWriter, r *http.Request, st *Station) 
 			return "", fail(http.StatusForbidden, "role %q may not read line logs", st.Role)
 		}
 		q := r.URL.Query()
-		since, err := cistats.ParseSince(q.Get("since"), time.Now())
+		since, err := sinceQuery(q, time.Now())
 		if err != nil {
-			return "", fail(http.StatusBadRequest, "%v", err)
+			return "", err
 		}
 		f := linestore.LogFilter{Since: since, Source: q.Get("station")}
 		if f.Source != "" && !wordRe.MatchString(f.Source) {

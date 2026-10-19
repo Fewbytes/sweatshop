@@ -2,10 +2,21 @@ package station
 
 import (
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/Fewbytes/sweatshop/line/cistats"
 )
+
+// sinceQuery reads the ?since= window (36h, 7d; empty means all history)
+// relative to now. A malformed window is a 400.
+func sinceQuery(q url.Values, now time.Time) (time.Time, error) {
+	since, err := cistats.ParseSince(q.Get("since"), now)
+	if err != nil {
+		return time.Time{}, fail(http.StatusBadRequest, "%v", err)
+	}
+	return since, nil
+}
 
 // ciStats serves GET /v1/stats?since= (a cistats.Summary as JSON) and GET
 // /metrics (the same numbers over cistats.MetricsWindow, as Prometheus text for
@@ -18,8 +29,8 @@ func (s *Server) ciStats(w http.ResponseWriter, r *http.Request, metrics bool) (
 	since := now.Add(-cistats.MetricsWindow)
 	if !metrics {
 		var err error
-		if since, err = cistats.ParseSince(r.URL.Query().Get("since"), now); err != nil {
-			return "", fail(http.StatusBadRequest, "%v", err)
+		if since, err = sinceQuery(r.URL.Query(), now); err != nil {
+			return "", err
 		}
 	}
 	runs, err := s.Store.Runs(r.Context())

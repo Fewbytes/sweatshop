@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/Fewbytes/sweatshop/line/cistats"
 	"github.com/Fewbytes/sweatshop/line/linestore"
 )
 
@@ -37,9 +36,9 @@ func (s *Server) routeEvents(w http.ResponseWriter, r *http.Request, st *Station
 	switch r.Method {
 	case http.MethodGet:
 		q := r.URL.Query()
-		since, err := cistats.ParseSince(q.Get("since"), time.Now())
+		since, err := sinceQuery(q, time.Now())
 		if err != nil {
-			return "", fail(http.StatusBadRequest, "%v", err)
+			return "", err
 		}
 		f := linestore.EventFilter{Since: since, Card: q.Get("card"), Station: q.Get("station")}
 		if f.Card != "" {
