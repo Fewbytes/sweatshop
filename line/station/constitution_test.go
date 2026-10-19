@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Fewbytes/sweatshop/line/constitution"
 	"github.com/Fewbytes/sweatshop/line/gitx"
 	"github.com/Fewbytes/sweatshop/line/gitx/gittest"
 	"github.com/Fewbytes/sweatshop/line/linedir"
@@ -147,5 +148,43 @@ func TestConstitutionProposeApproveAndHistory(t *testing.T) {
 	}
 	if err := srv.ApproveConstitution(ctx, 3, "10"); err == nil || !strings.Contains(err.Error(), "stale") {
 		t.Fatalf("stale approve: %v", err)
+	}
+}
+
+func TestEveryRoleReadsConstitutionButOnlyViceroyProposes(t *testing.T) {
+	repo := gitx.Repo{Dir: t.TempDir()}
+	if _, err := gittest.Git(context.Background(), repo.Dir, "init", "--quiet", "--bare"); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "constitution.toml")
+	if err := os.WriteFile(file, []byte(baseCons), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadConstitution(context.Background(), repo, file); err != nil {
+		t.Fatal(err)
+	}
+	srv := &Server{}
+	srv.Guard.Repo = repo
+	for _, role := range constitution.Roles {
+		srv.Stations = append(srv.Stations, &Station{Name: role + "-1", Role: role, Token: role + "-token"})
+	}
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+
+	ctx := context.Background()
+	for _, role := range constitution.Roles {
+		c := Client{URL: ts.URL, Token: role + "-token"}
+		if got, err := c.ConstitutionGet(ctx); err != nil || string(got) != baseCons {
+			t.Errorf("role %s get: %q, %v", role, got, err)
+		}
+		if entries, err := c.ConstitutionLog(ctx); err != nil || len(entries) != 1 {
+			t.Errorf("role %s log: %v, %v", role, entries, err)
+		}
+		if role == viceroyRole {
+			continue
+		}
+		if _, err := c.ConstitutionPropose(ctx, []byte(baseCons+"\n# x\n")); err == nil || !strings.Contains(err.Error(), "403") {
+			t.Errorf("role %s proposal not refused with 403: %v", role, err)
+		}
 	}
 }
