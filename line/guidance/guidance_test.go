@@ -43,6 +43,15 @@ func TestCodeWritingRolesGetWriterGuide(t *testing.T) {
 	}
 }
 
+func TestCodeWritingRolesAreToldNeverToLogSecrets(t *testing.T) {
+	for _, r := range []string{"maker", "andon", "kaizen", "gemba"} {
+		g, _ := For(r)
+		if !strings.Contains(g, "**Never log secrets.**") {
+			t.Errorf("For(%s) lacks the never-log-secrets rule", r)
+		}
+	}
+}
+
 func TestMakerGetsWriterThenTestingGuide(t *testing.T) {
 	g, _ := For("maker")
 	if g != Writer+"\n\n"+Testing {

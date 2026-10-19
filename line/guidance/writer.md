@@ -44,6 +44,13 @@ Three goals, in priority order:
   not count.
 - **Fail loudly.** No swallowed errors, no silent fallbacks, no default values
   that hide a missing input. An error is a signal the next agent needs.
+- **Never log secrets.** Tokens, credentials, keys and other confidential
+  values must not reach logs, error messages, card comments or test output,
+  whether you write the log line or a component you build does. Log an
+  identifier or a fixed placeholder instead of the value, and do not print
+  whole environments, request headers or config structs that may hold one.
+  Redaction on the log read path (card `sweatshop-uorr`) is only a backstop;
+  the code that holds the secret protects it.
 
 ## 2. Locatability
 
@@ -141,5 +148,6 @@ Three goals, in priority order:
 - [ ] No knowledge duplicated; no speculative abstraction
 - [ ] Every comment/doc describing changed code updated or removed
 - [ ] Replaced code deleted; no dead code left
+- [ ] No secret (token, credential, key) written to any log or error
 - [ ] Linters, type checker, tests pass locally
 - [ ] Diff is single-purpose
