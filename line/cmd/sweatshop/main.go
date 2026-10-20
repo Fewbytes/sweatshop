@@ -37,6 +37,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/linelog"
 	"github.com/Fewbytes/sweatshop/line/linestore"
 	"github.com/Fewbytes/sweatshop/line/maker"
+	"github.com/Fewbytes/sweatshop/line/mirror"
 	"github.com/Fewbytes/sweatshop/line/quadlet"
 	"github.com/Fewbytes/sweatshop/line/station"
 	"github.com/Fewbytes/sweatshop/line/viceroy"
@@ -49,8 +50,10 @@ const usage = `usage:
   sweatshop line init --dir D --source S [--engine E] [--image I] [--port P]
                   [--sovereign-name N --sovereign-discord ID] [--channel ID]
                                         create a line directory seeded from S's master
-  sweatshop line install --name N --dir D --project P [--image I] [--cpu-quota Q] [--memory-max M] [--quadlet-dir QD] [--slice-dir SD]
-                                        write the line's Quadlet units (serve, heijunka, andon, kaizen, network, volume) and resource slice; then systemctl --user daemon-reload and start sweatshop-N-serve
+  sweatshop line install --name N --dir D --project P [--image I] [--cpu-quota Q] [--memory-max M] [--mirror-creds CD] [--quadlet-dir QD] [--slice-dir SD]
+                                        write the line's Quadlet units (serve, heijunka, andon, kaizen, mirror if --mirror-creds, network, volume) and resource slice; then systemctl --user daemon-reload and start sweatshop-N-serve
+  sweatshop line mirror --dir D --creds CD [--once] [--interval 1m]
+                                        push master, tags and attestations fast-forward to the storage mirrors in D's constitution; CD holds deploy_key and known_hosts
   sweatshop line station add --dir D --name NAME --role ROLE
                                         add a station (key, token, trusted key) to the line in D; restart line serve
   sweatshop line serve --dir D [--addr 127.0.0.1:PORT] [--unsafe-listen] [--beads DIR] [--cold-checks]
@@ -133,6 +136,8 @@ func run(args []string, stdout io.Writer) error {
 		return lineInit(args[2:], stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "install":
 		return lineInstall(args[2:], stdout)
+	case len(args) >= 2 && args[0] == "line" && args[1] == "mirror":
+		return lineMirror(args[2:])
 	case len(args) >= 3 && args[0] == "line" && args[1] == "station" && args[2] == "add":
 		return lineStationAdd(args[3:], stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "serve":
@@ -254,6 +259,7 @@ func lineInstall(args []string, stdout io.Writer) error {
 	fs.StringVar(&spec.Image, "image", "localhost/sweatshop-line:dev", "image holding the sweatshop binary")
 	fs.StringVar(&spec.CPUQuota, "cpu-quota", "200%", "CPUQuota of the line's slice")
 	fs.StringVar(&spec.MemoryMax, "memory-max", "8G", "MemoryMax of the line's slice")
+	fs.StringVar(&spec.MirrorCredDir, "mirror-creds", "", "host directory with the line's mirror deploy_key and known_hosts (absolute); enables the mirror service")
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -279,6 +285,52 @@ func lineInstall(args []string, stdout io.Writer) error {
 		fmt.Fprintln(stdout, path)
 	}
 	return nil
+}
+
+// lineMirror publishes the line's remote to the constitution's storage
+// mirrors, once or every --interval. A failed push is logged and, with --once,
+// returned; the loop keeps trying because the next landing may fast-forward.
+func lineMirror(args []string) error {
+	fs := flag.NewFlagSet("line mirror", flag.ContinueOnError)
+	dir := fs.String("dir", "", "line directory")
+	creds := fs.String("creds", "", "directory holding the deploy_key and known_hosts files")
+	once := fs.Bool("once", false, "publish once, then exit")
+	interval := fs.Duration("interval", time.Minute, "time between publishes")
+	if err := parseWithoutOperands(fs, args); err != nil {
+		return err
+	}
+	if *dir == "" || *creds == "" || *interval <= 0 {
+		return errors.New(usage)
+	}
+	l, err := linedir.Load(*dir)
+	if err != nil {
+		return err
+	}
+	auth, err := mirror.SSHAuth(*creds)
+	if err != nil {
+		return err
+	}
+	logger := log.New(os.Stderr, "mirror: ", log.LstdFlags)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	repo := gitx.Repo{Dir: l.Remote}
+	for {
+		c, _, err := station.LoadConstitution(ctx, repo, l.Constitution)
+		if err == nil {
+			err = mirror.Publish(ctx, repo, c, auth)
+		}
+		if *once {
+			return err
+		}
+		if err != nil {
+			logger.Print(err)
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(*interval):
+		}
+	}
 }
 
 func lineStationAdd(args []string, stdout io.Writer) error {

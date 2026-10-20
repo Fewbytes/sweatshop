@@ -21,6 +21,10 @@ type Spec struct {
 	Image       string // image holding the sweatshop binary; its entrypoint must be unset
 	CPUQuota    string // systemd CPUQuota=, e.g. "200%"
 	MemoryMax   string // systemd MemoryMax=, e.g. "8G"
+	// MirrorCredDir is the host directory holding the line's mirror deploy key
+	// and known_hosts (see mirror.SSHAuth). Empty means the line has no
+	// mirror service. Only that service mounts it, never a station.
+	MirrorCredDir string
 }
 
 // File is one unit file to write.
@@ -47,7 +51,10 @@ func (s Spec) validate() error {
 		return fmt.Errorf("quadlet: image, CPU quota and memory max are required")
 	}
 	// A newline would add a unit key; % in a path would start a systemd specifier.
-	for _, v := range []string{s.Dir, s.ProjectPath, s.Image} {
+	if s.MirrorCredDir != "" && !filepath.IsAbs(s.MirrorCredDir) {
+		return fmt.Errorf("quadlet: mirror credential dir %q must be absolute", s.MirrorCredDir)
+	}
+	for _, v := range []string{s.Dir, s.ProjectPath, s.Image, s.MirrorCredDir} {
 		if strings.ContainsAny(v, "\n\r%") {
 			return fmt.Errorf("quadlet: unsafe value %q", v)
 		}
@@ -61,7 +68,8 @@ func (s Spec) validate() error {
 }
 
 // Render returns the line's unit files: network, state volume, slice and the
-// serve, heijunka, andon and kaizen containers.
+// serve, heijunka, andon and kaizen containers, plus the mirror container when
+// MirrorCredDir is set.
 func Render(s Spec) ([]File, error) {
 	if err := s.validate(); err != nil {
 		return nil, err
@@ -108,7 +116,7 @@ func Render(s Spec) ([]File, error) {
 	}
 	project := "Volume=" + s.ProjectPath + ":" + s.ProjectPath
 
-	return []File{
+	files := []File{
 		{Name: n + ".network", Content: "[Network]\nNetworkName=" + n + "\n"},
 		{Name: n + "-state.volume", Content: "# Binds the line directory so line.db and the remote survive container replacement.\n" +
 			"[Volume]\nVolumeName=" + n + "-state\nType=none\nDevice=" + s.Dir + "\nOptions=bind\n"},
@@ -123,7 +131,13 @@ func Render(s Spec) ([]File, error) {
 			"sweatshop line andon --beads "+s.ProjectPath, "andon-1", project),
 		container("kaizen", "one small improvement per interval",
 			"sweatshop line kaizen --dir "+s.Dir+" --station kaizen-1 --interval 24h", "kaizen-1", engine...),
-	}, nil
+	}
+	if s.MirrorCredDir != "" {
+		files = append(files, container("mirror", "publishes master, tags and attestations to the constitution's storage mirrors",
+			"sweatshop line mirror --dir "+s.Dir+" --creds "+s.MirrorCredDir+" --interval 1m", "",
+			"Volume="+s.MirrorCredDir+":"+s.MirrorCredDir+":ro"))
+	}
+	return files, nil
 }
 
 // Install writes Render's files: Quadlet files into quadletDir and the slice

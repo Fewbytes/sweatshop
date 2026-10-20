@@ -110,3 +110,25 @@ func TestInstallWritesSliceApartFromQuadletFiles(t *testing.T) {
 		t.Error("slice written into the quadlet dir")
 	}
 }
+
+func TestRenderMirrorServiceMountsOnlyItsOwnLinesCredentials(t *testing.T) {
+	if _, ok := renderByName(t, testSpec("alpha", 7468))["sweatshop-alpha-mirror.container"]; ok {
+		t.Error("a line without mirror credentials got a mirror service")
+	}
+	s := testSpec("alpha", 7468)
+	s.MirrorCredDir = "/srv/creds/alpha"
+	files := renderByName(t, s)
+	requireContains(t, "alpha mirror", files["sweatshop-alpha-mirror.container"],
+		"Exec=sweatshop line mirror --dir /srv/lines/alpha --creds /srv/creds/alpha",
+		"Volume=/srv/creds/alpha:/srv/creds/alpha:ro",
+		"Network=sweatshop-alpha.network")
+	for name, content := range files {
+		if name != "sweatshop-alpha-mirror.container" && strings.Contains(content, "/srv/creds") {
+			t.Errorf("%s mounts the mirror credentials:\n%s", name, content)
+		}
+	}
+	s.MirrorCredDir = "creds"
+	if _, err := Render(s); err == nil {
+		t.Error("rendered a relative mirror credential dir")
+	}
+}

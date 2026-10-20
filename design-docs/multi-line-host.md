@@ -33,6 +33,6 @@ heijunka, andon, kaizen, makers, gemba, viceroy.
 | `sweatshop-mcfb.2` | Quadlet templates and `sweatshop line install --name X`; replaces the hand-written units that were in `line/deploy/systemd` and `sweatshop-hostaddr.service`. Done: `line/quadlet` renders concrete per-line files (`sweatshop-NAME-serve.container`, ...) rather than `@` templates, because the port and project path come from `line.toml` and flags, not the instance name |
 | `sweatshop-mcfb.3` | Per-line podman network and station reachability |
 | `sweatshop-mcfb.4` | Secret source abstraction: file, env, systemd `LoadCredential`, later k8s Secret or Vault; removes `cat` in `ExecStart` |
-| `sweatshop-mcfb.5` | Line-parameterised GitHub mirror (folds into `sweatshop-cmk`) |
+| `sweatshop-mcfb.5` | Line-parameterised GitHub mirror (folds into `sweatshop-cmk`). Done: `sweatshop line mirror` pushes the constitution's storage mirrors fast-forward only with a per-line deploy key (`deploy_key`, `known_hosts` in the host directory given to `line install --mirror-creds`); that directory is mounted into the line's `-mirror` container only. The host-side `sweatshop-github-sync` timer is not in this repo; disable it once the mirror unit runs |
 | `sweatshop-mcfb.6` | Document per-line constitution and `line init` defaults |
 | `sweatshop-mcfb.7` | telemetry-nerd line: green CI and witness timeout |

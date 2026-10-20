@@ -193,14 +193,14 @@
       "entry_point_count": 0,
       "entry_points": [],
       "hidden_coupling_ratio": 1.0,
-      "hotspot_rank": 60,
+      "hotspot_rank": 65,
       "imported_by": [],
       "imports": [
         "agentsh/internal/executor",
         "agentsh/internal/storage"
       ],
       "lcom4": 1,
-      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
+      "measured_at_commit": "938efddb90d0a977c3268684b286b322ad421b72",
       "purpose": ""
     },
     "agentsh/internal/mcp": {
@@ -378,7 +378,7 @@
         "Version"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 58,
+      "hotspot_rank": 63,
       "imported_by": [
         "agentsh/cmd/agentsh",
         "agentsh/cmd/agentshd",
@@ -387,7 +387,7 @@
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
+      "measured_at_commit": "938efddb90d0a977c3268684b286b322ad421b72",
       "purpose": "Package version holds the build-time version identity shared by agentsh"
     },
     "agentsh/internal/workspace": {
@@ -618,13 +618,13 @@
         "Version"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 61,
+      "hotspot_rank": 66,
       "imported_by": [
         "bughunt/cmd/bughunt"
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
+      "measured_at_commit": "938efddb90d0a977c3268684b286b322ad421b72",
       "purpose": "Package version carries build metadata injected at link time."
     },
     "depmaint/cmd/depmaint": {
@@ -808,7 +808,7 @@
         "Expander"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 49,
+      "hotspot_rank": 54,
       "imported_by": [
         "depmaint/cmd/depmaint"
       ],
@@ -816,7 +816,7 @@
         "depmaint/internal/expander"
       ],
       "lcom4": 1,
-      "measured_at_commit": "4266c9bc31f6ebfe160ca7af9f46071ca949406a",
+      "measured_at_commit": "938efddb90d0a977c3268684b286b322ad421b72",
       "purpose": "Package jvmexpander implements the depmaint JVM expander for Gradle"
     },
     "depmaint/internal/nodeexpander": {
@@ -1063,7 +1063,7 @@
     "line/cmd/sweatshop": {
       "entry_point_count": 0,
       "entry_points": [],
-      "hidden_coupling_ratio": 0.091,
+      "hidden_coupling_ratio": 0.083,
       "hotspot_rank": 2,
       "imported_by": [],
       "imports": [
@@ -1083,13 +1083,14 @@
         "line/linelog",
         "line/linestore",
         "line/maker",
+        "line/mirror",
         "line/quadlet",
         "line/station",
         "line/viceroy",
         "line/witness"
       ],
       "lcom4": 1,
-      "measured_at_commit": "87fb48747326259c719a27da09fc6cd8ae71ee84",
+      "measured_at_commit": "938efddb90d0a977c3268684b286b322ad421b72",
       "purpose": "Command sweatshop administers an assembly line (witness keys, the merge"
     },
     "line/constitution": {
@@ -1109,7 +1110,7 @@
         "DefaultCPUs"
       ],
       "hidden_coupling_ratio": 0.429,
-      "hotspot_rank": 5,
+      "hotspot_rank": 6,
       "imported_by": [
         "line/cmd/sweatshop",
         "line/guard",
@@ -1117,6 +1118,7 @@
         "line/harness",
         "line/heijunka",
         "line/linedir",
+        "line/mirror",
         "line/station",
         "line/witness"
       ],
@@ -1124,7 +1126,7 @@
         "line/attest"
       ],
       "lcom4": 1,
-      "measured_at_commit": "6d7eb899137582bbfdb16c10de464402f89ef47a",
+      "measured_at_commit": "938efddb90d0a977c3268684b286b322ad421b72",
       "purpose": "Package constitution loads the line's rules. v0 holds only what the witness"
     },
     "line/deploy": {
@@ -1191,8 +1193,8 @@
         "LogEntry",
         "Repo"
       ],
-      "hidden_coupling_ratio": 0.333,
-      "hotspot_rank": 7,
+      "hidden_coupling_ratio": 0.25,
+      "hotspot_rank": 4,
       "imported_by": [
         "line/cmd/sweatshop",
         "line/deploy",
@@ -1202,6 +1204,7 @@
         "line/kaizen",
         "line/linedir",
         "line/maker",
+        "line/mirror",
         "line/station",
         "line/witness"
       ],
@@ -1209,7 +1212,7 @@
         "line/gitx/gittest"
       ],
       "lcom4": 1,
-      "measured_at_commit": "6d7eb899137582bbfdb16c10de464402f89ef47a",
+      "measured_at_commit": "938efddb90d0a977c3268684b286b322ad421b72",
       "purpose": "Package gitx reads and writes git repositories for line components, in"
     },
     "line/gitx/gittest": {
@@ -1218,7 +1221,7 @@
         "Git"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 56,
+      "hotspot_rank": 58,
       "imported_by": [
         "line/cmd/sweatshop",
         "line/gemba",
@@ -1228,12 +1231,13 @@
         "line/kaizen",
         "line/linedir",
         "line/maker",
+        "line/mirror",
         "line/station",
         "line/witness"
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "6d7eb899137582bbfdb16c10de464402f89ef47a",
+      "measured_at_commit": "938efddb90d0a977c3268684b286b322ad421b72",
       "purpose": "Package gittest builds repository fixtures for tests by running the git"
     },
     "line/guard": {
@@ -1540,6 +1544,28 @@
       "measured_at_commit": "d586f0e121c5d4e88e046f8d33939f585af123d9",
       "purpose": "Package maker runs a Maker station: a host-side loop that takes a ready"
     },
+    "line/mirror": {
+      "entry_point_count": 4,
+      "entry_points": [
+        "DeployKeyFile",
+        "KnownHostsFile",
+        "Publish",
+        "SSHAuth"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 71,
+      "imported_by": [
+        "line/cmd/sweatshop"
+      ],
+      "imports": [
+        "line/constitution",
+        "line/gitx",
+        "line/gitx/gittest"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "938efddb90d0a977c3268684b286b322ad421b72",
+      "purpose": "Package mirror publishes a line's refs to the storage mirrors its"
+    },
     "line/quadlet": {
       "entry_point_count": 4,
       "entry_points": [
@@ -1549,13 +1575,13 @@
         "Spec"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 64,
+      "hotspot_rank": 50,
       "imported_by": [
         "line/cmd/sweatshop"
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "665bff253035ab8e3520d122a3392ce3a8d3240b",
+      "measured_at_commit": "938efddb90d0a977c3268684b286b322ad421b72",
       "purpose": "Package quadlet renders the systemd units of one line on a shared host:"
     },
     "line/report": {
@@ -1684,11 +1710,11 @@
       "entry_point_count": 0,
       "entry_points": [],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 67,
+      "hotspot_rank": 72,
       "imported_by": [],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
+      "measured_at_commit": "938efddb90d0a977c3268684b286b322ad421b72",
       "purpose": ""
     },
     "line/viceroy": {
