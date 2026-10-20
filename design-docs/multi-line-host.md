@@ -25,6 +25,47 @@ heijunka, andon, kaizen, makers, gemba, viceroy.
   (ServiceAccount, Pods/Jobs, serve and heijunka as controllers) without
   changing callers. Quadlet is the first backend, not the abstraction.
 
+## Per-line constitution
+
+Each line owns `<line dir>/constitution.toml`. `line init` seeds it; after
+that the file (and its `refs/line/constitution` copy once the owner commits
+one) is that line's alone. A new line never reads another line's file, and
+changing one line's constitution changes no other. To start a line like an
+existing one, copy the file by hand and edit it.
+
+`line init` writes these defaults (flags in parentheses):
+
+- `[trust]` `level = "attest"`, plus one key per station (default stations
+  `maker-1` as maker, `andon-1` as andon).
+- `[runner]` `kind = "container"`, engine `docker` (`--engine`), image
+  `sweatshop-station:dev` (`--image`).
+- `[[checks.required]]` one check named `ci` running `just ci` (`--check`).
+- `[[guards.paths]]` `justfile`, `station/**` and `acceptance/**`, each
+  restricted to the gemba role, so a maker cannot weaken the check that
+  judges its own commit.
+- `[sovereign]` and `[channel]` only when the king's name, Discord ID and
+  channel are given. Without them the line has no king, no delegations and
+  no succession.
+
+Per-line settings to review when a line is created:
+
+- **`checks.required`**: the commands every candidate must pass before the
+  guard merges it. Each entry has `name` and `command`; it runs in the
+  runner's container. Differing lines (another language, another test
+  command) differ here.
+- **King** (`[sovereign]`): the one Discord user whose channel messages count
+  as the king's. Approvals, proposals and epic decisions come only from this
+  identity, on this line's `[channel]`.
+- **Delegations** (`[[viceroy.delegations]]`): bounded powers the viceroy has
+  without asking the king, to offer cards to the line (`offer = "line"`) or
+  to close them (`close = true`), matched by card type, parent, label or ID.
+  The default is none: every offer needs the king.
+- **Approved epics**: not in the constitution. A delegation with
+  `inherit = true` offers any non-epic card under an epic the king approved.
+  The approvals are a ledger, `<line dir>/approved-epics.json`, written only
+  by that line's `serve` when the king approves on the channel, so one line's
+  approvals never apply to another.
+
 ## Work
 
 | Card | Piece |
