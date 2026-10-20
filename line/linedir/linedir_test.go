@@ -326,3 +326,25 @@ func TestOnboardingExampleExtendsDefaultStationImage(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadReadsLineNetworkAndRejectsOptionLikeName(t *testing.T) {
+	l, _ := initLine(t)
+	path := filepath.Join(l.Dir, "line.toml")
+	orig, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append([]byte("network = \"sweatshop-a\"\n"), orig...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(l.Dir)
+	if err != nil || got.Network != "sweatshop-a" {
+		t.Fatalf("Load network = %q, %v; want sweatshop-a", got.Network, err)
+	}
+	if err := os.WriteFile(path, append([]byte("network = \"--privileged\"\n"), orig...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(l.Dir); err == nil {
+		t.Fatal("Load accepted an option-like network name")
+	}
+}

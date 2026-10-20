@@ -46,6 +46,7 @@ type Line struct {
 	Constitution string // <Dir>/constitution.toml
 	Engine       string
 	Image        string
+	Network      string // container network of this line's stations; empty means the engine default
 	Stations     []Station
 	Deploy       Deploy
 }
@@ -87,6 +88,7 @@ type lineFile struct {
 	Port     int           `toml:"port"`
 	Engine   string        `toml:"engine"`
 	Image    string        `toml:"image"`
+	Network  string        `toml:"network,omitempty"`
 	Stations []stationFile `toml:"stations"`
 	Deploy   *Deploy       `toml:"deploy,omitempty"`
 }
@@ -111,7 +113,7 @@ var safeName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 
 func newLine(dir string, lf lineFile) Line {
 	l := Line{
-		Dir: dir, Port: lf.Port, Engine: lf.Engine, Image: lf.Image,
+		Dir: dir, Port: lf.Port, Engine: lf.Engine, Image: lf.Image, Network: lf.Network,
 		Remote:       filepath.Join(dir, "remote.git"),
 		Constitution: filepath.Join(dir, "constitution.toml"),
 	}
@@ -419,6 +421,9 @@ func Load(dir string) (Line, error) {
 		return Line{}, fmt.Errorf("%s/line.toml: %w", dir, err)
 	}
 	l := newLine(dir, lf)
+	if l.Network != "" && !safeName.MatchString(l.Network) {
+		return Line{}, fmt.Errorf("line.toml: bad network name %q", l.Network)
+	}
 	for _, s := range l.Stations {
 		if !safeName.MatchString(s.Name) {
 			return Line{}, fmt.Errorf("line.toml: bad station name %q", s.Name)

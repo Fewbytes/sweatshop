@@ -564,7 +564,7 @@ func TestCLIEngineStartMounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := CLIEngine{Bin: bin}
-	spec := ContainerSpec{Image: "img", Name: "n", Mounts: []Mount{{Host: "/srv/remote.git", Container: "/line/remote.git", ReadOnly: true}}}
+	spec := ContainerSpec{Image: "img", Name: "n", Network: "line-a", Mounts: []Mount{{Host: "/srv/remote.git", Container: "/line/remote.git", ReadOnly: true}}}
 	if err := e.Start(context.Background(), spec); err != nil {
 		t.Fatal(err)
 	}
@@ -574,6 +574,9 @@ func TestCLIEngineStartMounts(t *testing.T) {
 	}
 	if !strings.Contains(string(b), "-v\n/srv/remote.git:/line/remote.git:ro\n") {
 		t.Fatalf("argv %q", b)
+	}
+	if !strings.Contains(string(b), "--network\nline-a\n") {
+		t.Fatalf("viceroy container not on the line network: argv %q", b)
 	}
 	for _, m := range []Mount{{Host: "rel", Container: "/c"}, {Host: "/a:b", Container: "/c"}, {Host: "/a", Container: "c"}} {
 		spec.Mounts = []Mount{m}

@@ -37,6 +37,7 @@ type ContainerSpec struct {
 	Memory, CPUs string
 	Pids         int
 	Mounts       []Mount
+	Network      string // engine network to join; empty is the engine default
 }
 
 // Mount is a bind mount into the container.
@@ -109,6 +110,9 @@ func (e CLIEngine) Start(ctx context.Context, spec ContainerSpec) error {
 		return fmt.Errorf("bad image %q", spec.Image)
 	}
 	args := []string{"run", "-d", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--name", spec.Name}
+	if spec.Network != "" {
+		args = append(args, "--network", spec.Network)
+	}
 	if spec.Memory != "" {
 		args = append(args, "--memory", spec.Memory)
 	}
@@ -351,7 +355,8 @@ func (v *Supervisor) spec(st *Station, g Generation) (ContainerSpec, error) {
 	return ContainerSpec{
 		Image: "sweatshop-viceroy:" + g.Commit, Name: ContainerName(g.Gen), Env: env,
 		Memory: constitution.DefaultMemory, Pids: constitution.DefaultPids, CPUs: constitution.DefaultCPUs,
-		Mounts: []Mount{{Host: v.Line.Remote, Container: "/line/remote.git", ReadOnly: true}},
+		Mounts:  []Mount{{Host: v.Line.Remote, Container: "/line/remote.git", ReadOnly: true}},
+		Network: v.Line.Network,
 	}, nil
 }
 

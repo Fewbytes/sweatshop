@@ -77,6 +77,8 @@ type ContainerSpec struct {
 	Env         map[string]string
 	Mounts      []Mount
 	Args        []string
+	// Network is the engine network to join (--network); empty is the engine default.
+	Network string
 	// Resource ceilings in engine syntax (--memory, --pids-limit, --cpus);
 	// zero values are omitted.
 	Memory, CPUs string
@@ -431,12 +433,13 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 	commentsBefore, commentsBeforeErr := r.Beads.CommentCount(ctx, b.ID)
 	tail := &tailBuffer{max: failureTailBytes}
 	spec := ContainerSpec{
-		Output: tail,
-		Image:  r.Line.Image,
-		Name:   unsafeNameChars.ReplaceAllString("sweatshop-"+r.Station.Name+"-"+b.ID, "_"),
-		Env:    env,
-		Mounts: []Mount{{Host: r.Line.Remote, Container: "/line/remote.git", ReadOnly: true}},
-		Memory: r.Memory, CPUs: r.CPUs, Pids: r.Pids,
+		Output:  tail,
+		Image:   r.Line.Image,
+		Name:    unsafeNameChars.ReplaceAllString("sweatshop-"+r.Station.Name+"-"+b.ID, "_"),
+		Env:     env,
+		Mounts:  []Mount{{Host: r.Line.Remote, Container: "/line/remote.git", ReadOnly: true}},
+		Network: r.Line.Network,
+		Memory:  r.Memory, CPUs: r.CPUs, Pids: r.Pids,
 	}
 	timeout := r.Timeout
 	if timeout <= 0 {
@@ -858,6 +861,9 @@ func (d DockerEngine) Run(ctx context.Context, spec ContainerSpec) (int, error) 
 	}
 	if spec.Name != "" {
 		args = append(args, "--name", spec.Name)
+	}
+	if spec.Network != "" {
+		args = append(args, "--network", spec.Network)
 	}
 	if spec.Memory != "" {
 		args = append(args, "--memory", spec.Memory)

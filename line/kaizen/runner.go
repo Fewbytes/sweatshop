@@ -188,11 +188,12 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 		r.beat(ctx, station.StateWorking, runID, now(), interval)
 	})
 	code, runErr := r.Engine.Run(runCtx, maker.ContainerSpec{
-		Image:  r.Line.Image,
-		Name:   unsafeNameChars.ReplaceAllString("sweatshop-"+r.Station.Name+"-"+runID, "_"),
-		Env:    env,
-		Mounts: []maker.Mount{{Host: r.Line.Remote, Container: "/line/remote.git", ReadOnly: true}},
-		Memory: r.Memory, CPUs: r.CPUs, Pids: r.Pids,
+		Image:   r.Line.Image,
+		Name:    unsafeNameChars.ReplaceAllString("sweatshop-"+r.Station.Name+"-"+runID, "_"),
+		Env:     env,
+		Mounts:  []maker.Mount{{Host: r.Line.Remote, Container: "/line/remote.git", ReadOnly: true}},
+		Network: r.Line.Network,
+		Memory:  r.Memory, CPUs: r.CPUs, Pids: r.Pids,
 	})
 	stopBeats()
 	if ctx.Err() != nil {

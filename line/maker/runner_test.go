@@ -450,6 +450,20 @@ func TestOnceIdle(t *testing.T) {
 	}
 }
 
+func TestOnceJoinsLineNetwork(t *testing.T) {
+	bare, _ := remote(t)
+	fb := &fakeBeads{ready: []Bead{{ID: "b-1", Title: "one", Priority: 1}}}
+	fe := &fakeEngine{}
+	r := newRunner(t, bare, fb, fe)
+	r.Line.Network = "sweatshop-a"
+	if _, err := r.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := fe.specs[0].Network; got != "sweatshop-a" {
+		t.Fatalf("station container network = %q, want sweatshop-a", got)
+	}
+}
+
 func TestOnceContainerSpec(t *testing.T) {
 	bare, _ := remote(t)
 	fb := &fakeBeads{ready: []Bead{{ID: "b-1", Title: "one", Priority: 1}}}
@@ -632,6 +646,14 @@ func TestDockerEngine(t *testing.T) {
 	}
 	got := calls(t, logFile)
 	if want := "run --rm --cap-drop=ALL --security-opt=no-new-privileges --memory 4g --pids-limit 1024 --cpus 2 img"; got[len(got)-1] != want {
+		t.Fatalf("docker call = %q, want %q", got[len(got)-1], want)
+	}
+	// A line's stations join the line's own network, not a bridge shared with other lines.
+	if _, err := e.Run(context.Background(), ContainerSpec{Image: "img", Network: "line-a"}); err != nil {
+		t.Fatal(err)
+	}
+	got = calls(t, logFile)
+	if want := "run --rm --cap-drop=ALL --security-opt=no-new-privileges --network line-a img"; got[len(got)-1] != want {
 		t.Fatalf("docker call = %q, want %q", got[len(got)-1], want)
 	}
 	if _, err := e.Run(context.Background(), ContainerSpec{Image: "img", Mounts: []Mount{{Host: "/a:b", Container: "/c"}}}); err == nil {
