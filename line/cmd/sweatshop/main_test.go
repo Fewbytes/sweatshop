@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -283,6 +284,34 @@ func TestLineInit(t *testing.T) {
 	}
 	if err := run([]string{"line", "init", "--dir", dir}, &bytes.Buffer{}); err == nil {
 		t.Fatal("missing --source accepted")
+	}
+}
+
+func TestLineInstallWritesUnitsWithTheLinesPort(t *testing.T) {
+	dir, _ := initLine(t)
+	l, err := linedir.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qdir, sdir := t.TempDir(), t.TempDir()
+	var out bytes.Buffer
+	args := []string{"line", "install", "--name", "alpha", "--dir", dir, "--project", "/srv/alpha",
+		"--quadlet-dir", qdir, "--slice-dir", sdir}
+	if err := run(args, &out); err != nil {
+		t.Fatal(err)
+	}
+	serve, err := os.ReadFile(filepath.Join(qdir, "sweatshop-alpha-serve.container"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "PublishPort=127.0.0.1:" + strconv.Itoa(l.Port); !strings.Contains(string(serve), want) {
+		t.Errorf("serve unit lacks %q:\n%s", want, serve)
+	}
+	if !strings.Contains(out.String(), filepath.Join(sdir, "sweatshop-alpha.slice")) {
+		t.Errorf("output does not list the slice: %s", out.String())
+	}
+	if err := run([]string{"line", "install", "--name", "alpha", "--dir", dir}, &bytes.Buffer{}); err == nil {
+		t.Fatal("missing --project accepted")
 	}
 }
 

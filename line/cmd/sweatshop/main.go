@@ -37,6 +37,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/linelog"
 	"github.com/Fewbytes/sweatshop/line/linestore"
 	"github.com/Fewbytes/sweatshop/line/maker"
+	"github.com/Fewbytes/sweatshop/line/quadlet"
 	"github.com/Fewbytes/sweatshop/line/station"
 	"github.com/Fewbytes/sweatshop/line/viceroy"
 	"github.com/Fewbytes/sweatshop/line/witness"
@@ -48,6 +49,8 @@ const usage = `usage:
   sweatshop line init --dir D --source S [--engine E] [--image I] [--port P]
                   [--sovereign-name N --sovereign-discord ID] [--channel ID]
                                         create a line directory seeded from S's master
+  sweatshop line install --name N --dir D --project P [--image I] [--cpu-quota Q] [--memory-max M] [--quadlet-dir QD] [--slice-dir SD]
+                                        write the line's Quadlet units (serve, heijunka, andon, kaizen, network, volume) and resource slice; then systemctl --user daemon-reload and start sweatshop-N-serve
   sweatshop line station add --dir D --name NAME --role ROLE
                                         add a station (key, token, trusted key) to the line in D; restart line serve
   sweatshop line serve --dir D [--addr 127.0.0.1:PORT] [--unsafe-listen] [--beads DIR] [--cold-checks]
@@ -128,6 +131,8 @@ func run(args []string, stdout io.Writer) error {
 		return guard.InstallHooks(args[2])
 	case len(args) >= 2 && args[0] == "line" && args[1] == "init":
 		return lineInit(args[2:], stdout)
+	case len(args) >= 2 && args[0] == "line" && args[1] == "install":
+		return lineInstall(args[2:], stdout)
 	case len(args) >= 3 && args[0] == "line" && args[1] == "station" && args[2] == "add":
 		return lineStationAdd(args[3:], stdout)
 	case len(args) >= 2 && args[0] == "line" && args[1] == "serve":
@@ -234,6 +239,44 @@ func lineInit(args []string, stdout io.Writer) error {
 			return err
 		}
 		fmt.Fprintf(stdout, "station %s role %s key_id %s\n", s.Name, s.Role, attest.KeyID(key))
+	}
+	return nil
+}
+
+// lineInstall writes the Quadlet units of the line in --dir. It starts
+// nothing: the operator reloads systemd after reading the file list.
+func lineInstall(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("line install", flag.ContinueOnError)
+	var spec quadlet.Spec
+	fs.StringVar(&spec.Name, "name", "", "line name (unit names are sweatshop-NAME-...)")
+	fs.StringVar(&spec.Dir, "dir", "", "line directory (absolute)")
+	fs.StringVar(&spec.ProjectPath, "project", "", "beads workspace of the line (absolute)")
+	fs.StringVar(&spec.Image, "image", "localhost/sweatshop-line:dev", "image holding the sweatshop binary")
+	fs.StringVar(&spec.CPUQuota, "cpu-quota", "200%", "CPUQuota of the line's slice")
+	fs.StringVar(&spec.MemoryMax, "memory-max", "8G", "MemoryMax of the line's slice")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	quadletDir := fs.String("quadlet-dir", filepath.Join(home, ".config", "containers", "systemd"), "where Quadlet files go")
+	sliceDir := fs.String("slice-dir", filepath.Join(home, ".config", "systemd", "user"), "where the slice unit goes")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 || spec.Name == "" || spec.Dir == "" || spec.ProjectPath == "" {
+		return errors.New(usage)
+	}
+	l, err := linedir.Load(spec.Dir)
+	if err != nil {
+		return err
+	}
+	spec.Port = l.Port
+	written, err := quadlet.Install(spec, *quadletDir, *sliceDir)
+	if err != nil {
+		return err
+	}
+	for _, path := range written {
+		fmt.Fprintln(stdout, path)
 	}
 	return nil
 }

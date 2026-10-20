@@ -76,21 +76,23 @@ host (flags, signals, bd and station-API observer). A k8s controller would
 be another host that supplies its own observer and actuator and reuses
 `Worker` unchanged; it is a separate card.
 
-On the server, with systemd (`line/deploy/systemd/sweatshop-heijunka.service`):
+On the server, as a Quadlet container (`sweatshop line install --name NAME
+--dir D --project P` writes `sweatshop-NAME-heijunka.container`):
 
-1. Install the `sweatshop` binary (`just install`) and make sure `bd` is on
-   the service's `PATH`; the observer and the needs triage call it.
-2. Run the station API (`line serve`) and give the worker a station token:
-   put `SWEATSHOP_LINE_TOKEN=<token>` in the unit's `EnvironmentFile`.
-3. Copy the unit to `~/.config/systemd/user/`, fix the paths, then
-   `systemctl --user daemon-reload && systemctl --user enable --now sweatshop-heijunka`.
+1. Build the line image (it must have `bd` on its `PATH`; the observer and the
+   needs triage call it) and run `line install`; see
+   `design-docs/multi-line-host.md`.
+2. Add a `heijunka-1` station (`line station add`) and put
+   `SWEATSHOP_LINE_TOKEN=<token>` in `D/stations/heijunka-1/env`, the unit's
+   `EnvironmentFile`.
+3. `systemctl --user daemon-reload && systemctl --user enable --now sweatshop-NAME-heijunka`.
    `loginctl enable-linger $USER` keeps it running without a login session.
-4. Check: `journalctl --user -u sweatshop-heijunka` shows level changes, and
+4. Check: `journalctl --user -u sweatshop-NAME-heijunka` shows level changes, and
    `GET /v1/heijunka/levels` returns the current levels.
 
 `Restart=always` restarts it on failure; state is re-read on every wake, so a
 restart loses nothing. Poke with
-`systemctl --user kill -s USR1 sweatshop-heijunka`.
+`systemctl --user kill -s USR1 sweatshop-NAME-heijunka`.
 
 ## Kaizen runs
 

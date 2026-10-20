@@ -364,14 +364,13 @@ close the loop; 9-13 extend it.
 every minute and starts a run when `--interval` (default 24h) has passed since
 the last run and master has moved.
 
-On the server, with systemd (`line/deploy/systemd/sweatshop-kaizen.service`):
+On the server, as a Quadlet container (`sweatshop line install --name NAME
+--dir D --project P` writes `sweatshop-NAME-kaizen.container`):
 
-1. Install the `sweatshop` binary (`just install`) and a container engine the
-   service can reach.
+1. Build the line image and run `line install`; see `design-docs/multi-line-host.md`.
 2. Put `SWEATSHOP_LINE_TOKEN=<kaizen station token>` and the model credential
-   in the unit's `EnvironmentFile`.
-3. Copy the unit to `~/.config/systemd/user/`, fix the paths, then
-   `systemctl --user daemon-reload && systemctl --user enable --now sweatshop-kaizen`.
+   in `D/stations/kaizen-1/env`, the unit's `EnvironmentFile`.
+3. `systemctl --user daemon-reload && systemctl --user enable --now sweatshop-NAME-kaizen`.
    `loginctl enable-linger $USER` keeps it running without a login session.
 
 `Restart=always` restarts it on failure; a restarted runner runs once at once.

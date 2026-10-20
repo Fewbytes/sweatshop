@@ -30,7 +30,7 @@ heijunka, andon, kaizen, makers, gemba, viceroy.
 | Card | Piece |
 |---|---|
 | `sweatshop-mcfb.1` | Slim `sweatshop-line` image (Go binary and git only) |
-| `sweatshop-mcfb.2` | Quadlet templates and `sweatshop line install --name X`; replaces the hand-written units in `line/deploy/systemd` and `sweatshop-hostaddr.service` |
+| `sweatshop-mcfb.2` | Quadlet templates and `sweatshop line install --name X`; replaces the hand-written units that were in `line/deploy/systemd` and `sweatshop-hostaddr.service`. Done: `line/quadlet` renders concrete per-line files (`sweatshop-NAME-serve.container`, ...) rather than `@` templates, because the port and project path come from `line.toml` and flags, not the instance name |
 | `sweatshop-mcfb.3` | Per-line podman network and station reachability |
 | `sweatshop-mcfb.4` | Secret source abstraction: file, env, systemd `LoadCredential`, later k8s Secret or Vault; removes `cat` in `ExecStart` |
 | `sweatshop-mcfb.5` | Line-parameterised GitHub mirror (folds into `sweatshop-cmk`) |
