@@ -288,6 +288,8 @@ func TestBootstrapReplacesCrashedGenerationOne(t *testing.T) {
 }
 
 func TestBootstrapRefusals(t *testing.T) {
+	t.Setenv("CREDENTIALS_DIRECTORY", "")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
 	r := newSuccRig(t, true)
 	_, err := r.sup.Bootstrap(r.ctx, r.station("viceroy-1"), strings.Repeat("a", 40))
 	wantErr(t, err, "not the line's master")

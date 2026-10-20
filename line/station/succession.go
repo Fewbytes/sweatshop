@@ -20,6 +20,7 @@ import (
 
 	"github.com/Fewbytes/sweatshop/line/constitution"
 	"github.com/Fewbytes/sweatshop/line/linedir"
+	"github.com/Fewbytes/sweatshop/line/secret"
 )
 
 const (
@@ -329,13 +330,9 @@ func (v *Supervisor) checkout(ctx context.Context, commit string) (string, func(
 }
 
 func (v *Supervisor) spec(st *Station, g Generation) (ContainerSpec, error) {
-	cred, err := os.ReadFile(filepath.Join(v.Line.Dir, "model.cred"))
+	token, err := secret.ForLine(v.Line.Dir).Read(secret.ModelCred)
 	if err != nil {
 		return ContainerSpec{}, fmt.Errorf("model credential: %w", err)
-	}
-	token := strings.TrimSpace(string(cred))
-	if token == "" {
-		return ContainerSpec{}, errors.New("model.cred is empty")
 	}
 	url := v.URL
 	if url == "" {

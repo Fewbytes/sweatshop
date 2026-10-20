@@ -23,6 +23,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Fewbytes/sweatshop/line/constitution"
+	"github.com/Fewbytes/sweatshop/line/secret"
 )
 
 const (
@@ -305,24 +306,12 @@ func OpenChannel(lineDir string, c constitution.Constitution, cards Cards) (*Cha
 	if c.Channel.Channel == "" {
 		return nil, nil
 	}
-	cred := filepath.Join(lineDir, "discord.cred")
-	info, err := os.Stat(cred)
-	if errors.Is(err, os.ErrNotExist) {
+	token, err := secret.ForLine(lineDir).Read(secret.DiscordCred)
+	if errors.Is(err, secret.ErrNotFound) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
-	}
-	if info.Mode().Perm()&0o077 != 0 {
-		return nil, fmt.Errorf("%s has mode %o; want 0600", cred, info.Mode().Perm())
-	}
-	tok, err := os.ReadFile(cred)
-	if err != nil {
-		return nil, err
-	}
-	token := strings.TrimSpace(string(tok))
-	if token == "" {
-		return nil, fmt.Errorf("%s is empty", cred)
 	}
 	ch := &Channel{
 		Dir: filepath.Join(lineDir, "channel"), ChannelID: c.Channel.Channel, King: c.Sovereign.Discord,

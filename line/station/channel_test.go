@@ -296,6 +296,8 @@ func TestChannelOffWithoutCredential(t *testing.T) {
 }
 
 func TestOpenChannel(t *testing.T) {
+	t.Setenv("CREDENTIALS_DIRECTORY", "")
+	t.Setenv("SWEATSHOP_DISCORD_TOKEN", "")
 	dir := t.TempDir()
 	var c constitution.Constitution
 	if ch, err := OpenChannel(dir, c, nil); ch != nil || err != nil {

@@ -360,14 +360,14 @@
         "Until"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 55,
+      "hotspot_rank": 60,
       "imported_by": [
         "agentsh/internal/daemon",
         "agentsh/internal/executor"
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "96da24bc59d97926a914586077287c786d3424ff",
+      "measured_at_commit": "c4df93528b2ef221b2febebe4c1fc22519401eb9",
       "purpose": "Package testwait is the one place tests wait on wall-clock time."
     },
     "agentsh/internal/version": {
@@ -1300,7 +1300,7 @@
       "entry_point_count": 0,
       "entry_points": [],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 64,
+      "hotspot_rank": 69,
       "imported_by": [],
       "imports": [
         "line/andon",
@@ -1314,7 +1314,7 @@
         "line/witness"
       ],
       "lcom4": 1,
-      "measured_at_commit": "318c2ed7ed6ccc97285cc63f820a944cc2965377",
+      "measured_at_commit": "c4df93528b2ef221b2febebe4c1fc22519401eb9",
       "purpose": ""
     },
     "line/heijunka": {
@@ -1609,6 +1609,29 @@
       "measured_at_commit": "941a4801b78fea5d04280ae68f7105d2f9adfce2",
       "purpose": "Package runner is the one interface the line uses to run station and"
     },
+    "line/secret": {
+      "entry_point_count": 9,
+      "entry_points": [
+        "Chain",
+        "DiscordCred",
+        "Env",
+        "ErrNotFound",
+        "File",
+        "ForLine",
+        "ModelCred",
+        "Source",
+        "SystemdCredential"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 52,
+      "imported_by": [
+        "line/station"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "c4df93528b2ef221b2febebe4c1fc22519401eb9",
+      "purpose": "Package secret resolves named line secrets (the model token, the Discord"
+    },
     "line/station": {
       "entry_point_count": 96,
       "entry_points": [
@@ -1650,10 +1673,11 @@
         "line/linelog",
         "line/linestore",
         "line/report",
+        "line/secret",
         "line/witness"
       ],
       "lcom4": 2,
-      "measured_at_commit": "5644c663c06feb1d18751f526835f37f35216151",
+      "measured_at_commit": "c4df93528b2ef221b2febebe4c1fc22519401eb9",
       "purpose": "Package station is the station API: the only way containerized agents reach"
     },
     "line/testhygiene": {
