@@ -601,7 +601,7 @@ class GateAgainstHead(RepoFixture):
         self.assertEqual({f.key for f in self.gate()[1]}, {"clones:a", "clones:c"})
 
     def test_hotspot_rank_rise_fails_only_with_a_configured_limit(self):
-        self.write("c/c.go", "package c\n\n" + BRANCHY.split("\n", 2)[2].replace("Branchy", "C") * 3)
+        self.write("c/c.go", "package c\n\n" + "\n".join(BRANCHY.split("\n", 2)[2].replace("Branchy", f"C{i}") for i in range(3)))
         self.assertEqual([f.key for f in self.gate()[1] if f.key.startswith("hotspot")], [])
         keys = [f.key for f in self.gate(gate.Thresholds(max_hotspot_rank_rise=0))[1]]
         self.assertIn("hotspot:c/c.go", keys)
