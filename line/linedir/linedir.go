@@ -47,6 +47,10 @@ type Line struct {
 	Engine       string
 	Image        string
 	Network      string // container network of this line's stations; empty means the engine default
+	// ViceroyImage, when set, is a prebuilt image every viceroy generation
+	// runs. A line whose master carries no station/Dockerfile (a project line)
+	// needs it; without it each generation is built from the line's master.
+	ViceroyImage string
 	Stations     []Station
 	Deploy       Deploy
 }
@@ -85,12 +89,13 @@ func (s Station) Token() (string, error) {
 
 // lineFile is the on-disk shape of line.toml.
 type lineFile struct {
-	Port     int           `toml:"port"`
-	Engine   string        `toml:"engine"`
-	Image    string        `toml:"image"`
-	Network  string        `toml:"network,omitempty"`
-	Stations []stationFile `toml:"stations"`
-	Deploy   *Deploy       `toml:"deploy,omitempty"`
+	Port         int           `toml:"port"`
+	Engine       string        `toml:"engine"`
+	Image        string        `toml:"image"`
+	Network      string        `toml:"network,omitempty"`
+	ViceroyImage string        `toml:"viceroy_image,omitempty"`
+	Stations     []stationFile `toml:"stations"`
+	Deploy       *Deploy       `toml:"deploy,omitempty"`
 }
 
 type stationFile struct {
@@ -113,7 +118,7 @@ var safeName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 
 func newLine(dir string, lf lineFile) Line {
 	l := Line{
-		Dir: dir, Port: lf.Port, Engine: lf.Engine, Image: lf.Image, Network: lf.Network,
+		Dir: dir, Port: lf.Port, Engine: lf.Engine, Image: lf.Image, Network: lf.Network, ViceroyImage: lf.ViceroyImage,
 		Remote:       filepath.Join(dir, "remote.git"),
 		Constitution: filepath.Join(dir, "constitution.toml"),
 	}

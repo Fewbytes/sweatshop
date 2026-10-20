@@ -349,8 +349,12 @@ func (v *Supervisor) spec(st *Station, g Generation) (ContainerSpec, error) {
 	if g.Predecessor != "" {
 		env["SWEATSHOP_PREDECESSOR"] = g.Predecessor
 	}
+	image := v.Line.ViceroyImage
+	if image == "" {
+		image = "sweatshop-viceroy:" + g.Commit
+	}
 	return ContainerSpec{
-		Image: "sweatshop-viceroy:" + g.Commit, Name: ContainerName(g.Gen), Env: env,
+		Image: image, Name: ContainerName(g.Gen), Env: env,
 		Memory: constitution.DefaultMemory, Pids: constitution.DefaultPids, CPUs: constitution.DefaultCPUs,
 		Mounts:  []Mount{{Host: v.Line.Remote, Container: "/line/remote.git", ReadOnly: true}},
 		Network: v.Line.Network,
@@ -371,13 +375,15 @@ func (v *Supervisor) launch(ctx context.Context, st *Station, g Generation) erro
 	if err != nil {
 		return err
 	}
-	dir, cleanup, err := v.checkout(ctx, g.Commit)
-	if err != nil {
-		return fmt.Errorf("checkout %s: %w", g.Commit, err)
-	}
-	defer cleanup()
-	if err := v.Engine.Build(ctx, dir, filepath.Join(dir, viceroyDockerfile), spec.Image); err != nil {
-		return fail(http.StatusBadGateway, "build: %v", err)
+	if v.Line.ViceroyImage == "" {
+		dir, cleanup, err := v.checkout(ctx, g.Commit)
+		if err != nil {
+			return fmt.Errorf("checkout %s: %w", g.Commit, err)
+		}
+		defer cleanup()
+		if err := v.Engine.Build(ctx, dir, filepath.Join(dir, viceroyDockerfile), spec.Image); err != nil {
+			return fail(http.StatusBadGateway, "build: %v", err)
+		}
 	}
 	_ = v.Engine.Remove(ctx, spec.Name) // a stale container of that name
 	if err := v.Engine.Start(ctx, spec); err != nil {

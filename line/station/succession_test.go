@@ -274,6 +274,23 @@ func TestBootstrap(t *testing.T) {
 	wantErr(t, err, "already has a viceroy generation")
 }
 
+// A project line has no station/Dockerfile in its master: with viceroy_image
+// set, the generation runs that image and nothing is built.
+func TestBootstrapWithViceroyImageBuildsNothing(t *testing.T) {
+	r := newSuccRig(t, true)
+	r.sup.Line.ViceroyImage = "localhost/sweatshop-station:dev"
+	g, err := r.sup.Bootstrap(r.ctx, r.station("viceroy-1"), r.c1)
+	if err != nil || g.Gen != 1 {
+		t.Fatalf("bootstrap %+v %v", g, err)
+	}
+	if len(r.eng.builds) != 0 {
+		t.Fatalf("builds %v, want none", r.eng.builds)
+	}
+	if got := r.eng.starts[0].Image; got != "localhost/sweatshop-station:dev" {
+		t.Fatalf("image %q", got)
+	}
+}
+
 func TestBootstrapReplacesCrashedGenerationOne(t *testing.T) {
 	r := newSuccRig(t, true)
 	r.bootstrap()
