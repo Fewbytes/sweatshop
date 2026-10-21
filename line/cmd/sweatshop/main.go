@@ -10,6 +10,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	dockerclient "github.com/docker/docker/client"
 	"io"
 	"log"
 	"net"
@@ -27,6 +28,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/attest"
 	"github.com/Fewbytes/sweatshop/line/cistats"
 	"github.com/Fewbytes/sweatshop/line/constitution"
+	"github.com/Fewbytes/sweatshop/line/controller"
 	"github.com/Fewbytes/sweatshop/line/deploy"
 	"github.com/Fewbytes/sweatshop/line/gemba"
 	"github.com/Fewbytes/sweatshop/line/gitx"
@@ -89,6 +91,8 @@ const usage = `usage:
                                         viceroy: request succession to C (default: master) / ask the king to redeploy the line to C / report this generation is up
   sweatshop line deployer --dir D [--backend B]
                                         the privileged actuator: apply the king-approved release with backend launchd or k8s (line.toml [deploy])
+  sweatshop line controller --dir D [--socket unix:///run/podman/podman.sock] [--once]
+                                        the privileged workload controller: run approved workload requests on the podman socket (controller token <dir>/controller.token)
   sweatshop line andon --beads DIR [--interval 30s] [--triage]
                                         watch master; pull/clear the andon cord (andon station token)
   sweatshop line heijunka --beads DIR [--interval 5m] [--min-agents 1] [--max-agents 4]
@@ -174,6 +178,8 @@ func run(args []string, stdout io.Writer) error {
 		return viceroyRun(args[2:], viceroy.ClaudeCLI{Dir: "/work", Timeout: viceroy.DefaultRunLimit})
 	case len(args) >= 2 && args[0] == "line" && args[1] == "deployer":
 		return lineDeployer(args[2:])
+	case len(args) >= 2 && args[0] == "line" && args[1] == "controller":
+		return lineController(args[2:])
 	case len(args) >= 2 && args[0] == "line" && args[1] == "andon":
 		return lineAndon(args[2:])
 	case len(args) == 3 && args[0] == "line" && args[1] == "heijunka" && args[2] == "state":
@@ -1711,6 +1717,51 @@ func viceroyClient(cmd string, args []string, stdout io.Writer) error {
 	}
 	_, err = fmt.Fprintln(stdout, strings.TrimRight(string(out), "\n"))
 	return err
+}
+
+// lineController reconciles the line's workload requests against the podman
+// socket. It holds only the controller token (<dir>/controller.token); the
+// engine objects it creates are labelled with the line directory's name.
+func lineController(args []string) error {
+	fs := flag.NewFlagSet("line controller", flag.ContinueOnError)
+	dir := fs.String("dir", "", "line directory")
+	socket := fs.String("socket", "unix:///run/podman/podman.sock", "engine API socket")
+	once := fs.Bool("once", false, "reconcile once, then exit")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 || *dir == "" {
+		return errors.New(usage)
+	}
+	l, err := linedir.Load(*dir)
+	if err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(filepath.Join(l.Dir, "controller.token"))
+	if err != nil {
+		return err
+	}
+	engine, err := dockerclient.NewClientWithOpts(dockerclient.WithHost(*socket), dockerclient.WithAPIVersionNegotiation())
+	if err != nil {
+		return err
+	}
+	c := &controller.Controller{
+		API: station.Client{
+			URL:   "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(l.Port)),
+			Token: strings.TrimSpace(string(raw)),
+		},
+		Engine: controller.Podman{Client: engine, Line: filepath.Base(l.Dir), Network: l.Network},
+		Log:    log.New(os.Stderr, "", log.LstdFlags).Printf,
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if *once {
+		return c.Once(ctx)
+	}
+	if err := c.Run(ctx); !errors.Is(err, context.Canceled) {
+		return err
+	}
+	return nil
 }
 
 // lineDeployer runs the actuator. It holds only the deployer token (the file

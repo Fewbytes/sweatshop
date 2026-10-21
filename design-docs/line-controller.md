@@ -124,6 +124,13 @@ images = ["localhost/*", "registry.example/sweatshop/*"]
   (`sweatshop-7j6i`): podman through its API socket, Kubernetes
   through a service account scoped to the line namespace (create, delete, get,
   list and logs on Pods and Jobs, nothing else).
+- **Podman backend** (`line/controller`, `sweatshop line controller --dir D`):
+  the Docker-compatible client against podman's socket. Objects are named
+  `sweatshop-<line dir name>-<id>` and labelled `sweatshop.line` and
+  `sweatshop.workload`. A finished workload keeps its object for ten minutes so
+  its logs can be read, then it is removed; so is a labelled object serve has no
+  live request for. Logs are reported when the state changes. `build`, `secrets`,
+  `volumes` and `expose` requests fail with a reason until they are implemented.
 - **Builds** are privileged too and are a request kind, built from a commit on
   the line remote as `EngineReleaseBuilder` does.
 

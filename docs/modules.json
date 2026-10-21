@@ -294,14 +294,14 @@
         "WaitReady"
       ],
       "hidden_coupling_ratio": 1.0,
-      "hotspot_rank": 34,
+      "hotspot_rank": 39,
       "imported_by": [
         "agentsh/internal/daemon",
         "agentsh/internal/executor"
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "3abbff81bcd710f8774b1be7956957998cf6ee9c",
       "purpose": "Package service evaluates readiness predicates for named background"
     },
     "agentsh/internal/session": {
@@ -436,7 +436,7 @@
         "Scan"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 33,
+      "hotspot_rank": 38,
       "imported_by": [
         "bughunt/cmd/bughunt"
       ],
@@ -449,7 +449,7 @@
         "bughunt/internal/symbol"
       ],
       "lcom4": 1,
-      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
+      "measured_at_commit": "3abbff81bcd710f8774b1be7956957998cf6ee9c",
       "purpose": "Package cli implements the bughunt commands."
     },
     "bughunt/internal/config": {
@@ -513,14 +513,14 @@
         "SeverityMedium"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 59,
+      "hotspot_rank": 64,
       "imported_by": [
         "bughunt/internal/detector",
         "bughunt/internal/scan"
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
+      "measured_at_commit": "3abbff81bcd710f8774b1be7956957998cf6ee9c",
       "purpose": "Package finding defines the normalized output of every detector and the"
     },
     "bughunt/internal/gitinfo": {
@@ -765,7 +765,7 @@
         "Register"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 64,
+      "hotspot_rank": 69,
       "imported_by": [
         "depmaint/internal/campaign",
         "depmaint/internal/cli",
@@ -780,7 +780,7 @@
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
+      "measured_at_commit": "3abbff81bcd710f8774b1be7956957998cf6ee9c",
       "purpose": "Package expander defines the contract ecosystem expanders implement"
     },
     "depmaint/internal/goexpander": {
@@ -1063,7 +1063,7 @@
     "line/cmd/sweatshop": {
       "entry_point_count": 0,
       "entry_points": [],
-      "hidden_coupling_ratio": 0.083,
+      "hidden_coupling_ratio": 0.071,
       "hotspot_rank": 2,
       "imported_by": [],
       "imports": [
@@ -1071,6 +1071,7 @@
         "line/attest",
         "line/cistats",
         "line/constitution",
+        "line/controller",
         "line/deploy",
         "line/gemba",
         "line/gitx",
@@ -1090,7 +1091,7 @@
         "line/witness"
       ],
       "lcom4": 1,
-      "measured_at_commit": "938efddb90d0a977c3268684b286b322ad421b72",
+      "measured_at_commit": "3abbff81bcd710f8774b1be7956957998cf6ee9c",
       "purpose": "Command sweatshop administers an assembly line (witness keys, the merge"
     },
     "line/constitution": {
@@ -1128,6 +1129,31 @@
       "lcom4": 1,
       "measured_at_commit": "54f0a70b49cae942c9a0228703f9ef32ed1fff0f",
       "purpose": "Package constitution loads the line's rules. v0 holds only what the witness"
+    },
+    "line/controller": {
+      "entry_point_count": 9,
+      "entry_points": [
+        "API",
+        "Controller",
+        "DefaultGrace",
+        "Engine",
+        "Instance",
+        "LabelLine",
+        "LabelWorkload",
+        "Observed",
+        "Podman"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 31,
+      "imported_by": [
+        "line/cmd/sweatshop"
+      ],
+      "imports": [
+        "line/station"
+      ],
+      "lcom4": 1,
+      "measured_at_commit": "3abbff81bcd710f8774b1be7956957998cf6ee9c",
+      "purpose": "Package controller is the line's privileged actuator for workload requests."
     },
     "line/deploy": {
       "entry_point_count": 16,
@@ -1167,7 +1193,7 @@
         "Prompt"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 66,
+      "hotspot_rank": 71,
       "imported_by": [
         "line/cmd/sweatshop"
       ],
@@ -1180,7 +1206,7 @@
         "line/station"
       ],
       "lcom4": 1,
-      "measured_at_commit": "4db5223f52befbdb2d907dfceab85c21cc3eb15a",
+      "measured_at_commit": "3abbff81bcd710f8774b1be7956957998cf6ee9c",
       "purpose": "Package gemba configures the maker runner as a Gemba station: it claims"
     },
     "line/gitx": {
@@ -1287,7 +1313,7 @@
         "Writer"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 56,
+      "hotspot_rank": 61,
       "imported_by": [
         "line/gemba",
         "line/kaizen",
@@ -1297,7 +1323,7 @@
         "line/constitution"
       ],
       "lcom4": 1,
-      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
+      "measured_at_commit": "3abbff81bcd710f8774b1be7956957998cf6ee9c",
       "purpose": "Package guidance holds the code-quality guides the line's code-writing"
     },
     "line/harness": {
@@ -1358,7 +1384,7 @@
         "Until"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 57,
+      "hotspot_rank": 62,
       "imported_by": [
         "line/cmd/sweatshop",
         "line/maker",
@@ -1367,7 +1393,7 @@
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
+      "measured_at_commit": "3abbff81bcd710f8774b1be7956957998cf6ee9c",
       "purpose": "Package testwait is the one place line tests wait on wall-clock time. It"
     },
     "line/kaizen": {
@@ -1679,6 +1705,7 @@
       "imported_by": [
         "line/andon",
         "line/cmd/sweatshop",
+        "line/controller",
         "line/gemba",
         "line/harness",
         "line/heijunka",
@@ -1703,7 +1730,7 @@
         "line/witness"
       ],
       "lcom4": 2,
-      "measured_at_commit": "54f0a70b49cae942c9a0228703f9ef32ed1fff0f",
+      "measured_at_commit": "3abbff81bcd710f8774b1be7956957998cf6ee9c",
       "purpose": "Package station is the station API: the only way containerized agents reach"
     },
     "line/testhygiene": {

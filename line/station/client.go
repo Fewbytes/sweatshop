@@ -508,3 +508,21 @@ func (c Client) WorkloadLogs(ctx context.Context, id string) (string, error) {
 	b, err := c.do(ctx, http.MethodGet, "/v1/workloads/"+url.PathEscape(id)+"/logs", nil, nil, nil)
 	return string(b), err
 }
+
+// ControllerPending returns the workloads the controller must act on. Only
+// the controller's token may call it.
+func (c Client) ControllerPending(ctx context.Context) ([]Workload, error) {
+	var out []Workload
+	_, err := c.do(ctx, http.MethodGet, "/v1/controller/pending", nil, nil, &out)
+	return out, err
+}
+
+// ControllerReport records the state the controller observed for a workload.
+func (c Client) ControllerReport(ctx context.Context, rep WorkloadStatus) error {
+	body, err := json.Marshal(rep)
+	if err != nil {
+		return err
+	}
+	_, err = c.do(ctx, http.MethodPost, "/v1/controller/status", nil, bytes.NewReader(body), nil)
+	return err
+}
