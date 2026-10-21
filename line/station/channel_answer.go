@@ -25,17 +25,11 @@ func (c *Channel) answerCard(ctx context.Context, id, text, via string) string {
 		log.Printf("channel: answer %s: %v", id, err)
 		return fmt.Sprintf("could not answer %s", id)
 	}
-	raw, err := c.Cards.Show(ctx, id)
+	labels, err := showCardLabels(ctx, c.Cards, id)
 	if err != nil {
 		return fail(err)
 	}
-	var issue struct {
-		Labels []string `json:"labels"`
-	}
-	if !unmarshalIssue(raw, &issue) {
-		return fail(fmt.Errorf("no such card"))
-	}
-	if !slices.Contains(issue.Labels, LabelNeedsPrefix+needsKing) {
+	if !slices.Contains(labels, LabelNeedsPrefix+needsKing) {
 		return fmt.Sprintf("%s is not waiting on the king", id)
 	}
 	if err := c.Cards.Comment(ctx, id, "answer from the king ("+via+"):\n"+text); err != nil {

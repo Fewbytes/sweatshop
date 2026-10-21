@@ -80,17 +80,11 @@ func (c *Channel) deferCard(ctx context.Context, id, until, via string) string {
 			return fmt.Sprintf("invalid date %s: use YYYY-MM-DD", until)
 		}
 	}
-	raw, err := c.Cards.Show(ctx, id)
+	labels, err := showCardLabels(ctx, c.Cards, id)
 	if err != nil {
 		return fail(err)
 	}
-	var issue struct {
-		Labels []string `json:"labels"`
-	}
-	if !unmarshalIssue(raw, &issue) {
-		return fail(fmt.Errorf("no such card"))
-	}
-	for _, l := range issue.Labels {
+	for _, l := range labels {
 		if strings.HasPrefix(l, LabelDeferUntilPrefix) {
 			if err := c.Cards.RemoveLabel(ctx, id, l); err != nil {
 				return fail(err)

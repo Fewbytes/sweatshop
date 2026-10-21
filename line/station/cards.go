@@ -686,6 +686,21 @@ func unmarshalIssue(raw json.RawMessage, v any) bool {
 	return true
 }
 
+// showCardLabels returns the labels of card id. An unknown card is an error.
+func showCardLabels(ctx context.Context, cards Cards, id string) ([]string, error) {
+	raw, err := cards.Show(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	var issue struct {
+		Labels []string `json:"labels"`
+	}
+	if !unmarshalIssue(raw, &issue) {
+		return nil, fmt.Errorf("no such card")
+	}
+	return issue.Labels, nil
+}
+
 // cardAssignee returns who holds the card's claim ("" when unclaimed).
 func cardAssignee(raw json.RawMessage) string {
 	var issue struct {
