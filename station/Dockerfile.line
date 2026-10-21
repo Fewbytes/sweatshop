@@ -1,5 +1,5 @@
 # sweatshop-line: the image of a line's own services (serve, heijunka, andon,
-# kaizen, mirror). Go binary, a pinned git and the podman API client; no
+# kaizen, mirror). Go binary, a pinned git, bd and the podman API client; no
 # toolchain, no claude. Quadlet units run it with `Exec=sweatshop line ...`
 # (see line/quadlet), and the release builder builds it from this path
 # (line/station/release.go). Build from the repository root: `just line-image`.
@@ -42,6 +42,11 @@ FROM ${DEBIAN_IMAGE}
 ARG PODMAN_VERSION=6.1.3
 ARG PODMAN_REMOTE_SHA256_AMD64=23ee4f71873810a864389b78ffe0d7536296432bb96d0c2acfbbfc7d50ee9c1b
 ARG PODMAN_REMOTE_SHA256_ARM64=a0e949d1df0198bd5fe4a8aa4aa57b3038dd1946acbb2088ab318ea0e89bd349
+# serve, heijunka and andon read and write cards by running bd in the line's
+# beads workspace. Keep in step with the bd on the host that works the same workspace.
+ARG BD_VERSION=1.3.1
+ARG BD_SHA256_AMD64=3219443a9734b89b93fb16ee8d65844759fa1b3cd3cf139c606b7353cfb0715c
+ARG BD_SHA256_ARM64=c3b32c71a6c0cd6358a12c28272b17e6818db991da192f87df52339c222e423a
 COPY --from=git-builder /opt/git /opt/git
 ENV PATH=/opt/git/bin:$PATH
 RUN set -eux; \
@@ -49,8 +54,8 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends ca-certificates curl libcurl4 libexpat1 zlib1g tini; \
     rm -rf /var/lib/apt/lists/*; \
     case "$(uname -m)" in \
-        x86_64) arch=amd64; sum="$PODMAN_REMOTE_SHA256_AMD64" ;; \
-        aarch64) arch=arm64; sum="$PODMAN_REMOTE_SHA256_ARM64" ;; \
+        x86_64) arch=amd64; sum="$PODMAN_REMOTE_SHA256_AMD64"; bdsum="$BD_SHA256_AMD64" ;; \
+        aarch64) arch=arm64; sum="$PODMAN_REMOTE_SHA256_ARM64"; bdsum="$BD_SHA256_ARM64" ;; \
         *) echo "unsupported arch $(uname -m)" >&2; exit 1 ;; \
     esac; \
     curl -fsSLo /tmp/podman.tar.gz "https://github.com/containers/podman/releases/download/v${PODMAN_VERSION}/podman-remote-static-linux_${arch}.tar.gz"; \
@@ -60,7 +65,14 @@ RUN set -eux; \
     ln -s podman-remote /usr/local/bin/podman; \
     rm -rf /tmp/podman.tar.gz /tmp/bin; \
     podman-remote --version; \
+    curl -fsSLo /tmp/bd.tar.gz "https://github.com/gastownhall/beads/releases/download/v${BD_VERSION}/beads_${BD_VERSION}_linux_${arch}.tar.gz"; \
+    echo "${bdsum}  /tmp/bd.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/bd.tar.gz -C /usr/local/bin bd; \
+    rm /tmp/bd.tar.gz; \
+    bd version; \
+    bd metrics off; \
     mkdir -p /opt/git/etc; \
-    git config --system --add safe.directory '*'
+    git config --system --add safe.directory '*'; \
+    git config --system beads.role maintainer
 COPY --from=builder /out/sweatshop /usr/local/bin/sweatshop
 ENTRYPOINT ["/usr/bin/tini", "--"]
