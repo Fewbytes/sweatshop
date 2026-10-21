@@ -3,43 +3,56 @@ package deploy
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 	"time"
+
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
+	"k8s.io/utils/ptr"
 )
 
-// fakeKube is a Deployment API: PATCH swaps the image and bumps the
-// generation; the rollout becomes ready after `lag` further GETs.
+// fakeKube is a Deployment API behind client-go's fake clientset: a patch
+// swaps the image and bumps the generation; the rollout becomes ready after
+// `lag` further GETs.
 type fakeKube struct {
-	mu         sync.Mutex
-	image      string
-	commit     string
-	generation int64
-	observed   int64
-	lag, left  int
-	patches    []string
-	auth       string
-	stuck      bool
+	image, commit        string
+	generation, observed int64
+	lag, left            int
+	patches              []string
+	stuck                bool
 }
 
-func (f *fakeKube) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.auth = r.Header.Get("Authorization")
-	if r.URL.Path != "/apis/apps/v1/namespaces/line/deployments/serve" {
-		http.NotFound(w, r)
-		return
+func (f *fakeKube) deployment() *appsv1.Deployment {
+	ready := int32(0)
+	if f.observed >= f.generation {
+		ready = 2
 	}
-	if r.Method == http.MethodPatch {
-		if ct := r.Header.Get("Content-Type"); ct != "application/strategic-merge-patch+json" {
-			http.Error(w, ct, http.StatusUnsupportedMediaType)
-			return
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "line", Name: "serve", Generation: f.generation, Annotations: map[string]string{commitAnnotation: f.commit}},
+		Spec: appsv1.DeploymentSpec{Replicas: ptr.To(int32(2)), Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "sidecar", Image: "x"}, {Name: "serve", Image: f.image}}}}},
+		Status: appsv1.DeploymentStatus{ObservedGeneration: f.observed, Replicas: 2, UpdatedReplicas: ready, AvailableReplicas: ready},
+	}
+}
+
+func newKube(t *testing.T, f *fakeKube) Kubernetes {
+	t.Helper()
+	cs := fake.NewSimpleClientset()
+	cs.PrependReactor("get", "deployments", func(k8stesting.Action) (bool, runtime.Object, error) {
+		if f.left > 0 {
+			f.left--
+		} else if !f.stuck {
+			f.observed = f.generation
 		}
-		body, _ := io.ReadAll(r.Body)
+		return true, f.deployment(), nil
+	})
+	cs.PrependReactor("patch", "deployments", func(a k8stesting.Action) (bool, runtime.Object, error) {
 		var p struct {
 			Metadata struct{ Annotations map[string]string }
 			Spec     struct {
@@ -50,39 +63,21 @@ func (f *fakeKube) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		_ = json.Unmarshal(body, &p)
+		if err := json.Unmarshal(a.(k8stesting.PatchAction).GetPatch(), &p); err != nil {
+			return true, nil, err
+		}
 		c := p.Spec.Template.Spec.Containers
 		if len(c) != 1 || c[0].Name != "serve" {
-			http.Error(w, "bad patch", http.StatusUnprocessableEntity)
-			return
+			t.Errorf("patch touches containers %+v, want only serve", c)
 		}
 		f.image, f.commit = c[0].Image, p.Metadata.Annotations[commitAnnotation]
 		f.patches = append(f.patches, f.image)
 		f.generation++
 		f.left = f.lag
-	} else if f.left > 0 {
-		f.left--
-	} else if !f.stuck {
-		f.observed = f.generation
-	}
-	ready := int32(0)
-	if f.observed >= f.generation {
-		ready = 2
-	}
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"metadata": map[string]any{"generation": f.generation, "annotations": map[string]string{commitAnnotation: f.commit}},
-		"spec": map[string]any{"replicas": 2, "template": map[string]any{"spec": map[string]any{
-			"containers": []map[string]string{{"name": "sidecar", "image": "x"}, {"name": "serve", "image": f.image}}}}},
-		"status": map[string]any{"observedGeneration": f.observed, "replicas": 2, "updatedReplicas": ready, "availableReplicas": ready},
+		return true, f.deployment(), nil
 	})
-}
-
-func newKube(t *testing.T, f *fakeKube) Kubernetes {
-	t.Helper()
-	ts := httptest.NewServer(f)
-	t.Cleanup(ts.Close)
 	return Kubernetes{
-		API: ts.URL, Token: "sa-token", Namespace: "line", Deployment: "serve", Container: "serve",
+		Client: cs, Namespace: "line", Deployment: "serve", Container: "serve",
 		Rollout: 2 * time.Second, Poll: time.Millisecond,
 	}
 }
@@ -98,8 +93,8 @@ func TestKubernetesPatchesDigestAndWaitsForRollout(t *testing.T) {
 	if err := k.Apply(ctx, *rel(c2)); err != nil {
 		t.Fatal(err)
 	}
-	if f.auth != "Bearer sa-token" || len(f.patches) != 1 || f.patches[0] != "reg.example/sweatshop-line@"+digest {
-		t.Fatalf("patches %v auth %q", f.patches, f.auth)
+	if len(f.patches) != 1 || f.patches[0] != "reg.example/sweatshop-line@"+digest || f.left != 0 {
+		t.Fatalf("patches %v, rollout lag left %d", f.patches, f.left)
 	}
 	if err := k.Rollback(ctx, old); err != nil {
 		t.Fatal(err)
@@ -124,5 +119,12 @@ func TestKubernetesRefusesUnpinnedAndTimesOut(t *testing.T) {
 	k.Container = "missing"
 	if _, err := k.Current(ctx); err == nil {
 		t.Fatal("missing container")
+	}
+}
+
+func TestKubernetesMissingDeploymentIsATypedNotFound(t *testing.T) {
+	k := Kubernetes{Client: fake.NewSimpleClientset(), Namespace: "line", Deployment: "serve", Container: "serve"}
+	if _, err := k.Current(context.Background()); !apierrors.IsNotFound(err) {
+		t.Fatalf("Current on a missing deployment: %v, want a NotFound API error", err)
 	}
 }

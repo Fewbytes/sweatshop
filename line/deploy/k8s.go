@@ -1,15 +1,17 @@
 package deploy
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"strings"
 	"time"
+
+	appsv1 "k8s.io/api/apps/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 // commitAnnotation records the release commit on the Deployment.
@@ -17,7 +19,8 @@ const commitAnnotation = "sweatshop.line/commit"
 
 // Kubernetes patches one container of a Deployment to the release's image
 // digest and waits for the rollout. It speaks to the API server over HTTPS
-// (a service-account token in-cluster) and touches no local file.
+// (a service-account token in-cluster) through client-go and touches no
+// local file. API errors keep their client-go type (apierrors.IsNotFound).
 type Kubernetes struct {
 	API        string // API server base URL
 	Token      string
@@ -25,73 +28,27 @@ type Kubernetes struct {
 	Deployment string
 	Container  string
 	Probe      HTTPHealth
-	Client     *http.Client  // default: 30 s timeout
-	Rollout    time.Duration // longest rollout wait, default HealthWindow
-	Poll       time.Duration // rollout poll interval, default 2s
+	Client     kubernetes.Interface // default: built from API and Token
+	Rollout    time.Duration        // longest rollout wait, default HealthWindow
+	Poll       time.Duration        // rollout poll interval, default 2s
 }
 
-type k8sDeployment struct {
-	Metadata struct {
-		Generation  int64             `json:"generation"`
-		Annotations map[string]string `json:"annotations"`
-	} `json:"metadata"`
-	Spec struct {
-		Replicas *int32 `json:"replicas"`
-		Template struct {
-			Spec struct {
-				Containers []struct {
-					Name  string `json:"name"`
-					Image string `json:"image"`
-				} `json:"containers"`
-			} `json:"spec"`
-		} `json:"template"`
-	} `json:"spec"`
-	Status struct {
-		ObservedGeneration  int64 `json:"observedGeneration"`
-		Replicas            int32 `json:"replicas"`
-		UpdatedReplicas     int32 `json:"updatedReplicas"`
-		AvailableReplicas   int32 `json:"availableReplicas"`
-		UnavailableReplicas int32 `json:"unavailableReplicas"`
-	} `json:"status"`
+// clientset is the injected client, or one built from API and Token.
+func (k Kubernetes) clientset() (kubernetes.Interface, error) {
+	if k.Client != nil {
+		return k.Client, nil
+	}
+	return kubernetes.NewForConfig(&rest.Config{Host: k.API, BearerToken: k.Token, Timeout: 30 * time.Second})
 }
 
-func (k Kubernetes) path() string {
-	return "/apis/apps/v1/namespaces/" + url.PathEscape(k.Namespace) + "/deployments/" + url.PathEscape(k.Deployment)
-}
-
-func (k Kubernetes) do(ctx context.Context, method, contentType string, body []byte, out any) error {
-	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(k.API, "/")+k.path(), bytes.NewReader(body))
+func (k Kubernetes) get(ctx context.Context) (*appsv1.Deployment, string, error) {
+	cs, err := k.clientset()
 	if err != nil {
-		return err
+		return nil, "", err
 	}
-	req.Header.Set("Authorization", "Bearer "+k.Token)
-	req.Header.Set("Accept", "application/json")
-	if contentType != "" {
-		req.Header.Set("Content-Type", contentType)
-	}
-	c := k.Client
-	if c == nil {
-		c = &http.Client{Timeout: 30 * time.Second}
-	}
-	resp, err := c.Do(req)
+	d, err := cs.AppsV1().Deployments(k.Namespace).Get(ctx, k.Deployment, metav1.GetOptions{})
 	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("%s %s: %s: %s", method, k.path(), resp.Status, strings.TrimSpace(string(data)))
-	}
-	return json.Unmarshal(data, out)
-}
-
-func (k Kubernetes) get(ctx context.Context) (k8sDeployment, string, error) {
-	var d k8sDeployment
-	if err := k.do(ctx, http.MethodGet, "", nil, &d); err != nil {
-		return d, "", err
+		return nil, "", fmt.Errorf("get deployment %s/%s: %w", k.Namespace, k.Deployment, err)
 	}
 	for _, c := range d.Spec.Template.Spec.Containers {
 		if c.Name == k.Container {
@@ -115,7 +72,7 @@ func (k Kubernetes) Current(ctx context.Context) (Release, error) {
 		return Release{}, err
 	}
 	image, digest := splitImage(ref)
-	return Release{Commit: d.Metadata.Annotations[commitAnnotation], Image: image, Digest: digest}, nil
+	return Release{Commit: d.Annotations[commitAnnotation], Image: image, Digest: digest}, nil
 }
 
 func (k Kubernetes) patch(ctx context.Context, ref, commit string) error {
@@ -128,11 +85,15 @@ func (k Kubernetes) patch(ctx context.Context, ref, commit string) error {
 	if err != nil {
 		return err
 	}
-	var d k8sDeployment
-	if err := k.do(ctx, http.MethodPatch, "application/strategic-merge-patch+json", body, &d); err != nil {
+	cs, err := k.clientset()
+	if err != nil {
 		return err
 	}
-	return k.waitRollout(ctx, d.Metadata.Generation)
+	d, err := cs.AppsV1().Deployments(k.Namespace).Patch(ctx, k.Deployment, types.StrategicMergePatchType, body, metav1.PatchOptions{})
+	if err != nil {
+		return fmt.Errorf("patch deployment %s/%s: %w", k.Namespace, k.Deployment, err)
+	}
+	return k.waitRollout(ctx, d.Generation)
 }
 
 // waitRollout is `kubectl rollout status`: the controller has seen the new
