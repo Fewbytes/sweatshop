@@ -36,6 +36,8 @@ type Constitution struct {
 	Cards     Cards     `toml:"cards"`
 	// Optional: absent means no token limits.
 	Budgets []Budget `toml:"budgets,omitempty"`
+	// Optional: absent means no station may request a workload.
+	Workloads Workloads `toml:"workloads"`
 	// Optional: absent means the line's own remote.git and no mirrors.
 	// Changing it is the king's call (proposals need his approval).
 	Remotes []Remote `toml:"remotes"`
@@ -222,6 +224,9 @@ var (
 
 func (c Constitution) validateGovernance() error {
 	if err := c.validateBudgets(); err != nil {
+		return err
+	}
+	if err := c.validateWorkloads(); err != nil {
 		return err
 	}
 	if c.Cards.CommentCap < 0 {

@@ -712,3 +712,90 @@ func TestChecksDocsOnlyNeedsEveryChangedPathToBeDocs(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkloadsPolicyDecidesByRoleKindAndImage(t *testing.T) {
+	_, key := publicKey(t)
+	base := valid(key)
+	c, err := Parse([]byte(base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := c.Workloads.RuleFor("maker", WorkloadKindTest); ok || c.Workloads.ImageAllowed("localhost/x") {
+		t.Fatal("absent [workloads] must deny everything")
+	}
+	good := `[[workloads.rules]]
+roles = ["maker", "gemba"]
+kinds = ["test"]
+approval = "auto"
+max_per_station = 4
+memory = "4g"
+cpus = "2"
+pids = 1024
+ttl = "2h"
+
+[[workloads.rules]]
+roles = ["gemba"]
+kinds = ["staging", "demo"]
+approval = "king"
+expose = true
+ttl = "72h"
+
+[workloads]
+images = ["localhost/*", "registry.example/sweatshop/*"]
+
+`
+	c, err = Parse([]byte(good + base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := c.Workloads
+	r, ok := w.RuleFor("maker", WorkloadKindTest)
+	if !ok || r.Approval != WorkloadApprovalAuto || r.MaxPerStation != 4 || r.Memory != "4g" || r.CPUs != "2" || r.Pids != 1024 || r.TTLDuration() != 2*time.Hour || r.Expose {
+		t.Errorf("maker test rule = %+v, %v", r, ok)
+	}
+	r, ok = w.RuleFor("gemba", WorkloadKindDemo)
+	if !ok || r.Approval != WorkloadApprovalKing || !r.Expose || r.TTLDuration() != 72*time.Hour {
+		t.Errorf("gemba demo rule = %+v, %v", r, ok)
+	}
+	for _, denied := range [][2]string{{"maker", WorkloadKindStaging}, {"andon", WorkloadKindTest}, {"gemba", WorkloadKindBuild}} {
+		if _, ok := w.RuleFor(denied[0], denied[1]); ok {
+			t.Errorf("%s %s allowed, want default deny", denied[0], denied[1])
+		}
+	}
+	for image, want := range map[string]bool{
+		"localhost/app":                  true,
+		"registry.example/sweatshop/app": true,
+		"docker.io/library/alpine":       false,
+		"localhost/a/b":                  false,
+	} {
+		if got := w.ImageAllowed(image); got != want {
+			t.Errorf("ImageAllowed(%q) = %v, want %v", image, got, want)
+		}
+	}
+}
+
+func TestWorkloadsRejectBadRules(t *testing.T) {
+	_, key := publicKey(t)
+	base := valid(key)
+	const ok = "roles = [\"maker\"]\nkinds = [\"test\"]\napproval = \"auto\"\n"
+	for name, bad := range map[string]string{
+		"no roles":       "[[workloads.rules]]\nkinds = [\"test\"]\napproval = \"auto\"\nttl = \"1h\"",
+		"unknown role":   "[[workloads.rules]]\nroles = [\"intern\"]\nkinds = [\"test\"]\napproval = \"auto\"\nttl = \"1h\"",
+		"no kinds":       "[[workloads.rules]]\nroles = [\"maker\"]\napproval = \"auto\"\nttl = \"1h\"",
+		"unknown kind":   "[[workloads.rules]]\nroles = [\"maker\"]\nkinds = [\"prod\"]\napproval = \"auto\"\nttl = \"1h\"",
+		"no approval":    "[[workloads.rules]]\nroles = [\"maker\"]\nkinds = [\"test\"]\nttl = \"1h\"",
+		"bad approval":   "[[workloads.rules]]\nroles = [\"maker\"]\nkinds = [\"test\"]\napproval = \"maybe\"\nttl = \"1h\"",
+		"no ttl":         "[[workloads.rules]]\nroles = [\"maker\"]\nkinds = [\"test\"]\napproval = \"auto\"",
+		"zero ttl":       "[[workloads.rules]]\n" + ok + "ttl = \"0s\"",
+		"negative quota": "[[workloads.rules]]\n" + ok + "ttl = \"1h\"\nmax_per_station = -1",
+		"bad memory":     "[[workloads.rules]]\n" + ok + "ttl = \"1h\"\nmemory = \"0\"",
+		"bad cpus":       "[[workloads.rules]]\n" + ok + "ttl = \"1h\"\ncpus = \"-1\"",
+		"negative pids":  "[[workloads.rules]]\n" + ok + "ttl = \"1h\"\npids = -1",
+		"overlap":        "[[workloads.rules]]\n" + ok + "ttl = \"1h\"\n\n[[workloads.rules]]\nroles = [\"maker\", \"gemba\"]\nkinds = [\"test\", \"demo\"]\napproval = \"king\"\nttl = \"1h\"",
+		"bad image glob": "[workloads]\nimages = [\"localhost/[\"]",
+	} {
+		if _, err := Parse([]byte(bad + "\n\n" + base)); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+}
