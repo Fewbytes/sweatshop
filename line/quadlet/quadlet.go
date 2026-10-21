@@ -17,6 +17,7 @@ type Spec struct {
 	Name        string // line name; becomes part of unit, network and volume names
 	Dir         string // absolute host path of the line directory, mounted at the same path
 	Port        int    // station API port, from the line's line.toml
+	URL         string // station API as station containers see it, from line.toml; empty means http://sweatshop-NAME-serve:PORT
 	ProjectPath string // absolute host path of the beads workspace
 	Image       string // image holding the sweatshop binary; its entrypoint must be unset
 	CPUQuota    string // systemd CPUQuota=, e.g. "200%"
@@ -77,6 +78,10 @@ func Render(s Spec) ([]File, error) {
 	n := "sweatshop-" + s.Name
 	port := strconv.Itoa(s.Port)
 	stations := filepath.Join(s.Dir, "stations")
+	stationURL := s.URL
+	if stationURL == "" {
+		stationURL = "http://" + n + "-serve:" + port
+	}
 
 	container := func(role, desc, command, station string, extra ...string) File {
 		lines := []string{
@@ -94,7 +99,7 @@ func Render(s Spec) ([]File, error) {
 		if station != "" {
 			lines = append(lines,
 				"EnvironmentFile="+filepath.Join(stations, station, "env"),
-				"Environment=SWEATSHOP_LINE_URL=http://"+n+"-serve:"+port)
+				"Environment=SWEATSHOP_LINE_URL="+stationURL)
 		}
 		lines = append(lines, extra...)
 		lines = append(lines,

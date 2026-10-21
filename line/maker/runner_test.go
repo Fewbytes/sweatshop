@@ -921,3 +921,25 @@ func TestOnceEscalatesToKingWhenReleaseKeepsFailing(t *testing.T) {
 		t.Fatalf("calls = %q, want escalation to the king", b.calls)
 	}
 }
+
+func TestOnceTellsStationsTheLinesStationURLAndExplicitURLWins(t *testing.T) {
+	bare, _ := remote(t)
+	fb := &fakeBeads{ready: []Bead{{ID: "b-1"}}}
+	fe := &fakeEngine{}
+	r := newRunner(t, bare, fb, fe)
+	r.Line.URL = "http://sweatshop-a-serve:7469"
+	if _, err := r.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := fe.specs[0].Env["SWEATSHOP_LINE_URL"]; got != "http://sweatshop-a-serve:7469" {
+		t.Fatalf("SWEATSHOP_LINE_URL = %q, want the line's url", got)
+	}
+	r.URL = "http://example.test:9"
+	fb.ready = []Bead{{ID: "b-2"}}
+	if _, err := r.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := fe.specs[1].Env["SWEATSHOP_LINE_URL"]; got != "http://example.test:9" {
+		t.Fatalf("SWEATSHOP_LINE_URL = %q, want the explicit url", got)
+	}
+}

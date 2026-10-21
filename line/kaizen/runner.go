@@ -46,7 +46,7 @@ type Runner struct {
 	Line     linedir.Line
 	Station  linedir.Station
 	Engine   maker.Engine
-	URL      string // as seen from inside the container; default http://host.containers.internal:<port>
+	URL      string // as seen from inside the container; default: url of line.toml, else http://host.containers.internal:<port>
 	Token    string // empty reads Station.TokenFile
 	Creds    map[string]string
 	Timeout  time.Duration // bounds one container run; default maker.DefaultTimeout
@@ -165,7 +165,7 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 	runID := "kaizen-" + start.UTC().Format("20060102T150405Z")
 	url := r.URL
 	if url == "" {
-		url = fmt.Sprintf("http://host.containers.internal:%d", r.Line.Port)
+		url = r.Line.StationURL()
 	}
 	env := map[string]string{}
 	for k, v := range r.Creds {

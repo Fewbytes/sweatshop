@@ -2,6 +2,7 @@ package linedir
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -346,5 +347,30 @@ func TestLoadReadsLineNetworkAndRejectsOptionLikeName(t *testing.T) {
 	}
 	if _, err := Load(l.Dir); err == nil {
 		t.Fatal("Load accepted an option-like network name")
+	}
+}
+
+func TestLoadReadsLineURLAndStationURLFallsBackToHostGateway(t *testing.T) {
+	l, _ := initLine(t)
+	if want := fmt.Sprintf("http://host.containers.internal:%d", l.Port); l.StationURL() != want {
+		t.Fatalf("StationURL without url = %q, want %q", l.StationURL(), want)
+	}
+	path := filepath.Join(l.Dir, "line.toml")
+	orig, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append([]byte("url = \"http://sweatshop-a-serve:7469\"\n"), orig...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(l.Dir)
+	if err != nil || got.URL != "http://sweatshop-a-serve:7469" || got.StationURL() != got.URL {
+		t.Fatalf("Load url = %q, StationURL = %q, %v", got.URL, got.StationURL(), err)
+	}
+	if err := os.WriteFile(path, append([]byte("url = \"serve:7469\"\n"), orig...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(l.Dir); err == nil {
+		t.Fatal("Load accepted a url without http scheme")
 	}
 }

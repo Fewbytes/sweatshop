@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -645,5 +646,21 @@ func TestAcquireQueuedGivesUpAfterLimit(t *testing.T) {
 	}
 	if err := s.acquireQueued(context.Background(), 20*time.Millisecond); !errors.Is(err, errBusy) {
 		t.Fatalf("want errBusy, got %v", err)
+	}
+}
+
+func TestBootstrapUsesLineURLElseHostGatewayDefault(t *testing.T) {
+	r := newSuccRig(t, true)
+	r.sup.Line.URL = "http://sweatshop-a-serve:7469"
+	r.bootstrap()
+	if got := r.eng.starts[0].Env["SWEATSHOP_LINE_URL"]; got != "http://sweatshop-a-serve:7469" {
+		t.Fatalf("SWEATSHOP_LINE_URL = %q, want the line's url", got)
+	}
+	r = newSuccRig(t, true)
+	r.sup.Line.URL = ""
+	r.bootstrap()
+	want := fmt.Sprintf("http://host.containers.internal:%d", r.sup.Line.Port)
+	if got := r.eng.starts[0].Env["SWEATSHOP_LINE_URL"]; got != want {
+		t.Fatalf("SWEATSHOP_LINE_URL = %q, want %q", got, want)
 	}
 }

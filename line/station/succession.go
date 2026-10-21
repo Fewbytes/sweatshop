@@ -192,7 +192,7 @@ type Supervisor struct {
 	Server  *Server
 	Line    linedir.Line
 	Engine  Engine
-	URL     string // station API as seen from the container; default http://host.containers.internal:<port>
+	URL     string // station API as seen from the container; default: url of line.toml, else http://host.containers.internal:<port>
 	Log     *log.Logger
 	Timeout time.Duration // check-in deadline; default DefaultCheckinTimeout
 	Poll    time.Duration // how often a pending container is looked at; default 5s
@@ -336,7 +336,7 @@ func (v *Supervisor) spec(st *Station, g Generation) (ContainerSpec, error) {
 	}
 	url := v.URL
 	if url == "" {
-		url = fmt.Sprintf("http://host.containers.internal:%d", v.Line.Port)
+		url = v.Line.StationURL()
 	}
 	env := map[string]string{
 		"SWEATSHOP_MODE":          "viceroy",

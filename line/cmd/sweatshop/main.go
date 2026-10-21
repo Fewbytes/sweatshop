@@ -292,6 +292,10 @@ func lineInstall(args []string, stdout io.Writer) error {
 		return err
 	}
 	spec.Port = l.Port
+	spec.URL = l.URL
+	if l.Network == "" || l.URL == "" {
+		fmt.Fprintln(stdout, "note: line.toml has no network or url; station containers started by the runners cannot reach serve through host.containers.internal when it runs on the line network. Set both in line.toml.")
+	}
 	written, err := quadlet.Install(spec, *quadletDir, *sliceDir)
 	if err != nil {
 		return err
@@ -610,7 +614,7 @@ func lineMaker(args []string) error {
 	cardsMode := fs.String("cards", "beads", "how to reach cards: beads (bd in --beads) or api (line serve, via SWEATSHOP_LINE_URL and SWEATSHOP_LINE_TOKEN; never opens .beads)")
 	once := fs.Bool("once", false, "work at most one card, then exit")
 	engine := fs.String("engine", "", "container engine CLI (default: the line's engine)")
-	url := fs.String("url", "", "station API URL as seen from the container (default http://host.containers.internal:<port>)")
+	url := fs.String("url", "", "station API URL as seen from the container (default: url of line.toml, else http://host.containers.internal:<port>)")
 	timeout := fs.Duration("timeout", maker.DefaultTimeout, "longest one card's container may run")
 	maxAttempts := fs.Int("max-attempts", maker.DefaultMaxAttempts, "runs one card gets before it is labelled "+maker.GaveUpLabel)
 	memory := fs.String("memory", constitution.DefaultMemory, "station container memory limit (engine --memory syntax)")
@@ -701,7 +705,7 @@ func lineGemba(args []string) error {
 	beads := fs.String("beads", "", "directory whose beads database holds the cards")
 	once := fs.Bool("once", false, "work at most one card, then exit")
 	engine := fs.String("engine", "", "container engine CLI (default: the line's engine)")
-	url := fs.String("url", "", "station API URL as seen from the container (default http://host.containers.internal:<port>)")
+	url := fs.String("url", "", "station API URL as seen from the container (default: url of line.toml, else http://host.containers.internal:<port>)")
 	timeout := fs.Duration("timeout", maker.DefaultTimeout, "longest one card's container may run")
 	maxAttempts := fs.Int("max-attempts", maker.DefaultMaxAttempts, "runs one card gets before it is labelled "+maker.GaveUpLabel)
 	memory := fs.String("memory", constitution.DefaultMemory, "station container memory limit (engine --memory syntax)")
@@ -946,7 +950,7 @@ func lineKaizen(args []string) error {
 	name := fs.String("station", "", "kaizen station name (e.g. kaizen-1)")
 	once := fs.Bool("once", false, "run at most once, then exit")
 	engine := fs.String("engine", "", "container engine CLI (default: the line's engine)")
-	url := fs.String("url", "", "station API URL as seen from the container (default http://host.containers.internal:<port>)")
+	url := fs.String("url", "", "station API URL as seen from the container (default: url of line.toml, else http://host.containers.internal:<port>)")
 	timeout := fs.Duration("timeout", maker.DefaultTimeout, "longest one run's container may run")
 	interval := fs.Duration("interval", kaizen.DefaultInterval, "least time between two runs")
 	memory := fs.String("memory", constitution.DefaultMemory, "station container memory limit (engine --memory syntax)")
@@ -1639,7 +1643,7 @@ func lineViceroyStart(args []string, stdout io.Writer) error {
 	dir := fs.String("dir", "", "line directory")
 	commit := fs.String("commit", "", "master commit to build (full hex)")
 	engine := fs.String("engine", "", "container engine CLI (default: the line's engine)")
-	url := fs.String("url", "", "station API URL as seen from the container (default http://host.containers.internal:<port>)")
+	url := fs.String("url", "", "station API URL as seen from the container (default: url of line.toml, else http://host.containers.internal:<port>)")
 	name := fs.String("station", "", "viceroy station (default: the line's only viceroy station)")
 	if err := fs.Parse(args); err != nil {
 		return err

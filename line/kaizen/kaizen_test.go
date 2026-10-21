@@ -399,3 +399,22 @@ func TestPromptOrdersBaselineStatusPickChangeAndMeasureAgain(t *testing.T) {
 		last = at
 	}
 }
+
+func TestOnceUsesLineURLElseHostGatewayDefault(t *testing.T) {
+	for _, tc := range []struct{ lineURL, want string }{
+		{"http://sweatshop-a-serve:7469", "http://sweatshop-a-serve:7469"},
+		{"", "http://host.containers.internal:1"},
+	} {
+		bare, _ := seededRemote(t)
+		now := time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)
+		e := &fakeEngine{}
+		r := newRunner(t, bare, e, &now)
+		r.Line.URL = tc.lineURL
+		if ran, err := r.Once(context.Background()); err != nil || !ran {
+			t.Fatalf("Once = %v, %v", ran, err)
+		}
+		if got := e.specs[0].Env["SWEATSHOP_LINE_URL"]; got != tc.want {
+			t.Errorf("line url %q: SWEATSHOP_LINE_URL = %q, want %q", tc.lineURL, got, tc.want)
+		}
+	}
+}

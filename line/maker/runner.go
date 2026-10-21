@@ -100,7 +100,7 @@ type Runner struct {
 	// PromptFor builds the agent's instruction for a card; default Prompt.
 	PromptFor func(Bead) string
 	Engine    Engine
-	URL       string // as seen from inside the container; default http://host.containers.internal:<port>
+	URL       string // as seen from inside the container; default: url of line.toml, else http://host.containers.internal:<port>
 	// Token is the station's bearer token; empty reads Station.TokenFile.
 	Token   string
 	Creds   map[string]string // model credentials passed through to the container
@@ -413,7 +413,7 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 
 	url := r.URL
 	if url == "" {
-		url = fmt.Sprintf("http://host.containers.internal:%d", r.Line.Port)
+		url = r.Line.StationURL()
 	}
 	env := map[string]string{}
 	for k, v := range r.Creds {

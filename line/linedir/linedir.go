@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -47,6 +48,7 @@ type Line struct {
 	Engine       string
 	Image        string
 	Network      string // container network of this line's stations; empty means the engine default
+	URL          string // station API as station containers see it; empty means StationURL's host-gateway default
 	// ViceroyImage, when set, is a prebuilt image every viceroy generation
 	// runs. A line whose master carries no station/Dockerfile (a project line)
 	// needs it; without it each generation is built from the line's master.
@@ -93,6 +95,7 @@ type lineFile struct {
 	Engine       string        `toml:"engine"`
 	Image        string        `toml:"image"`
 	Network      string        `toml:"network,omitempty"`
+	URL          string        `toml:"url,omitempty"`
 	ViceroyImage string        `toml:"viceroy_image,omitempty"`
 	Stations     []stationFile `toml:"stations"`
 	Deploy       *Deploy       `toml:"deploy,omitempty"`
@@ -114,11 +117,21 @@ const (
 	ConstitutionBlob = "constitution"
 )
 
+// StationURL is the station API address station containers use: line.toml's
+// url when set, else the engine's host gateway on the line's port, which
+// reaches only a serve published on the host, not one on a line network.
+func (l Line) StationURL() string {
+	if l.URL != "" {
+		return l.URL
+	}
+	return fmt.Sprintf("http://host.containers.internal:%d", l.Port)
+}
+
 var safeName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 
 func newLine(dir string, lf lineFile) Line {
 	l := Line{
-		Dir: dir, Port: lf.Port, Engine: lf.Engine, Image: lf.Image, Network: lf.Network, ViceroyImage: lf.ViceroyImage,
+		Dir: dir, Port: lf.Port, Engine: lf.Engine, Image: lf.Image, Network: lf.Network, URL: lf.URL, ViceroyImage: lf.ViceroyImage,
 		Remote:       filepath.Join(dir, "remote.git"),
 		Constitution: filepath.Join(dir, "constitution.toml"),
 	}
@@ -428,6 +441,12 @@ func Load(dir string) (Line, error) {
 	l := newLine(dir, lf)
 	if l.Network != "" && !safeName.MatchString(l.Network) {
 		return Line{}, fmt.Errorf("line.toml: bad network name %q", l.Network)
+	}
+	if l.URL != "" {
+		u, err := url.Parse(l.URL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return Line{}, fmt.Errorf("line.toml: bad url %q (want http://host:port)", l.URL)
+		}
 	}
 	for _, s := range l.Stations {
 		if !safeName.MatchString(s.Name) {
