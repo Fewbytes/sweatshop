@@ -1,0 +1,66 @@
+# sweatshop-line: the image of a line's own services (serve, heijunka, andon,
+# kaizen, mirror). Go binary, a pinned git and the podman API client; no
+# toolchain, no claude. Quadlet units run it with `Exec=sweatshop line ...`
+# (see line/quadlet), and the release builder builds it from this path
+# (line/station/release.go). Build from the repository root: `just line-image`.
+#
+# The pins below are copied from station/Dockerfile: keep them in step.
+
+# Keep in step with the `go` directive in line/go.mod (and agentsh/go.mod).
+ARG GO_VERSION=1.27.2
+# Base images are pinned by multi-arch index digest. Bump the tag and digest
+# together (the digest is the index digest of golang:<GO_VERSION>-bookworm).
+ARG GOLANG_DIGEST=sha256:55395706e9703db746cc507abfc4eb2aea75918f8a8024e4848e2cb81004f5ad
+# Index digest of debian:bookworm-slim.
+ARG DEBIAN_IMAGE=debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+
+FROM golang:${GO_VERSION}-bookworm@${GOLANG_DIGEST} AS builder
+WORKDIR /build/line
+COPY line/go.mod line/go.sum ./
+RUN go mod download
+COPY line/ ./
+RUN CGO_ENABLED=0 go build -o /out/sweatshop ./cmd/sweatshop
+
+# bookworm ships git 2.39 and bookworm-backports carries no git at all, so
+# build the witness's floor (2.45.1) or newer from the kernel.org release.
+FROM ${DEBIAN_IMAGE} AS git-builder
+ARG GIT_VERSION=2.51.0
+ARG GIT_SHA256=60a7c2251cc2e588d5cd87bae567260617c6de0c22dca9cdbfc4c7d2b8990b62
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl xz-utils make gcc libc6-dev \
+        libcurl4-openssl-dev libexpat1-dev zlib1g-dev libssl-dev; \
+    curl -fsSLo /tmp/git.tar.xz "https://www.kernel.org/pub/software/scm/git/git-${GIT_VERSION}.tar.xz"; \
+    echo "${GIT_SHA256}  /tmp/git.tar.xz" | sha256sum -c -; \
+    mkdir /tmp/git && tar -xJf /tmp/git.tar.xz -C /tmp/git --strip-components=1; \
+    make -C /tmp/git -j"$(nproc)" prefix=/opt/git NO_TCLTK=1 NO_GETTEXT=1 NO_PERL=1 NO_PYTHON=1 install
+
+FROM ${DEBIAN_IMAGE}
+# bookworm packages no podman-remote; use the static upstream client, pinned.
+# line.toml names the engine `podman`, so the client is installed under that
+# name too; it talks to the host through CONTAINER_HOST.
+ARG PODMAN_VERSION=6.1.3
+ARG PODMAN_REMOTE_SHA256_AMD64=23ee4f71873810a864389b78ffe0d7536296432bb96d0c2acfbbfc7d50ee9c1b
+ARG PODMAN_REMOTE_SHA256_ARM64=a0e949d1df0198bd5fe4a8aa4aa57b3038dd1946acbb2088ab318ea0e89bd349
+COPY --from=git-builder /opt/git /opt/git
+ENV PATH=/opt/git/bin:$PATH
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl libcurl4 libexpat1 zlib1g tini; \
+    rm -rf /var/lib/apt/lists/*; \
+    case "$(uname -m)" in \
+        x86_64) arch=amd64; sum="$PODMAN_REMOTE_SHA256_AMD64" ;; \
+        aarch64) arch=arm64; sum="$PODMAN_REMOTE_SHA256_ARM64" ;; \
+        *) echo "unsupported arch $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSLo /tmp/podman.tar.gz "https://github.com/containers/podman/releases/download/v${PODMAN_VERSION}/podman-remote-static-linux_${arch}.tar.gz"; \
+    echo "${sum}  /tmp/podman.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/podman.tar.gz -C /tmp; \
+    install -m 0755 "/tmp/bin/podman-remote-static-linux_${arch}" /usr/local/bin/podman-remote; \
+    ln -s podman-remote /usr/local/bin/podman; \
+    rm -rf /tmp/podman.tar.gz /tmp/bin; \
+    podman-remote --version; \
+    mkdir -p /opt/git/etc; \
+    git config --system --add safe.directory '*'
+COPY --from=builder /out/sweatshop /usr/local/bin/sweatshop
+ENTRYPOINT ["/usr/bin/tini", "--"]

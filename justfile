@@ -104,6 +104,11 @@ station-image tag="dev":
 maker-image tag="dev":
     podman build -f station/Dockerfile --target maker -t sweatshop-maker:{{tag}} .
 
+# Build the image a line's services run in (serve, heijunka, andon, kaizen,
+# mirror): the sweatshop binary, git and a podman client. Quadlet units use it.
+line-image tag="dev":
+    podman build -f station/Dockerfile.line -t sweatshop-line:{{tag}} .
+
 # Run a line's maker as a podman service that restarts on failure and with the
 # podman machine. The station token and model credential become podman secrets
 # read straight from the line dir (never echoed); the maker reaches cards only
