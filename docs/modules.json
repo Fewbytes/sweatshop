@@ -1408,7 +1408,7 @@
         "Runner"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 21,
+      "hotspot_rank": 26,
       "imported_by": [
         "line/cmd/sweatshop"
       ],
@@ -1422,7 +1422,7 @@
         "line/station"
       ],
       "lcom4": 1,
-      "measured_at_commit": "406149bd7023e94beb32d4392de995fac1971450",
+      "measured_at_commit": "4586c267b41aabcd5b18f59b7b470e5faec76ff5",
       "purpose": "Package kaizen runs a Kaizen station: a host-side loop that, on a schedule"
     },
     "line/kaizen/signals": {
@@ -1640,25 +1640,29 @@
       "purpose": "Package report turns a witness check run into a JUnit XML report and a"
     },
     "line/runner": {
-      "entry_point_count": 10,
+      "entry_point_count": 12,
       "entry_points": [
         "CLI",
         "Fake",
         "HostGateway",
         "Mount",
         "New",
+        "Remote",
         "Runner",
         "Spec",
         "State",
         "VolumeLineRemote",
-        "Volumes"
+        "Volumes",
+        "WorkloadAPI"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 29,
+      "hotspot_rank": 25,
       "imported_by": [],
-      "imports": [],
+      "imports": [
+        "line/station"
+      ],
       "lcom4": 1,
-      "measured_at_commit": "941a4801b78fea5d04280ae68f7105d2f9adfce2",
+      "measured_at_commit": "4586c267b41aabcd5b18f59b7b470e5faec76ff5",
       "purpose": "Package runner is the one interface the line uses to run station and"
     },
     "line/secret": {
@@ -1685,7 +1689,7 @@
       "purpose": "Package secret resolves named line secrets (the model token, the Discord"
     },
     "line/station": {
-      "entry_point_count": 113,
+      "entry_point_count": 114,
       "entry_points": [
         "AcceptanceAccepted",
         "AcceptanceAdd",
@@ -1711,6 +1715,7 @@
         "line/heijunka",
         "line/kaizen",
         "line/maker",
+        "line/runner",
         "line/viceroy"
       ],
       "imports": [
@@ -1730,7 +1735,7 @@
         "line/witness"
       ],
       "lcom4": 2,
-      "measured_at_commit": "3abbff81bcd710f8774b1be7956957998cf6ee9c",
+      "measured_at_commit": "4586c267b41aabcd5b18f59b7b470e5faec76ff5",
       "purpose": "Package station is the station API: the only way containerized agents reach"
     },
     "line/testhygiene": {

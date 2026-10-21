@@ -1,6 +1,7 @@
 // Package runner is the one interface the line uses to run station and
 // viceroy containers, whatever runs them. Docker and podman ship here (CLI
-// backends); k8s, nomad and ecs implement the same interface later.
+// backends) and Remote, which asks the line controller through serve; k8s,
+// nomad and ecs implement the same interface later.
 //
 // Nothing in the interface names a host path: mounts refer to named volumes
 // and secrets are values. A backend decides what a volume is (a bind mount, a

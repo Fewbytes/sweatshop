@@ -9,7 +9,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/Fewbytes/sweatshop/line/station"
@@ -183,7 +182,7 @@ func (c *Controller) reconcile(ctx context.Context, w station.Workload, obj Obse
 		return c.report(ctx, w, station.WorkloadRunning, "", false)
 	}
 	// Exited. Report once, keep the object for its logs, then clean it up.
-	state, detail := station.WorkloadExited, "exit code "+strconv.Itoa(obj.ExitCode)
+	state, detail := station.WorkloadExited, station.WorkloadExitDetail(obj.ExitCode)
 	if obj.ExitCode != 0 {
 		state = station.WorkloadFailed
 	}

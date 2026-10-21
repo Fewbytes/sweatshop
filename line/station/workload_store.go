@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -81,6 +83,25 @@ type Workload struct {
 	Stopped   bool            `json:"stopped,omitempty"` // the owner asked to stop it; the controller removes it
 	ExpiresAt time.Time       `json:"expires_at,omitzero"`
 	History   []WorkloadEvent `json:"history"`
+}
+
+// WorkloadExitDetail is the Detail the controller reports when a container
+// exits; Workload.ExitCode reads it back.
+func WorkloadExitDetail(code int) string { return "exit code " + strconv.Itoa(code) }
+
+// ExitCode returns the container's exit code once the controller has reported
+// it (state exited or failed); ok is false for a failure that has no code,
+// such as an engine refusing to create the container.
+func (w Workload) ExitCode() (code int, ok bool) {
+	if w.State != WorkloadExited && w.State != WorkloadFailed {
+		return 0, false
+	}
+	rest, found := strings.CutPrefix(w.Detail, WorkloadExitDetail(0)[:len("exit code ")])
+	if !found {
+		return 0, false
+	}
+	code, err := strconv.Atoi(rest)
+	return code, err == nil
 }
 
 // live reports whether the workload counts against its station's quota.
