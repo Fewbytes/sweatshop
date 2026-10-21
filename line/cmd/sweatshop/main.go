@@ -212,6 +212,19 @@ func run(args []string, stdout io.Writer) error {
 	}
 }
 
+// stationKeyID returns the key ID of the public key stored beside keyFile.
+func stationKeyID(keyFile string) (string, error) {
+	pub, err := os.ReadFile(keyFile + ".pub")
+	if err != nil {
+		return "", err
+	}
+	key, err := attest.ParsePublicKey(strings.TrimSpace(string(pub)))
+	if err != nil {
+		return "", err
+	}
+	return attest.KeyID(key), nil
+}
+
 func lineInit(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("line init", flag.ContinueOnError)
 	var opts linedir.InitOptions
@@ -235,15 +248,11 @@ func lineInit(args []string, stdout io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "line %s\nport %d\n", l.Dir, l.Port)
 	for _, s := range l.Stations {
-		pub, err := os.ReadFile(s.KeyFile + ".pub")
+		keyID, err := stationKeyID(s.KeyFile)
 		if err != nil {
 			return err
 		}
-		key, err := attest.ParsePublicKey(strings.TrimSpace(string(pub)))
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(stdout, "station %s role %s key_id %s\n", s.Name, s.Role, attest.KeyID(key))
+		fmt.Fprintf(stdout, "station %s role %s key_id %s\n", s.Name, s.Role, keyID)
 	}
 	return nil
 }
@@ -348,15 +357,11 @@ func lineStationAdd(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	pub, err := os.ReadFile(s.KeyFile + ".pub")
+	keyID, err := stationKeyID(s.KeyFile)
 	if err != nil {
 		return err
 	}
-	key, err := attest.ParsePublicKey(strings.TrimSpace(string(pub)))
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(stdout, "station %s role %s key_id %s\nrestart line serve to load it\n", s.Name, s.Role, attest.KeyID(key))
+	fmt.Fprintf(stdout, "station %s role %s key_id %s\nrestart line serve to load it\n", s.Name, s.Role, keyID)
 	return nil
 }
 
