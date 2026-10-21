@@ -1695,7 +1695,7 @@
       "purpose": "Package secret resolves named line secrets (the model token, the Discord"
     },
     "line/station": {
-      "entry_point_count": 114,
+      "entry_point_count": 115,
       "entry_points": [
         "AcceptanceAccepted",
         "AcceptanceAdd",
@@ -1741,7 +1741,7 @@
         "line/witness"
       ],
       "lcom4": 2,
-      "measured_at_commit": "4586c267b41aabcd5b18f59b7b470e5faec76ff5",
+      "measured_at_commit": "bc210d1ddb0433cb92dc5127306551766bc38c21",
       "purpose": "Package station is the station API: the only way containerized agents reach"
     },
     "line/testhygiene": {

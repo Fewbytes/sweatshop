@@ -15,7 +15,6 @@ import (
 	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -862,31 +861,11 @@ func (d DockerEngine) Run(ctx context.Context, spec ContainerSpec) (int, error) 
 	if spec.Name != "" {
 		args = append(args, "--name", spec.Name)
 	}
-	if spec.Network != "" {
-		args = append(args, "--network", spec.Network)
+	limitFlags, env, err := station.ContainerRunFlags(spec.Network, spec.Memory, spec.CPUs, spec.Pids, spec.Env)
+	if err != nil {
+		return -1, err
 	}
-	if spec.Memory != "" {
-		args = append(args, "--memory", spec.Memory)
-	}
-	if spec.Pids > 0 {
-		args = append(args, "--pids-limit", strconv.Itoa(spec.Pids))
-	}
-	if spec.CPUs != "" {
-		args = append(args, "--cpus", spec.CPUs)
-	}
-	keys := make([]string, 0, len(spec.Env))
-	for k := range spec.Env {
-		if k == "" || strings.ContainsAny(k, "=\x00") {
-			return -1, fmt.Errorf("bad environment variable name %q", k)
-		}
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	env := os.Environ()
-	for _, k := range keys {
-		args = append(args, "-e", k)
-		env = append(env, k+"="+spec.Env[k])
-	}
+	args = append(args, limitFlags...)
 	for _, m := range spec.Mounts {
 		if strings.Contains(m.Host, ":") || strings.Contains(m.Container, ":") || m.Host == "" || m.Container == "" {
 			return -1, fmt.Errorf("bad mount %q -> %q", m.Host, m.Container)
@@ -918,7 +897,7 @@ func (d DockerEngine) Run(ctx context.Context, spec ContainerSpec) (int, error) 
 		cmd.Stdout = io.MultiWriter(cmd.Stdout, spec.Output)
 		cmd.Stderr = io.MultiWriter(cmd.Stderr, spec.Output)
 	}
-	err := cmd.Run()
+	err = cmd.Run()
 	if spec.Name != "" {
 		// Whatever ended the CLI, make sure no container outlives the run:
 		// the bead is about to be settled and another run may take it.

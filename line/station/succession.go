@@ -103,6 +103,39 @@ func (e CLIEngine) Build(ctx context.Context, contextDir, dockerfile, tag string
 	return err
 }
 
+// ContainerRunFlags renders the resource ceilings, network and environment
+// of a container as `run` flags, and the process environment that carries the
+// values: `-e K` takes the value from the CLI's own environment, so secrets
+// stay out of the host's process table.
+func ContainerRunFlags(network, memory, cpus string, pids int, env map[string]string) (flags, environ []string, err error) {
+	if network != "" {
+		flags = append(flags, "--network", network)
+	}
+	if memory != "" {
+		flags = append(flags, "--memory", memory)
+	}
+	if pids > 0 {
+		flags = append(flags, "--pids-limit", strconv.Itoa(pids))
+	}
+	if cpus != "" {
+		flags = append(flags, "--cpus", cpus)
+	}
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		if k == "" || strings.ContainsAny(k, "=\x00") {
+			return nil, nil, fmt.Errorf("bad environment variable name %q", k)
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	environ = os.Environ()
+	for _, k := range keys {
+		flags = append(flags, "-e", k)
+		environ = append(environ, k+"="+env[k])
+	}
+	return flags, environ, nil
+}
+
 func (e CLIEngine) Start(ctx context.Context, spec ContainerSpec) error {
 	if spec.Name == "" || strings.HasPrefix(spec.Name, "-") {
 		return fmt.Errorf("bad container name %q", spec.Name)
@@ -111,31 +144,11 @@ func (e CLIEngine) Start(ctx context.Context, spec ContainerSpec) error {
 		return fmt.Errorf("bad image %q", spec.Image)
 	}
 	args := []string{"run", "-d", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--name", spec.Name}
-	if spec.Network != "" {
-		args = append(args, "--network", spec.Network)
+	limitFlags, env, err := ContainerRunFlags(spec.Network, spec.Memory, spec.CPUs, spec.Pids, spec.Env)
+	if err != nil {
+		return err
 	}
-	if spec.Memory != "" {
-		args = append(args, "--memory", spec.Memory)
-	}
-	if spec.Pids > 0 {
-		args = append(args, "--pids-limit", strconv.Itoa(spec.Pids))
-	}
-	if spec.CPUs != "" {
-		args = append(args, "--cpus", spec.CPUs)
-	}
-	keys := make([]string, 0, len(spec.Env))
-	for k := range spec.Env {
-		if k == "" || strings.ContainsAny(k, "=\x00") {
-			return fmt.Errorf("bad environment variable name %q", k)
-		}
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	env := os.Environ()
-	for _, k := range keys {
-		args = append(args, "-e", k)
-		env = append(env, k+"="+spec.Env[k])
-	}
+	args = append(args, limitFlags...)
 	for _, m := range spec.Mounts {
 		if !filepath.IsAbs(m.Host) || !filepath.IsAbs(m.Container) || strings.Contains(m.Host+m.Container, ":") {
 			return fmt.Errorf("bad mount %q -> %q", m.Host, m.Container)
@@ -146,7 +159,7 @@ func (e CLIEngine) Start(ctx context.Context, spec ContainerSpec) error {
 		}
 		args = append(args, "-v", v)
 	}
-	_, err := e.run(ctx, env, append(args, spec.Image)...)
+	_, err = e.run(ctx, env, append(args, spec.Image)...)
 	return err
 }
 
