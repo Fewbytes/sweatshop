@@ -41,6 +41,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/maker"
 	"github.com/Fewbytes/sweatshop/line/mirror"
 	"github.com/Fewbytes/sweatshop/line/quadlet"
+	"github.com/Fewbytes/sweatshop/line/secret"
 	"github.com/Fewbytes/sweatshop/line/station"
 	"github.com/Fewbytes/sweatshop/line/viceroy"
 	"github.com/Fewbytes/sweatshop/line/witness"
@@ -263,7 +264,8 @@ func lineInit(args []string, stdout io.Writer) error {
 	return nil
 }
 
-// lineInstall writes the Quadlet units of the line in --dir. It starts
+// lineInstall writes the Quadlet units of the line in --dir and the station
+// env files they read. It starts
 // nothing: the operator reloads systemd after reading the file list.
 func lineInstall(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("line install", flag.ContinueOnError)
@@ -274,6 +276,7 @@ func lineInstall(args []string, stdout io.Writer) error {
 	fs.StringVar(&spec.Image, "image", "localhost/sweatshop-line:dev", "image holding the sweatshop binary")
 	fs.StringVar(&spec.CPUQuota, "cpu-quota", "200%", "CPUQuota of the line's slice")
 	fs.StringVar(&spec.MemoryMax, "memory-max", "8G", "MemoryMax of the line's slice")
+	rewriteEnv := fs.Bool("rewrite-env", false, "rewrite existing station env files (default: keep them)")
 	fs.StringVar(&spec.MirrorCredDir, "mirror-creds", "", "host directory with the line's mirror deploy_key and known_hosts (absolute); enables the mirror service")
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -296,10 +299,15 @@ func lineInstall(args []string, stdout io.Writer) error {
 	if l.Network == "" || l.URL == "" {
 		fmt.Fprintln(stdout, "note: line.toml has no network or url; station containers started by the runners cannot reach serve through host.containers.internal when it runs on the line network. Set both in line.toml.")
 	}
+	envFiles, err := quadlet.WriteEnvFiles(spec, secret.ForLine(spec.Dir), *rewriteEnv)
+	if err != nil {
+		return err
+	}
 	written, err := quadlet.Install(spec, *quadletDir, *sliceDir)
 	if err != nil {
 		return err
 	}
+	written = append(envFiles, written...)
 	for _, path := range written {
 		fmt.Fprintln(stdout, path)
 	}

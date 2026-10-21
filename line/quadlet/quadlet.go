@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/Fewbytes/sweatshop/line/secret"
 )
 
 // Spec is everything that differs between two lines on one host.
@@ -165,6 +167,51 @@ func Install(s Spec, quadletDir, sliceDir string) ([]string, error) {
 		path := filepath.Join(dir, f.Name)
 		if err := os.WriteFile(path, []byte(f.Content), 0o644); err != nil {
 			return nil, err
+		}
+		written = append(written, path)
+	}
+	return written, nil
+}
+
+// envStation is a station whose unit reads EnvironmentFile=<dir>/stations/<name>/env.
+type envStation struct {
+	name       string
+	needsModel bool // also gets CLAUDE_CODE_OAUTH_TOKEN, which the station passes on to its containers
+}
+
+// envStations lists every station that Render gives an EnvironmentFile.
+var envStations = []envStation{{"heijunka-1", false}, {"andon-1", false}, {"kaizen-1", true}}
+
+// WriteEnvFiles writes the env file (mode 0600) of each station whose unit
+// reads one: SWEATSHOP_LINE_TOKEN from stations/<name>/token and, for kaizen,
+// CLAUDE_CODE_OAUTH_TOKEN from the model credential in src. An existing file
+// is kept unless rewrite is set. It returns the paths written. Errors name
+// files and stations, never values.
+func WriteEnvFiles(s Spec, src secret.Source, rewrite bool) ([]string, error) {
+	var written []string
+	for _, st := range envStations {
+		stationDir := filepath.Join(s.Dir, "stations", st.name)
+		path := filepath.Join(stationDir, "env")
+		if _, err := os.Stat(path); err == nil && !rewrite {
+			continue
+		}
+		token, err := os.ReadFile(filepath.Join(stationDir, "token"))
+		if err != nil {
+			return written, fmt.Errorf("quadlet: station %s token: %w (add the station with `line station add`)", st.name, err)
+		}
+		content := "SWEATSHOP_LINE_TOKEN=" + strings.TrimSpace(string(token)) + "\n"
+		if st.needsModel {
+			model, err := src.Read(secret.ModelCred)
+			if err != nil {
+				return written, fmt.Errorf("quadlet: station %s model credential: %w", st.name, err)
+			}
+			content += "CLAUDE_CODE_OAUTH_TOKEN=" + model + "\n"
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			return written, err
+		}
+		if err := os.Chmod(path, 0o600); err != nil {
+			return written, err
 		}
 		written = append(written, path)
 	}

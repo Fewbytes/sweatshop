@@ -1086,12 +1086,13 @@
         "line/maker",
         "line/mirror",
         "line/quadlet",
+        "line/secret",
         "line/station",
         "line/viceroy",
         "line/witness"
       ],
       "lcom4": 1,
-      "measured_at_commit": "3abbff81bcd710f8774b1be7956957998cf6ee9c",
+      "measured_at_commit": "cbaf391f33ca14d3347910fd8f659d73eea494e6",
       "purpose": "Command sweatshop administers an assembly line (witness keys, the merge"
     },
     "line/constitution": {
@@ -1593,21 +1594,24 @@
       "purpose": "Package mirror publishes a line's refs to the storage mirrors its"
     },
     "line/quadlet": {
-      "entry_point_count": 4,
+      "entry_point_count": 5,
       "entry_points": [
         "File",
         "Install",
         "Render",
-        "Spec"
+        "Spec",
+        "WriteEnvFiles"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 44,
+      "hotspot_rank": 36,
       "imported_by": [
         "line/cmd/sweatshop"
       ],
-      "imports": [],
+      "imports": [
+        "line/secret"
+      ],
       "lcom4": 1,
-      "measured_at_commit": "54f0a70b49cae942c9a0228703f9ef32ed1fff0f",
+      "measured_at_commit": "cbaf391f33ca14d3347910fd8f659d73eea494e6",
       "purpose": "Package quadlet renders the systemd units of one line on a shared host:"
     },
     "line/report": {
@@ -1679,13 +1683,15 @@
         "SystemdCredential"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 52,
+      "hotspot_rank": 54,
       "imported_by": [
+        "line/cmd/sweatshop",
+        "line/quadlet",
         "line/station"
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "c4df93528b2ef221b2febebe4c1fc22519401eb9",
+      "measured_at_commit": "cbaf391f33ca14d3347910fd8f659d73eea494e6",
       "purpose": "Package secret resolves named line secrets (the model token, the Discord"
     },
     "line/station": {

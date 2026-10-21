@@ -287,8 +287,19 @@ func TestLineInit(t *testing.T) {
 	}
 }
 
+func addEnvStations(t *testing.T, dir string) {
+	t.Helper()
+	for _, st := range []linedir.StationSpec{{Name: "heijunka-1", Role: "heijunka"}, {Name: "kaizen-1", Role: "kaizen"}} {
+		if _, err := linedir.AddStation(dir, st); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestLineInstallWritesUnitsWithTheLinesPort(t *testing.T) {
 	dir, _ := initLine(t)
+	addEnvStations(t, dir)
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "model-secret")
 	l, err := linedir.Load(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -309,6 +320,9 @@ func TestLineInstallWritesUnitsWithTheLinesPort(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), filepath.Join(sdir, "sweatshop-alpha.slice")) {
 		t.Errorf("output does not list the slice: %s", out.String())
+	}
+	if strings.Contains(out.String(), "model-secret") {
+		t.Errorf("install printed the model credential: %s", out.String())
 	}
 	if err := run([]string{"line", "install", "--name", "alpha", "--dir", dir}, &bytes.Buffer{}); err == nil {
 		t.Fatal("missing --project accepted")

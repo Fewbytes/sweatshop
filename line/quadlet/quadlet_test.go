@@ -1,10 +1,13 @@
 package quadlet
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Fewbytes/sweatshop/line/secret"
 )
 
 func testSpec(name string, port int) Spec {
@@ -130,5 +133,100 @@ func TestRenderMirrorServiceMountsOnlyItsOwnLinesCredentials(t *testing.T) {
 	s.MirrorCredDir = "creds"
 	if _, err := Render(s); err == nil {
 		t.Error("rendered a relative mirror credential dir")
+	}
+}
+
+// envLine makes a line directory with the stations whose units read env files.
+func envLine(t *testing.T) Spec {
+	t.Helper()
+	dir := t.TempDir()
+	for _, st := range []string{"heijunka-1", "andon-1", "kaizen-1"} {
+		if err := os.MkdirAll(filepath.Join(dir, "stations", st), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "stations", st, "token"), []byte("tok-"+st+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return Spec{Name: "alpha", Dir: dir}
+}
+
+type fakeModelCred struct{ value string }
+
+func (f fakeModelCred) Read(name string) (string, error) {
+	if name != secret.ModelCred || f.value == "" {
+		return "", secret.ErrNotFound
+	}
+	return f.value, nil
+}
+
+func readEnv(t *testing.T, s Spec, station string) string {
+	t.Helper()
+	path := filepath.Join(s.Dir, "stations", station, "env")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("%s mode = %o, want 600", path, info.Mode().Perm())
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestWriteEnvFilesGivesEachUnitItsTokenAndKaizenTheModelCredential(t *testing.T) {
+	s := envLine(t)
+	written, err := WriteEnvFiles(s, fakeModelCred{"model-secret"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(written) != 3 {
+		t.Errorf("written = %v, want 3 files", written)
+	}
+	if got := readEnv(t, s, "andon-1"); got != "SWEATSHOP_LINE_TOKEN=tok-andon-1\n" {
+		t.Errorf("andon env = %q", got)
+	}
+	if got := readEnv(t, s, "heijunka-1"); got != "SWEATSHOP_LINE_TOKEN=tok-heijunka-1\n" {
+		t.Errorf("heijunka env = %q", got)
+	}
+	if got, want := readEnv(t, s, "kaizen-1"), "SWEATSHOP_LINE_TOKEN=tok-kaizen-1\nCLAUDE_CODE_OAUTH_TOKEN=model-secret\n"; got != want {
+		t.Errorf("kaizen env = %q, want %q", got, want)
+	}
+}
+
+func TestWriteEnvFilesKeepsExistingFileUnlessRewriteIsSet(t *testing.T) {
+	s := envLine(t)
+	andon := filepath.Join(s.Dir, "stations", "andon-1", "env")
+	if err := os.WriteFile(andon, []byte("EDITED=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteEnvFiles(s, fakeModelCred{"m"}, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := readEnv(t, s, "andon-1"); got != "EDITED=1\n" {
+		t.Errorf("existing env overwritten: %q", got)
+	}
+	if _, err := WriteEnvFiles(s, fakeModelCred{"m"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := readEnv(t, s, "andon-1"); got != "SWEATSHOP_LINE_TOKEN=tok-andon-1\n" {
+		t.Errorf("rewrite kept old env: %q", got)
+	}
+}
+
+func TestWriteEnvFilesFailsWithoutModelCredentialOrStation(t *testing.T) {
+	s := envLine(t)
+	if _, err := WriteEnvFiles(s, fakeModelCred{}, false); !errors.Is(err, secret.ErrNotFound) {
+		t.Errorf("missing model credential: err = %v, want ErrNotFound", err)
+	}
+	if err := os.RemoveAll(filepath.Join(s.Dir, "stations", "heijunka-1")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := WriteEnvFiles(s, fakeModelCred{"m"}, true)
+	if err == nil || !strings.Contains(err.Error(), "heijunka-1") {
+		t.Errorf("missing station: err = %v, want one naming heijunka-1", err)
 	}
 }
