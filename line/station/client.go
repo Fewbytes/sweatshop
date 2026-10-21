@@ -469,3 +469,42 @@ func (c Client) ViceroyCheckin(ctx context.Context) ([]byte, error) {
 func (c Client) DeployRequest(ctx context.Context, commit string) ([]byte, error) {
 	return c.do(ctx, http.MethodPost, "/v1/deploy/requests", url.Values{"commit": {commit}}, nil, nil)
 }
+
+// WorkloadRequest asks the line for a workload; the policy decides, and the
+// king may be asked. A denied request returns an error carrying the reason.
+func (c Client) WorkloadRequest(ctx context.Context, spec WorkloadSpec) (Workload, error) {
+	body, err := json.Marshal(spec)
+	if err != nil {
+		return Workload{}, err
+	}
+	var out Workload
+	_, err = c.do(ctx, http.MethodPost, "/v1/workloads", nil, bytes.NewReader(body), &out)
+	return out, err
+}
+
+// WorkloadGet returns workload id, which must be the caller's own (gemba: any).
+func (c Client) WorkloadGet(ctx context.Context, id string) (Workload, error) {
+	var out Workload
+	_, err := c.do(ctx, http.MethodGet, "/v1/workloads/"+url.PathEscape(id), nil, nil, &out)
+	return out, err
+}
+
+// WorkloadList returns the caller's workloads (gemba: all).
+func (c Client) WorkloadList(ctx context.Context) ([]Workload, error) {
+	var out []Workload
+	_, err := c.do(ctx, http.MethodGet, "/v1/workloads", nil, nil, &out)
+	return out, err
+}
+
+// WorkloadStop stops workload id, or withdraws it if the king has not approved it.
+func (c Client) WorkloadStop(ctx context.Context, id string) (Workload, error) {
+	var out Workload
+	_, err := c.do(ctx, http.MethodDelete, "/v1/workloads/"+url.PathEscape(id), nil, nil, &out)
+	return out, err
+}
+
+// WorkloadLogs returns the latest log tail the controller reported for id.
+func (c Client) WorkloadLogs(ctx context.Context, id string) (string, error) {
+	b, err := c.do(ctx, http.MethodGet, "/v1/workloads/"+url.PathEscape(id)+"/logs", nil, nil, nil)
+	return string(b), err
+}

@@ -140,3 +140,37 @@ func (c Constitution) validateWorkloads() error {
 	}
 	return nil
 }
+
+// ParseMemoryBytes converts a memory size like 4g or 512m (the form rules and
+// the runner accept; a bare number is bytes) to bytes.
+func ParseMemoryBytes(size string) (int64, error) {
+	if !memorySize.MatchString(size) {
+		return 0, fmt.Errorf("memory %q: want a size like 4g or 512m", size)
+	}
+	mult := int64(1)
+	digits := size
+	switch last := size[len(size)-1]; last {
+	case 'b', 'B':
+		digits = size[:len(size)-1]
+	case 'k', 'K':
+		mult, digits = 1<<10, size[:len(size)-1]
+	case 'm', 'M':
+		mult, digits = 1<<20, size[:len(size)-1]
+	case 'g', 'G':
+		mult, digits = 1<<30, size[:len(size)-1]
+	}
+	n, err := strconv.ParseInt(digits, 10, 64)
+	if err != nil || n > (1<<62)/mult {
+		return 0, fmt.Errorf("memory %q: out of range", size)
+	}
+	return n * mult, nil
+}
+
+// ParseCPUCount converts a CPU count like 2 or 0.5 to a float.
+func ParseCPUCount(cpus string) (float64, error) {
+	n, err := strconv.ParseFloat(cpus, 64)
+	if err != nil || n <= 0 || !cpuCount.MatchString(cpus) {
+		return 0, fmt.Errorf("cpus %q: want a positive number like 2 or 0.5", cpus)
+	}
+	return n, nil
+}

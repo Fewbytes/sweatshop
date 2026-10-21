@@ -73,6 +73,9 @@ type Server struct {
 	Epics       *EpicApprovals           // nil: no epic is approved, so nothing inherits
 	DeployToken string                   // the actuator's bearer token; "": no actuator
 	Releases    ReleaseBuilder           // nil: releases are commits only
+	Workloads   *WorkloadStore           // nil: the workload and controller routes return 503
+	// ControllerToken is the line controller's bearer token; "": no controller.
+	ControllerToken string
 
 	// busy admits one check-running request (attest, merge, attest-line) at a
 	// time across all stations, so several tokens cannot run checks in
@@ -210,9 +213,15 @@ func NewFromLine(l linedir.Line) (*Server, error) {
 	}
 	s.Reports = objects
 	s.Deploy = &DeployState{Path: filepath.Join(l.Dir, "deploy.json")}
+	s.Workloads = &WorkloadStore{Path: filepath.Join(l.Dir, "workloads.json")}
 	s.Epics = &EpicApprovals{Path: filepath.Join(l.Dir, "approved-epics.json")}
 	if tok, err := os.ReadFile(filepath.Join(l.Dir, "deploy.token")); err == nil {
 		s.DeployToken = strings.TrimSpace(string(tok))
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	if tok, err := os.ReadFile(filepath.Join(l.Dir, "controller.token")); err == nil {
+		s.ControllerToken = strings.TrimSpace(string(tok))
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
@@ -333,6 +342,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		st = s.deployerStation(r)
 	}
 	if st == nil {
+		st = s.controllerStation(r)
+	}
+	if st == nil {
 		log.Printf("station api: station=- route=%q commit=%q outcome=unauthorized", r.Method+" "+r.URL.Path, commit)
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -429,6 +441,10 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (str
 		return s.routeAcceptance(w, r, st)
 	case strings.HasPrefix(path, "/v1/deploy/"):
 		return s.routeDeploy(w, r, st)
+	case path == "/v1/workloads" || strings.HasPrefix(path, "/v1/workloads/"):
+		return s.routeWorkloads(w, r, st)
+	case strings.HasPrefix(path, "/v1/controller/"):
+		return s.routeController(w, r, st)
 	case strings.HasPrefix(path, "/v1/viceroy/"):
 		return s.routeViceroy(w, r, st)
 	case strings.HasPrefix(path, "/v1/channel/"):

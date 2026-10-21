@@ -397,7 +397,7 @@
         "Resolve"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 44,
+      "hotspot_rank": 49,
       "imported_by": [
         "agentsh/cmd/agentsh",
         "agentsh/cmd/agentsh-analytics",
@@ -408,7 +408,7 @@
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "318c2ed7ed6ccc97285cc63f820a944cc2965377",
+      "measured_at_commit": "54f0a70b49cae942c9a0228703f9ef32ed1fff0f",
       "purpose": ""
     },
     "bughunt/cmd/bughunt": {
@@ -958,13 +958,13 @@
         "Version"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 64,
+      "hotspot_rank": 69,
       "imported_by": [
         "depmaint/cmd/depmaint"
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "421e1e580a1d395d299a36e12341b1afc781456d",
+      "measured_at_commit": "54f0a70b49cae942c9a0228703f9ef32ed1fff0f",
       "purpose": "Package version carries build metadata injected at link time."
     },
     "line/andon": {
@@ -1094,7 +1094,7 @@
       "purpose": "Command sweatshop administers an assembly line (witness keys, the merge"
     },
     "line/constitution": {
-      "entry_point_count": 47,
+      "entry_point_count": 49,
       "entry_points": [
         "BlobGuard",
         "Budget",
@@ -1110,7 +1110,7 @@
         "DefaultCPUs"
       ],
       "hidden_coupling_ratio": 0.429,
-      "hotspot_rank": 6,
+      "hotspot_rank": 3,
       "imported_by": [
         "line/cmd/sweatshop",
         "line/guard",
@@ -1126,7 +1126,7 @@
         "line/attest"
       ],
       "lcom4": 1,
-      "measured_at_commit": "938efddb90d0a977c3268684b286b322ad421b72",
+      "measured_at_commit": "54f0a70b49cae942c9a0228703f9ef32ed1fff0f",
       "purpose": "Package constitution loads the line's rules. v0 holds only what the witness"
     },
     "line/deploy": {
@@ -1553,7 +1553,7 @@
         "SSHAuth"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 71,
+      "hotspot_rank": 58,
       "imported_by": [
         "line/cmd/sweatshop"
       ],
@@ -1563,7 +1563,7 @@
         "line/gitx/gittest"
       ],
       "lcom4": 1,
-      "measured_at_commit": "938efddb90d0a977c3268684b286b322ad421b72",
+      "measured_at_commit": "54f0a70b49cae942c9a0228703f9ef32ed1fff0f",
       "purpose": "Package mirror publishes a line's refs to the storage mirrors its"
     },
     "line/quadlet": {
@@ -1575,13 +1575,13 @@
         "Spec"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 50,
+      "hotspot_rank": 44,
       "imported_by": [
         "line/cmd/sweatshop"
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "938efddb90d0a977c3268684b286b322ad421b72",
+      "measured_at_commit": "54f0a70b49cae942c9a0228703f9ef32ed1fff0f",
       "purpose": "Package quadlet renders the systemd units of one line on a shared host:"
     },
     "line/report": {
@@ -1659,7 +1659,7 @@
       "purpose": "Package secret resolves named line secrets (the model token, the Discord"
     },
     "line/station": {
-      "entry_point_count": 96,
+      "entry_point_count": 113,
       "entry_points": [
         "AcceptanceAccepted",
         "AcceptanceAdd",
@@ -1703,7 +1703,7 @@
         "line/witness"
       ],
       "lcom4": 2,
-      "measured_at_commit": "c4df93528b2ef221b2febebe4c1fc22519401eb9",
+      "measured_at_commit": "54f0a70b49cae942c9a0228703f9ef32ed1fff0f",
       "purpose": "Package station is the station API: the only way containerized agents reach"
     },
     "line/testhygiene": {

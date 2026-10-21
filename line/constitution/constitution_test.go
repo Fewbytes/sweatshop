@@ -799,3 +799,24 @@ func TestWorkloadsRejectBadRules(t *testing.T) {
 		}
 	}
 }
+
+func TestParseMemoryBytesAndCPUCount(t *testing.T) {
+	for in, want := range map[string]int64{"512": 512, "2b": 2, "1k": 1 << 10, "512m": 512 << 20, "4G": 4 << 30} {
+		if got, err := ParseMemoryBytes(in); err != nil || got != want {
+			t.Errorf("ParseMemoryBytes(%q) = %d, %v; want %d", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"", "0", "-1g", "4x", "99999999999999999999g"} {
+		if _, err := ParseMemoryBytes(in); err == nil {
+			t.Errorf("ParseMemoryBytes(%q) accepted", in)
+		}
+	}
+	if n, err := ParseCPUCount("0.5"); err != nil || n != 0.5 {
+		t.Errorf("ParseCPUCount(0.5) = %v, %v", n, err)
+	}
+	for _, in := range []string{"", "0", "-1", "abc"} {
+		if _, err := ParseCPUCount(in); err == nil {
+			t.Errorf("ParseCPUCount(%q) accepted", in)
+		}
+	}
+}

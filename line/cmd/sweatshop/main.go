@@ -438,6 +438,7 @@ func lineServe(args []string, stdout io.Writer) error {
 	if ch != nil {
 		ch.Constitution = srv.ApproveConstitution
 		ch.Deploy = srv.ApproveDeploy
+		ch.Workload = srv.ApproveWorkload
 		ch.Epics = srv.Epics
 		ch.Restart = func() {
 			select {

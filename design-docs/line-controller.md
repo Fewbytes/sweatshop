@@ -43,6 +43,18 @@ States: `pending` → `approved` (or `denied`) → `creating` → `running` →
 `exited` or `failed`; `expired` when the TTL passes; `removed` once the engine
 object is gone.
 
+### Routes (serve)
+
+Stations: `POST /v1/workloads`, `GET /v1/workloads`, `GET` and `DELETE
+/v1/workloads/{id}`, `GET /v1/workloads/{id}/logs`. The controller, with its own
+token (`<line dir>/controller.token`, reaching only these and `/v1/status`):
+`GET /v1/controller/pending` (approved workloads and every one that may still
+have an engine object, with `stopped` set when the owner asked to stop it) and
+`POST /v1/controller/status` (`creating`, `running`, `exited`, `failed`,
+`removed`, with an optional log tail). The king approves with `approve workload
+<id>` on the channel. A request the policy refuses is recorded as `denied`
+(403, or 429 over quota); a malformed one is a 400 and leaves no record.
+
 ### What a request carries
 
 | Field | Meaning |

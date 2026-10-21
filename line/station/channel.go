@@ -283,6 +283,9 @@ type Channel struct {
 	// Deploy applies `approve deploy <sha>` and returns the approved commit.
 	// Nil: the command replies that it is off.
 	Deploy func(ctx context.Context, short, msgID string) (string, error)
+	// Workload applies `approve workload <id>`. Nil: the command replies that
+	// it is off.
+	Workload func(ctx context.Context, id, msgID string) error
 	// Gateway, when set, delivers messages, reactions and slash commands over
 	// a websocket; the REST poller covers the gaps. Nil: poll only.
 	Gateway *Gateway
@@ -508,6 +511,10 @@ func (c *Channel) command(ctx context.Context, m InboxMessage) {
 		c.approveDeploy(ctx, m, sub[1])
 		return
 	}
+	if sub := approveWorkloadRe.FindStringSubmatch(m.Text); sub != nil {
+		c.approveWorkload(ctx, m, sub[1])
+		return
+	}
 	if sub := deferRe.FindStringSubmatch(m.Text); sub != nil {
 		c.reply(ctx, c.deferCard(ctx, sub[1], sub[3], "discord message "+m.ID))
 		return
@@ -594,6 +601,23 @@ func (c *Channel) approveDeploy(ctx context.Context, m InboxMessage, short strin
 		return
 	}
 	c.reply(ctx, fmt.Sprintf("deploy %s approved; the deployer will roll it", commit[:min(len(commit), shortLen)]))
+}
+
+func (c *Channel) approveWorkload(ctx context.Context, m InboxMessage, id string) {
+	// Defence in depth: Poll only calls command for the king.
+	if c.King == "" || m.AuthorID != c.King {
+		return
+	}
+	if c.Workload == nil {
+		c.reply(ctx, fmt.Sprintf("cannot approve workload %s: not configured", id))
+		return
+	}
+	if err := c.Workload(ctx, id, m.ID); err != nil {
+		log.Printf("channel: approve workload %s: %v", id, err)
+		c.reply(ctx, fmt.Sprintf("could not approve workload %s: %v", id, err))
+		return
+	}
+	c.reply(ctx, fmt.Sprintf("workload %s approved; the controller will start it", id))
 }
 
 func (c *Channel) approveConstitution(ctx context.Context, m InboxMessage, num string) {
