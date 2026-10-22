@@ -243,10 +243,10 @@ func lineInit(args []string, stdout io.Writer) error {
 	fs.StringVar(&opts.SovereignName, "sovereign-name", "", "the king's name (needs --sovereign-discord)")
 	fs.StringVar(&opts.SovereignDiscord, "sovereign-discord", "", "the king's Discord user ID")
 	fs.StringVar(&opts.Channel, "channel", "", "Discord channel ID for king/viceroy talk")
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || opts.Dir == "" || opts.Source == "" {
+	if opts.Dir == "" || opts.Source == "" {
 		return errors.New(usage)
 	}
 	l, err := linedir.Init(context.Background(), opts)
@@ -284,10 +284,10 @@ func lineInstall(args []string, stdout io.Writer) error {
 	}
 	quadletDir := fs.String("quadlet-dir", filepath.Join(home, ".config", "containers", "systemd"), "where Quadlet files go")
 	sliceDir := fs.String("slice-dir", filepath.Join(home, ".config", "systemd", "user"), "where the slice unit goes")
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || spec.Name == "" || spec.Dir == "" || spec.ProjectPath == "" {
+	if spec.Name == "" || spec.Dir == "" || spec.ProjectPath == "" {
 		return errors.New(usage)
 	}
 	l, err := linedir.Load(spec.Dir)
@@ -365,10 +365,10 @@ func lineStationAdd(args []string, stdout io.Writer) error {
 	dir := fs.String("dir", "", "line directory")
 	name := fs.String("name", "", "new station's name")
 	role := fs.String("role", "", "new station's role")
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *dir == "" || *name == "" || *role == "" {
+	if *dir == "" || *name == "" || *role == "" {
 		return errors.New(usage)
 	}
 	s, err := linedir.AddStation(*dir, linedir.StationSpec{Name: *name, Role: *role})
@@ -404,10 +404,10 @@ func lineServe(args []string, stdout io.Writer) error {
 	unsafe := fs.Bool("unsafe-listen", false, "allow a non-loopback listen address")
 	beads := fs.String("beads", "", "beads workspace for the cards routes (default: routes return 503)")
 	cold := fs.Bool("cold-checks", false, "run every check with empty Go caches and module downloads allowed, under checks.cold_timeout")
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *dir == "" {
+	if *dir == "" {
 		return errors.New(usage)
 	}
 	l, err := linedir.Load(*dir)
@@ -532,10 +532,10 @@ func lineAndon(args []string) error {
 	beads := fs.String("beads", "", "directory whose beads database receives andon cards")
 	interval := fs.Duration("interval", 30*time.Second, "how often to look at master")
 	triage := fs.Bool("triage", false, "have a tool-less claude -p comment a triage on each new andon card")
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *beads == "" {
+	if *beads == "" {
 		return errors.New(usage)
 	}
 	c, err := lineClient()
@@ -569,10 +569,10 @@ func lineHeijunka(args []string) error {
 	policy := heijunka.DefaultPolicy
 	fs.IntVar(&policy.MinAgents, "min-agents", policy.MinAgents, "fewest agents")
 	fs.IntVar(&policy.MaxAgents, "max-agents", policy.MaxAgents, "most agents")
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *beads == "" {
+	if *beads == "" {
 		return errors.New(usage)
 	}
 	c, err := lineClient()
@@ -628,10 +628,10 @@ func lineMaker(args []string) error {
 	memory := fs.String("memory", constitution.DefaultMemory, "station container memory limit (engine --memory syntax)")
 	pids := fs.Int("pids", constitution.DefaultPids, "station container process limit")
 	cpus := fs.String("cpus", constitution.DefaultCPUs, "station container CPU limit")
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *dir == "" || *name == "" || (*cardsMode == "beads") != (*beads != "") {
+	if *dir == "" || *name == "" || (*cardsMode == "beads") != (*beads != "") {
 		return errors.New(usage)
 	}
 	if *cardsMode != "beads" && *cardsMode != "api" {
@@ -719,10 +719,10 @@ func lineGemba(args []string) error {
 	memory := fs.String("memory", constitution.DefaultMemory, "station container memory limit (engine --memory syntax)")
 	pids := fs.Int("pids", constitution.DefaultPids, "station container process limit")
 	cpus := fs.String("cpus", constitution.DefaultCPUs, "station container CPU limit")
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *dir == "" || *name == "" || *beads == "" {
+	if *dir == "" || *name == "" || *beads == "" {
 		return errors.New(usage)
 	}
 	if *pids < 1 || *memory == "" || *cpus == "" {
@@ -806,10 +806,10 @@ func lineKaizenContext(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("line kaizen context", flag.ContinueOnError)
 	commit := fs.String("commit", "", "master commit the run measures")
 	out := fs.String("out", "", "directory to write runs.json and previous.json to")
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *commit == "" || *out == "" {
+	if *commit == "" || *out == "" {
 		return errors.New(usage)
 	}
 	c, err := lineClient()
@@ -855,10 +855,10 @@ func lineKaizenPublish(args []string, stdout io.Writer) error {
 	signals := fs.String("signals", "", "signals.json of the baseline")
 	report := fs.String("report", "", "report.html")
 	after := fs.String("after", "", "signals.json measured on the changed tree (optional)")
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *commit == "" || *signals == "" || *report == "" {
+	if *commit == "" || *signals == "" || *report == "" {
 		return errors.New(usage)
 	}
 	k := station.KaizenSignals{Commit: *commit}
@@ -895,10 +895,10 @@ func lineKaizenMutation(args []string, stdout io.Writer) error {
 	commit := fs.String("commit", "", "commit the mutation score was measured at")
 	source := fs.String("source", "", "what the measurement was taken for: kaizen (a kaizen run) or card (a landed card)")
 	file := fs.String("file", "", "mutation.json")
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *commit == "" || *source == "" || *file == "" {
+	if *commit == "" || *source == "" || *file == "" {
 		return errors.New(usage)
 	}
 	data, err := os.ReadFile(*file)
@@ -964,10 +964,10 @@ func lineKaizen(args []string) error {
 	memory := fs.String("memory", constitution.DefaultMemory, "station container memory limit (engine --memory syntax)")
 	pids := fs.Int("pids", constitution.DefaultPids, "station container process limit")
 	cpus := fs.String("cpus", constitution.DefaultCPUs, "station container CPU limit")
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *dir == "" || *name == "" {
+	if *dir == "" || *name == "" {
 		return errors.New(usage)
 	}
 	if *pids < 1 || *memory == "" || *cpus == "" {
@@ -1613,10 +1613,10 @@ func lineConstitution(args []string, stdin io.Reader, stdout io.Writer) error {
 func viceroyRun(args []string, agent viceroy.Agent) error {
 	fs := flag.NewFlagSet("viceroy run", flag.ContinueOnError)
 	heartbeat := fs.Duration("heartbeat", viceroy.DefaultHeartbeat, "status summary to the king at least this often")
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *heartbeat <= 0 {
+	if *heartbeat <= 0 {
 		return errors.New(usage)
 	}
 	c, err := lineClient()
@@ -1653,10 +1653,10 @@ func lineViceroyStart(args []string, stdout io.Writer) error {
 	engine := fs.String("engine", "", "container engine CLI (default: the line's engine)")
 	url := fs.String("url", "", "station API URL as seen from the container (default: url of line.toml, else http://host.containers.internal:<port>)")
 	name := fs.String("station", "", "viceroy station (default: the line's only viceroy station)")
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *dir == "" || *commit == "" {
+	if *dir == "" || *commit == "" {
 		return errors.New(usage)
 	}
 	l, err := linedir.Load(*dir)
@@ -1739,10 +1739,10 @@ func lineController(args []string) error {
 	dir := fs.String("dir", "", "line directory")
 	socket := fs.String("socket", "unix:///run/podman/podman.sock", "engine API socket")
 	once := fs.Bool("once", false, "reconcile once, then exit")
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *dir == "" {
+	if *dir == "" {
 		return errors.New(usage)
 	}
 	l, err := linedir.Load(*dir)
@@ -1784,10 +1784,10 @@ func lineDeployer(args []string) error {
 	dir := fs.String("dir", "", "line directory")
 	backend := fs.String("backend", "", "backend (default: [deploy] backend of line.toml)")
 	once := fs.Bool("once", false, "handle the desired release once, then exit")
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *dir == "" {
+	if *dir == "" {
 		return errors.New(usage)
 	}
 	l, err := linedir.Load(*dir)
