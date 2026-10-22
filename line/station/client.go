@@ -96,23 +96,13 @@ func (c Client) doOnce(ctx context.Context, method, path string, query url.Value
 	if c.Gen != "" {
 		req.Header.Set(GenHeader, c.Gen)
 	}
-	resp, err := c.http().Do(req)
-	if err != nil {
-		return nil, false, err
-	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
+	resp, data, err := c.roundTrip(req)
 	if err != nil {
 		return nil, false, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		var e struct {
-			Error string `json:"error"`
-		}
-		if json.Unmarshal(data, &e) == nil && e.Error != "" {
-			return nil, resp.StatusCode == http.StatusConflict && e.Error == "busy", fmt.Errorf("station %s %s: %s: %s", method, path, resp.Status, e.Error)
-		}
-		return nil, false, fmt.Errorf("station %s %s: %s", method, path, resp.Status)
+		busy, err := statusError(method, path, resp, data)
+		return nil, busy, err
 	}
 	if out != nil {
 		if err := json.Unmarshal(data, out); err != nil {
@@ -120,6 +110,33 @@ func (c Client) doOnce(ctx context.Context, method, path string, query url.Value
 		}
 	}
 	return data, false, nil
+}
+
+// roundTrip sends req and reads the whole response body; resp.Body is already
+// closed, so use resp only for its status.
+func (c Client) roundTrip(req *http.Request) (resp *http.Response, data []byte, err error) {
+	resp, err = c.http().Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer resp.Body.Close()
+	data, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, err
+	}
+	return resp, data, nil
+}
+
+// statusError turns a non-2xx response into an error carrying the server's
+// message; busy reports a 409 {"error":"busy"} response.
+func statusError(method, path string, resp *http.Response, data []byte) (busy bool, _ error) {
+	var e struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(data, &e) == nil && e.Error != "" {
+		return resp.StatusCode == http.StatusConflict && e.Error == "busy", fmt.Errorf("station %s %s: %s: %s", method, path, resp.Status, e.Error)
+	}
+	return false, fmt.Errorf("station %s %s: %s", method, path, resp.Status)
 }
 
 // bundle resolves rev in repoDir and writes a bundle carrying exactly one ref
@@ -393,12 +410,7 @@ func (c Client) TestamentGet(ctx context.Context) (body []byte, ok bool, err err
 		return nil, false, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
-	resp, err := c.http().Do(req)
-	if err != nil {
-		return nil, false, err
-	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
+	resp, data, err := c.roundTrip(req)
 	if err != nil {
 		return nil, false, err
 	}
@@ -406,13 +418,8 @@ func (c Client) TestamentGet(ctx context.Context) (body []byte, ok bool, err err
 	case resp.StatusCode == http.StatusNoContent:
 		return nil, false, nil
 	case resp.StatusCode < 200 || resp.StatusCode > 299:
-		var e struct {
-			Error string `json:"error"`
-		}
-		if json.Unmarshal(data, &e) == nil && e.Error != "" {
-			return nil, false, fmt.Errorf("station GET /v1/testament: %s: %s", resp.Status, e.Error)
-		}
-		return nil, false, fmt.Errorf("station GET /v1/testament: %s", resp.Status)
+		_, err := statusError(http.MethodGet, "/v1/testament", resp, data)
+		return nil, false, err
 	}
 	return data, true, nil
 }
