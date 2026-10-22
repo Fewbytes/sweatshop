@@ -137,78 +137,88 @@ func run(args []string, stdout io.Writer) error {
 		return nil
 	case len(args) == 3 && args[0] == "guard" && args[1] == "install-hooks":
 		return guard.InstallHooks(args[2])
-	case len(args) >= 2 && args[0] == "line" && args[1] == "init":
-		return lineInit(args[2:], stdout)
-	case len(args) >= 2 && args[0] == "line" && args[1] == "install":
-		return lineInstall(args[2:], stdout)
-	case len(args) >= 2 && args[0] == "line" && args[1] == "mirror":
-		return lineMirror(args[2:])
-	case len(args) >= 3 && args[0] == "line" && args[1] == "station" && args[2] == "add":
-		return lineStationAdd(args[3:], stdout)
-	case len(args) >= 2 && args[0] == "line" && args[1] == "serve":
-		return lineServe(args[2:], stdout)
-	case len(args) >= 2 && args[0] == "line" && (args[1] == "attest" || args[1] == "merge"):
-		return lineSubmit(args[1], args[2:], stdout)
-	case len(args) >= 2 && args[0] == "line" && args[1] == "usage":
-		return lineUsage(args[2:], stdout)
-	case len(args) >= 2 && args[0] == "line" && args[1] == "stats":
-		return lineStats(args[2:], stdout)
-	case len(args) >= 3 && args[0] == "line" && args[1] == "ci" && args[2] == "stats":
-		return lineCIStats(args[3:], stdout)
-	case len(args) >= 2 && args[0] == "line" && args[1] == "events":
-		return lineEvents(args[2:], stdout)
-	case len(args) >= 2 && args[0] == "line" && args[1] == "logs":
-		return lineLogs(args[2:], stdout)
-	case len(args) >= 2 && args[0] == "line" && args[1] == "reports":
-		return lineReports(args[2:], stdout)
-	case len(args) == 2 && args[0] == "line" && args[1] == "status":
-		return lineStatus(stdout)
-	case len(args) >= 2 && args[0] == "line" && args[1] == "cards":
-		return lineCards(args[2:], os.Stdin, stdout)
-	case len(args) >= 2 && args[0] == "line" && args[1] == "channel":
-		return lineChannel(args[2:], os.Stdin, stdout)
-	case len(args) >= 2 && args[0] == "line" && args[1] == "constitution":
-		return lineConstitution(args[2:], os.Stdin, stdout)
-	case len(args) >= 2 && args[0] == "line" && args[1] == "testament":
-		return lineTestament(args[2:], os.Stdin, stdout)
-	case len(args) >= 3 && args[0] == "line" && args[1] == "viceroy" && args[2] == "start":
-		return lineViceroyStart(args[3:], stdout)
 	case len(args) >= 2 && args[0] == "viceroy" && (args[1] == "succeed" || args[1] == "checkin" || args[1] == "deploy"):
 		return viceroyClient(args[1], args[2:], stdout)
 	case len(args) >= 2 && args[0] == "viceroy" && args[1] == "run":
 		return viceroyRun(args[2:], viceroy.ClaudeCLI{Dir: "/work", Timeout: viceroy.DefaultRunLimit})
-	case len(args) >= 2 && args[0] == "line" && args[1] == "deployer":
-		return lineDeployer(args[2:])
-	case len(args) >= 2 && args[0] == "line" && args[1] == "controller":
-		return lineController(args[2:])
-	case len(args) >= 2 && args[0] == "line" && args[1] == "andon":
-		return lineAndon(args[2:])
-	case len(args) == 3 && args[0] == "line" && args[1] == "heijunka" && args[2] == "state":
+	case len(args) >= 2 && args[0] == "line":
+		return runLine(args[1:], stdout)
+	default:
+		return errors.New(usage)
+	}
+}
+
+// runLine dispatches the `sweatshop line ...` commands; args start after "line".
+func runLine(args []string, stdout io.Writer) error {
+	switch {
+	case args[0] == "init":
+		return lineInit(args[1:], stdout)
+	case args[0] == "install":
+		return lineInstall(args[1:], stdout)
+	case args[0] == "mirror":
+		return lineMirror(args[1:])
+	case len(args) >= 2 && args[0] == "station" && args[1] == "add":
+		return lineStationAdd(args[2:], stdout)
+	case args[0] == "serve":
+		return lineServe(args[1:], stdout)
+	case args[0] == "attest" || args[0] == "merge":
+		return lineSubmit(args[0], args[1:], stdout)
+	case args[0] == "usage":
+		return lineUsage(args[1:], stdout)
+	case args[0] == "stats":
+		return lineStats(args[1:], stdout)
+	case len(args) >= 2 && args[0] == "ci" && args[1] == "stats":
+		return lineCIStats(args[2:], stdout)
+	case args[0] == "events":
+		return lineEvents(args[1:], stdout)
+	case args[0] == "logs":
+		return lineLogs(args[1:], stdout)
+	case args[0] == "reports":
+		return lineReports(args[1:], stdout)
+	case len(args) == 1 && args[0] == "status":
+		return lineStatus(stdout)
+	case args[0] == "cards":
+		return lineCards(args[1:], os.Stdin, stdout)
+	case args[0] == "channel":
+		return lineChannel(args[1:], os.Stdin, stdout)
+	case args[0] == "constitution":
+		return lineConstitution(args[1:], os.Stdin, stdout)
+	case args[0] == "testament":
+		return lineTestament(args[1:], os.Stdin, stdout)
+	case len(args) >= 2 && args[0] == "viceroy" && args[1] == "start":
+		return lineViceroyStart(args[2:], stdout)
+	case args[0] == "deployer":
+		return lineDeployer(args[1:])
+	case args[0] == "controller":
+		return lineController(args[1:])
+	case args[0] == "andon":
+		return lineAndon(args[1:])
+	case len(args) == 2 && args[0] == "heijunka" && args[1] == "state":
 		return lineHeijunkaState(stdout)
-	case len(args) >= 2 && args[0] == "line" && args[1] == "heijunka":
-		return lineHeijunka(args[2:])
-	case len(args) >= 2 && args[0] == "line" && args[1] == "maker":
-		return lineMaker(args[2:])
-	case len(args) >= 2 && args[0] == "line" && args[1] == "gemba":
-		return lineGemba(args[2:])
-	case len(args) >= 3 && args[0] == "line" && args[1] == "kaizen" && args[2] == "report":
+	case args[0] == "heijunka":
+		return lineHeijunka(args[1:])
+	case args[0] == "maker":
+		return lineMaker(args[1:])
+	case args[0] == "gemba":
+		return lineGemba(args[1:])
+	case len(args) >= 2 && args[0] == "kaizen" && args[1] == "report":
 		return lineKaizenReport(os.Stdin, stdout)
-	case len(args) >= 3 && args[0] == "line" && args[1] == "kaizen" && args[2] == "context":
-		return lineKaizenContext(args[3:], stdout)
-	case len(args) >= 3 && args[0] == "line" && args[1] == "kaizen" && args[2] == "mutation":
-		return lineKaizenMutation(args[3:], stdout)
-	case len(args) == 3 && args[0] == "line" && args[1] == "kaizen" && args[2] == "mutation-trend":
+	case len(args) >= 2 && args[0] == "kaizen" && args[1] == "context":
+		return lineKaizenContext(args[2:], stdout)
+	case len(args) >= 2 && args[0] == "kaizen" && args[1] == "mutation":
+		return lineKaizenMutation(args[2:], stdout)
+	case len(args) == 2 && args[0] == "kaizen" && args[1] == "mutation-trend":
 		return lineKaizenMutationTrend(stdout)
-	case len(args) >= 3 && args[0] == "line" && args[1] == "kaizen" && args[2] == "publish":
-		return lineKaizenPublish(args[3:], stdout)
-	case len(args) >= 2 && args[0] == "line" && args[1] == "kaizen":
-		return lineKaizen(args[2:])
-	case len(args) == 3 && args[0] == "line" && args[1] == "evidence":
+	case len(args) >= 2 && args[0] == "kaizen" && args[1] == "publish":
+		return lineKaizenPublish(args[2:], stdout)
+	case args[0] == "kaizen":
+		return lineKaizen(args[1:])
+	case len(args) == 2 && args[0] == "evidence":
 		c, err := lineClient()
 		if err != nil {
 			return err
 		}
-		data, err := c.Evidence(context.Background(), args[2])
+		data, err := c.Evidence(context.Background(), args[1])
 		if err != nil {
 			return err
 		}
