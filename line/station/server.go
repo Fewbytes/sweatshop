@@ -366,56 +366,55 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Printf("station api: station=%s route=%q commit=%q outcome=%q", st.Name, r.Method+" "+r.URL.Path, commit, outcome)
 }
 
+// fixedRouteMethods lists the HTTP method each exact path in route accepts;
+// route rejects any other method before dispatching.
+var fixedRouteMethods = map[string]string{
+	"/v1/attest":      http.MethodPost,
+	"/v1/merge":       http.MethodPost,
+	"/v1/attest-line": http.MethodPost,
+	"/v1/andon/pull":  http.MethodPost,
+	"/v1/andon/clear": http.MethodPost,
+	"/v1/status":      http.MethodGet,
+	"/v1/runs":        http.MethodGet,
+	"/v1/stats":       http.MethodGet,
+	"/metrics":        http.MethodGet,
+	"/v1/ci/stats":    http.MethodGet,
+}
+
 // route dispatches an authenticated request. A handler either writes its
 // response and returns an outcome for the log, or returns an error for
 // ServeHTTP to write.
 func (s *Server) route(w http.ResponseWriter, r *http.Request, st *Station) (string, error) {
 	path := r.URL.Path
-	switch {
-	case path == "/v1/attest" || path == "/v1/merge":
-		if err := requireMethod(w, r, http.MethodPost); err != nil {
+	if want, ok := fixedRouteMethods[path]; ok {
+		if err := requireMethod(w, r, want); err != nil {
 			return "", err
 		}
+	}
+	switch {
+	case path == "/v1/attest" || path == "/v1/merge":
 		if !s.acquire() {
 			return "", errBusy
 		}
 		defer s.busy.Store(false)
 		return s.bundle(w, r, st, path == "/v1/merge")
 	case path == "/v1/attest-line":
-		if err := requireMethod(w, r, http.MethodPost); err != nil {
-			return "", err
-		}
 		if !s.acquire() {
 			return "", errBusy
 		}
 		defer s.busy.Store(false)
 		return s.attestLine(w, r, st)
 	case path == "/v1/andon/pull" || path == "/v1/andon/clear":
-		if err := requireMethod(w, r, http.MethodPost); err != nil {
-			return "", err
-		}
 		return s.andon(w, r, st, path == "/v1/andon/pull")
 	case path == "/v1/status":
-		if err := requireMethod(w, r, http.MethodGet); err != nil {
-			return "", err
-		}
 		return s.status(w, r)
 	case path == "/v1/stations/heartbeat":
 		return s.heartbeat(w, r, st)
 	case path == "/v1/runs":
-		if err := requireMethod(w, r, http.MethodGet); err != nil {
-			return "", err
-		}
 		return s.runs(w, r)
 	case path == "/v1/stats" || path == "/metrics":
-		if err := requireMethod(w, r, http.MethodGet); err != nil {
-			return "", err
-		}
 		return s.ciStats(w, r, path == "/metrics")
 	case path == "/v1/ci/stats":
-		if err := requireMethod(w, r, http.MethodGet); err != nil {
-			return "", err
-		}
 		return s.checkStats(w, r)
 	case path == "/v1/cards" || strings.HasPrefix(path, "/v1/cards/"):
 		return s.routeCards(w, r, st)
