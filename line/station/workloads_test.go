@@ -318,3 +318,41 @@ func TestControllerCannotReportStatesItDoesNotOwn(t *testing.T) {
 		t.Errorf("unknown workload: %v", err)
 	}
 }
+
+func TestResolveWorkloadFillsAndBoundsResourcesByTheRule(t *testing.T) {
+	rule := constitution.WorkloadRule{TTL: "2h", Memory: "4g", CPUs: "2", Pids: 100}
+	unbounded := constitution.WorkloadRule{TTL: "2h"}
+	withResources := func(r WorkloadResources) WorkloadSpec { return WorkloadSpec{Resources: r} }
+	cases := []struct {
+		name    string
+		rule    constitution.WorkloadRule
+		spec    WorkloadSpec
+		want    WorkloadResources
+		wantErr string
+	}{
+		{"empty request takes the rule's bounds", rule, WorkloadSpec{}, WorkloadResources{Memory: "4g", CPUs: "2", Pids: 100}, ""},
+		{"request below the bounds is kept", rule, withResources(WorkloadResources{Memory: "512m", CPUs: "0.5", Pids: 10}), WorkloadResources{Memory: "512m", CPUs: "0.5", Pids: 10}, ""},
+		{"request equal to the bounds is kept", rule, withResources(WorkloadResources{Memory: "4g", CPUs: "2", Pids: 100}), WorkloadResources{Memory: "4g", CPUs: "2", Pids: 100}, ""},
+		{"memory above the rule", rule, withResources(WorkloadResources{Memory: "8g"}), WorkloadResources{}, "memory 8g exceeds the rule's 4g"},
+		{"cpus above the rule", rule, withResources(WorkloadResources{CPUs: "3"}), WorkloadResources{}, "cpus 3 exceeds the rule's 2"},
+		{"pids above the rule", rule, withResources(WorkloadResources{Pids: 101}), WorkloadResources{}, "pids 101 exceeds the rule's 100"},
+		{"malformed memory under a bounded rule", rule, withResources(WorkloadResources{Memory: "lots"}), WorkloadResources{}, "want a size like 4g or 512m"},
+		{"malformed cpus under a bounded rule", rule, withResources(WorkloadResources{CPUs: "many"}), WorkloadResources{}, "want a positive number"},
+		{"malformed memory under an unbounded rule", unbounded, withResources(WorkloadResources{Memory: "lots"}), WorkloadResources{}, "want a size like 4g or 512m"},
+		{"malformed cpus under an unbounded rule", unbounded, withResources(WorkloadResources{CPUs: "many"}), WorkloadResources{}, "want a positive number"},
+		{"unbounded rule keeps any valid request", unbounded, withResources(WorkloadResources{Memory: "64g", CPUs: "64", Pids: 9999}), WorkloadResources{Memory: "64g", CPUs: "64", Pids: 9999}, ""},
+		{"unbounded rule leaves resources empty", unbounded, WorkloadSpec{}, WorkloadResources{}, ""},
+	}
+	for _, c := range cases {
+		got, err := resolveWorkload(c.rule, c.spec)
+		if c.wantErr != "" {
+			if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+				t.Errorf("%s: err = %v, want %q", c.name, err, c.wantErr)
+			}
+			continue
+		}
+		if err != nil || got.Resources != c.want {
+			t.Errorf("%s: got %+v, %v; want %+v", c.name, got.Resources, err, c.want)
+		}
+	}
+}

@@ -118,39 +118,11 @@ func resolveWorkload(rule constitution.WorkloadRule, sp WorkloadSpec) (WorkloadS
 	sp.TTL = ttl.String()
 
 	res := &sp.Resources
-	if rule.Memory != "" {
-		bound, _ := constitution.ParseMemoryBytes(rule.Memory)
-		if res.Memory == "" {
-			res.Memory = rule.Memory
-		}
-		n, err := constitution.ParseMemoryBytes(res.Memory)
-		if err != nil {
-			return sp, err
-		}
-		if n > bound {
-			return sp, fmt.Errorf("memory %s exceeds the rule's %s", res.Memory, rule.Memory)
-		}
-	} else if res.Memory != "" {
-		if _, err := constitution.ParseMemoryBytes(res.Memory); err != nil {
-			return sp, err
-		}
+	if err := boundResource("memory", constitution.ParseMemoryBytes, rule.Memory, &res.Memory); err != nil {
+		return sp, err
 	}
-	if rule.CPUs != "" {
-		bound, _ := constitution.ParseCPUCount(rule.CPUs)
-		if res.CPUs == "" {
-			res.CPUs = rule.CPUs
-		}
-		n, err := constitution.ParseCPUCount(res.CPUs)
-		if err != nil {
-			return sp, err
-		}
-		if n > bound {
-			return sp, fmt.Errorf("cpus %s exceeds the rule's %s", res.CPUs, rule.CPUs)
-		}
-	} else if res.CPUs != "" {
-		if _, err := constitution.ParseCPUCount(res.CPUs); err != nil {
-			return sp, err
-		}
+	if err := boundResource("cpus", constitution.ParseCPUCount, rule.CPUs, &res.CPUs); err != nil {
+		return sp, err
 	}
 	if rule.Pids > 0 {
 		if res.Pids == 0 {
@@ -161,6 +133,31 @@ func resolveWorkload(rule constitution.WorkloadRule, sp WorkloadSpec) (WorkloadS
 		}
 	}
 	return sp, nil
+}
+
+// boundResource checks the requested resource string against the rule's bound
+// (empty means unbounded): an empty request takes the bound, a non-empty one
+// must parse and not exceed it. parse is the resource's own parser.
+func boundResource[N int64 | float64](name string, parse func(string) (N, error), ruleBound string, requested *string) error {
+	if ruleBound == "" {
+		if *requested == "" {
+			return nil
+		}
+		_, err := parse(*requested)
+		return err
+	}
+	bound, _ := parse(ruleBound)
+	if *requested == "" {
+		*requested = ruleBound
+	}
+	n, err := parse(*requested)
+	if err != nil {
+		return err
+	}
+	if n > bound {
+		return fmt.Errorf("%s %s exceeds the rule's %s", name, *requested, ruleBound)
+	}
+	return nil
 }
 
 // oneLine collapses whitespace and cuts s to max characters, for text shown in
