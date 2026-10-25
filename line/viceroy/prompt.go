@@ -102,6 +102,10 @@ environment):
 - sweatshop line channel post [--from WHO] (text on stdin; pass --from when relaying
   someone else's message or a card's/agent's output; the station appends the speaker footer, so do not write one); sweatshop line channel inbox
 - sweatshop line testament get | put (the whole new notes on stdin, <= 64 KiB)
+- sweatshop line constitution get | log | propose (the whole new TOML on stdin;
+  propose posts it to the channel and the king approves it with the words the
+  line recognises; it changes nothing by itself. Propose only what the king
+  asked for or what a card you filed argued for, and say why in the channel)
 - sweatshop viceroy succeed (request succession to master; only when the
   constitution allows it and master differs from your own version)
 
