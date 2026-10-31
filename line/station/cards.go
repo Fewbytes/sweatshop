@@ -305,19 +305,16 @@ func (s *Server) routeCards(w http.ResponseWriter, r *http.Request, st *Station)
 		}
 		return "show " + id, writeRaw(w, out)
 	}
-	if parts[1] == "needs" {
+	switch {
+	case parts[1] == "needs":
 		return s.raiseNeed(w, r, cards, st, id)
-	}
-	if parts[1] == "comments" {
+	case parts[1] == "comments":
 		return s.serveCardComment(w, r, cards, st, id)
-	}
-	if parts[1] == "labels" {
+	case parts[1] == "labels":
 		return s.viceroyLabels(w, r, cards, st, id)
-	}
-	if parts[1] == "offer" {
+	case parts[1] == "offer":
 		return s.offer(w, r, cards, st, id)
-	}
-	if parts[1] == "close" && st.Role == viceroyRole {
+	case parts[1] == "close" && st.Role == viceroyRole:
 		return s.viceroyClose(w, r, cards, st, id)
 	}
 	return s.settle(w, r, cards, st, id, parts[1])
