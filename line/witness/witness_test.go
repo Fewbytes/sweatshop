@@ -545,3 +545,25 @@ func TestColdCheckEnvUsesFreshCaches(t *testing.T) {
 		}
 	}
 }
+
+type checkoutDirRecordingRunner struct{ dir string }
+
+func (r *checkoutDirRecordingRunner) Run(_ context.Context, dir, _ string) (RunResult, error) {
+	r.dir = dir
+	return RunResult{}, nil
+}
+
+func TestAttestChecksOutUnderCheckoutDir(t *testing.T) {
+	s := newSource(t)
+	w, _ := newWitness(t)
+	w.CheckoutDir = filepath.Join(t.TempDir(), "state", "checkouts")
+	runner := &checkoutDirRecordingRunner{}
+	w.Runner = runner
+	s.commit("src/a.go", "package a")
+	if _, err := w.Attest(s.ctx, s.repo.Dir, "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(runner.dir) != w.CheckoutDir {
+		t.Fatalf("checks ran in %s, want a directory under %s", runner.dir, w.CheckoutDir)
+	}
+}

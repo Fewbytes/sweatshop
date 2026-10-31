@@ -45,6 +45,11 @@ type Witness struct {
 	// only ever read in process, for its refs and objects: no git program
 	// runs against it and its config and hooks are never consulted.
 	CacheDir string
+	// CheckoutDir is where each run's checkout is created; "" means the
+	// system temp directory. A container runner bind-mounts the checkout
+	// through the host engine, so when the witness itself runs in a container
+	// this must be a path that exists at the same location on the host.
+	CheckoutDir string
 	// Upstream is the path of the line's bare remote. It is trusted and the
 	// witness only reads it, except to push candidates in MergeBundle.
 	Upstream string
@@ -386,7 +391,12 @@ func (w *Witness) checkout(ctx context.Context, cache gitx.Repo, commit string) 
 	if err := cache.SetRef(ctx, ref, commit); err != nil {
 		return "", nil, err
 	}
-	dir, err := os.MkdirTemp("", "witness-checkout-")
+	if w.CheckoutDir != "" {
+		if err := os.MkdirAll(w.CheckoutDir, 0o755); err != nil {
+			return "", nil, err
+		}
+	}
+	dir, err := os.MkdirTemp(w.CheckoutDir, "witness-checkout-")
 	if err != nil {
 		return "", nil, err
 	}

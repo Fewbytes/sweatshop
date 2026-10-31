@@ -252,8 +252,12 @@ func NewFromLine(l linedir.Line) (*Server, error) {
 				Constitution: c, ConstitutionDigest: digest,
 				Runner:   witness.NewRunner(c.Runner, witness.LogRunner{Dir: filepath.Join(ls.StateDir, "evidence")}),
 				CacheDir: filepath.Join(ls.StateDir, "cache.git"),
-				Upstream: l.Remote,
-				Reporter: s.reporter,
+				// Under the line dir, which a containerised serve shares
+				// with the host at the same path, so check containers can
+				// mount the checkout.
+				CheckoutDir: filepath.Join(ls.StateDir, "checkouts"),
+				Upstream:    l.Remote,
+				Reporter:    s.reporter,
 			},
 		})
 	}
