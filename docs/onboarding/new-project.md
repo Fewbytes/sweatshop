@@ -62,6 +62,14 @@ the base and add only their toolchain.
    --image myproject-station:dev`, or change `[runner] image` in the line's
    constitution.
 
+## The viceroy image
+
+The viceroy builds `station/Dockerfile` from the line master, which a project
+line does not have. Set `viceroy_image` in the line's `line.toml` to the
+prebuilt base, for example `viceroy_image = "localhost/sweatshop-station:dev"`,
+and the viceroy generation runs that image instead of building. Lost: no
+per-commit viceroy build, and succession restarts the same image.
+
 ## What the witness needs
 
 - The required check (`[[checks.required]]`, default `just ci`) must pass in

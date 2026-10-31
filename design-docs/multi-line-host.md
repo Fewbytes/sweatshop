@@ -66,6 +66,15 @@ Per-line settings to review when a line is created:
   by that line's `serve` when the king approves on the channel, so one line's
   approvals never apply to another.
 
+## Viceroy image
+
+By default each viceroy generation builds `station/Dockerfile` from the line
+master. A project line does not have that file. Set `viceroy_image` in
+`line.toml` (for example `viceroy_image = "localhost/sweatshop-station:dev"`)
+and every generation runs that prebuilt image instead; nothing is built.
+Lost: there is no per-commit viceroy build, so a merge never changes the
+viceroy's own code, and succession restarts the same image.
+
 ## Work
 
 | Card | Piece |
