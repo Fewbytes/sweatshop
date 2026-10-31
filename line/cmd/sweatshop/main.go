@@ -316,6 +316,12 @@ func lineInstall(args []string, stdout io.Writer, createSecret quadlet.SecretCre
 	if spec.Name == "" || spec.Dir == "" || spec.ProjectPath == "" {
 		return errors.New(usage)
 	}
+	if spec.MirrorCredDir != "" {
+		// A mirror unit without a usable key only fails at its first push.
+		if _, err := mirror.SSHAuth(spec.MirrorCredDir); err != nil {
+			return fmt.Errorf("--mirror-creds %s: %w", spec.MirrorCredDir, err)
+		}
+	}
 	l, err := linedir.Load(spec.Dir)
 	if err != nil {
 		return err

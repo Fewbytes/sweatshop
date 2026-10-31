@@ -340,6 +340,21 @@ func TestLineInstallWritesUnitsWithTheLinesPort(t *testing.T) {
 	}
 }
 
+func TestLineInstallRefusesMirrorCredsWithoutDeployKey(t *testing.T) {
+	dir, _ := initLine(t)
+	qdir := t.TempDir()
+	createSecret := func(name, value string) error { return nil }
+	args := []string{"--name", "alpha", "--dir", dir, "--project", "/srv/alpha",
+		"--mirror-creds", t.TempDir(), "--quadlet-dir", qdir, "--slice-dir", t.TempDir()}
+	err := lineInstall(args, &bytes.Buffer{}, createSecret)
+	if err == nil || !strings.Contains(err.Error(), "deploy key") {
+		t.Fatalf("install with empty creds dir = %v, want a deploy key error", err)
+	}
+	if units, _ := os.ReadDir(qdir); len(units) != 0 {
+		t.Errorf("install wrote %d units before refusing", len(units))
+	}
+}
+
 func TestLineStationAdd(t *testing.T) {
 	dir, _ := initLine(t)
 	var out bytes.Buffer
