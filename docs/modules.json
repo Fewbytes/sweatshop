@@ -1595,12 +1595,16 @@
       "purpose": "Package mirror publishes a line's refs to the storage mirrors its"
     },
     "line/quadlet": {
-      "entry_point_count": 5,
+      "entry_point_count": 9,
       "entry_points": [
+        "CreateMakerSecrets",
         "File",
         "Install",
+        "ModelSecretName",
         "Render",
+        "SecretCreator",
         "Spec",
+        "TokenSecretName",
         "WriteEnvFiles"
       ],
       "hidden_coupling_ratio": 0.0,

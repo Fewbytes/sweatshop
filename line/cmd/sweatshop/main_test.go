@@ -308,8 +308,16 @@ func TestLineInstallWritesUnitsWithTheLinesPort(t *testing.T) {
 	var out bytes.Buffer
 	args := []string{"line", "install", "--name", "alpha", "--dir", dir, "--project", "/srv/alpha",
 		"--quadlet-dir", qdir, "--slice-dir", sdir}
-	if err := run(args, &out); err != nil {
+	secrets := map[string]string{}
+	createSecret := func(name, value string) error { secrets[name] = value; return nil }
+	if err := lineInstall(args[2:], &out, createSecret); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(qdir, "sweatshop-alpha-maker-1.container")); err != nil {
+		t.Errorf("maker-1 has no unit: %v", err)
+	}
+	if secrets["sweatshop-alpha-model-cred"] != "model-secret" || secrets["sweatshop-alpha-maker-1-token"] == "" || len(secrets) != 2 {
+		t.Errorf("podman secrets = %d entries, want the model credential and maker-1's token", len(secrets))
 	}
 	serve, err := os.ReadFile(filepath.Join(qdir, "sweatshop-alpha-serve.container"))
 	if err != nil {
@@ -327,7 +335,7 @@ func TestLineInstallWritesUnitsWithTheLinesPort(t *testing.T) {
 	if strings.Contains(out.String(), "model-secret") {
 		t.Errorf("install printed the model credential: %s", out.String())
 	}
-	if err := run([]string{"line", "install", "--name", "alpha", "--dir", dir}, &bytes.Buffer{}); err == nil {
+	if err := lineInstall([]string{"--name", "alpha", "--dir", dir}, &bytes.Buffer{}, createSecret); err == nil {
 		t.Fatal("missing --project accepted")
 	}
 }

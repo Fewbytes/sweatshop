@@ -230,3 +230,53 @@ func TestWriteEnvFilesFailsWithoutModelCredentialOrStation(t *testing.T) {
 		t.Errorf("missing station: err = %v, want one naming heijunka-1", err)
 	}
 }
+
+func TestRenderMakerUnitKeepsHandWrittenLayout(t *testing.T) {
+	s := testSpec("alpha", 7468)
+	s.Makers = []string{"maker-1", "maker-2"}
+	s.MakerImage = "localhost/sweatshop-maker:dev"
+	files := renderByName(t, s)
+	for _, m := range s.Makers {
+		requireContains(t, m, files["sweatshop-alpha-"+m+".container"],
+			"Image=localhost/sweatshop-maker:dev",
+			"Network=sweatshop-alpha.network",
+			"Secret=sweatshop-alpha-"+m+"-token,type=env,target=SWEATSHOP_LINE_TOKEN",
+			"Secret=sweatshop-alpha-model-cred,type=env,target=CLAUDE_CODE_OAUTH_TOKEN",
+			"Environment=SWEATSHOP_LINE_URL=http://sweatshop-alpha-serve:7468",
+			"Volume=%t/podman/podman.sock:/run/podman/podman.sock",
+			"Volume=/srv/lines/alpha:/srv/lines/alpha:ro",
+			"Exec=--dir /srv/lines/alpha --station "+m,
+			"Slice=sweatshop-alpha.slice", "Restart=always")
+	}
+	s.MakerImage = ""
+	if _, err := Render(s); err == nil {
+		t.Error("rendered makers without an image")
+	}
+}
+
+func TestCreateMakerSecretsStoresTokensAndModelCredential(t *testing.T) {
+	s := envLine(t)
+	s.Makers = []string{"andon-1", "kaizen-1"}
+	got := map[string]string{}
+	create := func(name, value string) error { got[name] = value; return nil }
+	names, err := CreateMakerSecrets(s, fakeModelCred{"model-secret"}, create)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"sweatshop-alpha-model-cred":     "model-secret",
+		"sweatshop-alpha-andon-1-token":  "tok-andon-1",
+		"sweatshop-alpha-kaizen-1-token": "tok-kaizen-1",
+	}
+	if len(names) != 3 || len(got) != 3 {
+		t.Fatalf("created %v, want 3 secrets", names)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("secret %s = %q, want %q", k, got[k], v)
+		}
+	}
+	if _, err := CreateMakerSecrets(s, fakeModelCred{}, create); !errors.Is(err, secret.ErrNotFound) {
+		t.Errorf("missing model credential: err = %v", err)
+	}
+}

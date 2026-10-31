@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
@@ -55,8 +56,8 @@ const usage = `usage:
   sweatshop line init --dir D --source S [--engine E] [--image I] [--port P]
                   [--sovereign-name N --sovereign-discord ID] [--channel ID]
                                         create a line directory seeded from S's master
-  sweatshop line install --name N --dir D --project P [--image I] [--cpu-quota Q] [--memory-max M] [--mirror-creds CD] [--quadlet-dir QD] [--slice-dir SD]
-                                        write the line's Quadlet units (serve, heijunka, andon, kaizen, mirror if --mirror-creds, network, volume) and resource slice; then systemctl --user daemon-reload and start sweatshop-N-serve
+  sweatshop line install --name N --dir D --project P [--image I] [--cpu-quota Q] [--memory-max M] [--maker-image MI] [--mirror-creds CD] [--quadlet-dir QD] [--slice-dir SD]
+                                        write the line's Quadlet units (serve, heijunka, andon, kaizen, one per maker station, mirror if --mirror-creds, network, volume), create the makers' podman secrets and resource slice; then systemctl --user daemon-reload and start sweatshop-N-serve
   sweatshop line mirror --dir D --creds CD [--once] [--interval 1m]
                                         push master, tags and attestations fast-forward to the storage mirrors in D's constitution; CD holds deploy_key and known_hosts
   sweatshop line station add --dir D --name NAME --role ROLE
@@ -156,7 +157,7 @@ func runLine(args []string, stdout io.Writer) error {
 	case args[0] == "init":
 		return lineInit(args[1:], stdout)
 	case args[0] == "install":
-		return lineInstall(args[1:], stdout)
+		return lineInstall(args[1:], stdout, podmanSecretCreate)
 	case args[0] == "mirror":
 		return lineMirror(args[1:])
 	case len(args) >= 2 && args[0] == "station" && args[1] == "add":
@@ -276,10 +277,22 @@ func lineInit(args []string, stdout io.Writer) error {
 	return nil
 }
 
-// lineInstall writes the Quadlet units of the line in --dir and the station
-// env files they read. It starts
-// nothing: the operator reloads systemd after reading the file list.
-func lineInstall(args []string, stdout io.Writer) error {
+// podmanSecretCreate stores value as a podman secret, passing it on stdin so
+// it never appears in the process list.
+func podmanSecretCreate(name, value string) error {
+	cmd := exec.Command("podman", "secret", "create", "--replace", name, "-")
+	cmd.Stdin = strings.NewReader(value)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// lineInstall writes the Quadlet units of the line in --dir, the station env
+// files they read and the podman secrets of the maker units (through
+// createSecret). It starts nothing: the operator reloads systemd after reading
+// the file list.
+func lineInstall(args []string, stdout io.Writer, createSecret quadlet.SecretCreator) error {
 	fs := flag.NewFlagSet("line install", flag.ContinueOnError)
 	var spec quadlet.Spec
 	fs.StringVar(&spec.Name, "name", "", "line name (unit names are sweatshop-NAME-...)")
@@ -288,6 +301,7 @@ func lineInstall(args []string, stdout io.Writer) error {
 	fs.StringVar(&spec.Image, "image", "localhost/sweatshop-line:dev", "image holding the sweatshop binary")
 	fs.StringVar(&spec.CPUQuota, "cpu-quota", "200%", "CPUQuota of the line's slice")
 	fs.StringVar(&spec.MemoryMax, "memory-max", "8G", "MemoryMax of the line's slice")
+	fs.StringVar(&spec.MakerImage, "maker-image", "localhost/sweatshop-maker:dev", "image of the maker loop, for stations of role maker")
 	rewriteEnv := fs.Bool("rewrite-env", false, "rewrite existing station env files (default: keep them)")
 	fs.StringVar(&spec.MirrorCredDir, "mirror-creds", "", "host directory with the line's mirror deploy_key and known_hosts (absolute); enables the mirror service")
 	home, err := os.UserHomeDir()
@@ -308,10 +322,19 @@ func lineInstall(args []string, stdout io.Writer) error {
 	}
 	spec.Port = l.Port
 	spec.URL = l.URL
+	for _, st := range l.Stations {
+		if st.Role == "maker" {
+			spec.Makers = append(spec.Makers, st.Name)
+		}
+	}
 	if l.Network == "" || l.URL == "" {
 		fmt.Fprintln(stdout, "note: line.toml has no network or url; station containers started by the runners cannot reach serve through host.containers.internal when it runs on the line network. Set both in line.toml.")
 	}
 	envFiles, err := quadlet.WriteEnvFiles(spec, secret.ForLine(spec.Dir), *rewriteEnv)
+	if err != nil {
+		return err
+	}
+	secrets, err := quadlet.CreateMakerSecrets(spec, secret.ForLine(spec.Dir), createSecret)
 	if err != nil {
 		return err
 	}
@@ -320,6 +343,9 @@ func lineInstall(args []string, stdout io.Writer) error {
 		return err
 	}
 	written = append(envFiles, written...)
+	for _, name := range secrets {
+		fmt.Fprintln(stdout, "podman secret "+name)
+	}
 	for _, path := range written {
 		fmt.Fprintln(stdout, path)
 	}
