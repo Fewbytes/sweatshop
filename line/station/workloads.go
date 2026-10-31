@@ -301,51 +301,45 @@ func (s *Server) routeWorkloads(w http.ResponseWriter, r *http.Request, st *Stat
 	rest := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/v1/workloads"), "/")
 	id, sub, _ := strings.Cut(rest, "/")
 	switch {
-	case rest == "":
-		switch r.Method {
-		case http.MethodPost:
-			var spec WorkloadSpec
-			dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxWorkloadBody))
-			dec.DisallowUnknownFields()
-			if err := dec.Decode(&spec); err != nil {
-				return "", fail(http.StatusBadRequest, "decode workload request: %v", err)
-			}
-			wl, err := s.RequestWorkload(r.Context(), st, spec)
-			if err != nil {
-				return "", err
-			}
-			writeJSON(w, http.StatusCreated, wl)
-			return "workload " + wl.ID + " " + wl.State, nil
-		case http.MethodGet:
-			f, err := s.Workloads.read()
-			if err != nil {
-				return "", err
-			}
-			out := []Workload{}
-			for _, wl := range f.Workloads {
-				if st.seesWorkload(wl) {
-					out = append(out, wl)
-				}
-			}
-			writeJSON(w, http.StatusOK, out)
-			return "workloads list", nil
+	case rest == "" && r.Method == http.MethodPost:
+		var spec WorkloadSpec
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxWorkloadBody))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&spec); err != nil {
+			return "", fail(http.StatusBadRequest, "decode workload request: %v", err)
 		}
-		return "", requireMethod(w, r, http.MethodGet)
-	case sub == "" || sub == "logs":
-		want := http.MethodGet
-		if sub == "" && r.Method == http.MethodDelete {
-			want = http.MethodDelete
-		}
-		if err := requireMethod(w, r, want); err != nil {
+		wl, err := s.RequestWorkload(r.Context(), st, spec)
+		if err != nil {
 			return "", err
 		}
-		if want == http.MethodDelete {
-			wl, err := s.StopWorkload(st, id)
-			if err != nil {
-				return "", err
+		writeJSON(w, http.StatusCreated, wl)
+		return "workload " + wl.ID + " " + wl.State, nil
+	case rest == "":
+		if err := requireMethod(w, r, http.MethodGet); err != nil {
+			return "", err
+		}
+		f, err := s.Workloads.read()
+		if err != nil {
+			return "", err
+		}
+		out := []Workload{}
+		for _, wl := range f.Workloads {
+			if st.seesWorkload(wl) {
+				out = append(out, wl)
 			}
-			writeJSON(w, http.StatusOK, wl)
-			return "workload " + id + " stop", nil
+		}
+		writeJSON(w, http.StatusOK, out)
+		return "workloads list", nil
+	case sub == "" && r.Method == http.MethodDelete:
+		wl, err := s.StopWorkload(st, id)
+		if err != nil {
+			return "", err
+		}
+		writeJSON(w, http.StatusOK, wl)
+		return "workload " + id + " stop", nil
+	case sub == "" || sub == "logs":
+		if err := requireMethod(w, r, http.MethodGet); err != nil {
+			return "", err
 		}
 		f, err := s.Workloads.read()
 		if err != nil {
