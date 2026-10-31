@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Fewbytes/sweatshop/line/secret"
 )
 
 // S3Store is an S3-compatible object store (AWS S3, MinIO, R2). It signs
@@ -71,9 +74,36 @@ func NewObjectStore(fsRoot string, getenv func(string) string) (ObjectStore, err
 	return s, nil
 }
 
-// ObjectStoreFromEnv is NewObjectStore over the process environment.
-func ObjectStoreFromEnv(fsRoot string) (ObjectStore, error) {
-	return NewObjectStore(fsRoot, os.Getenv)
+// ObjectStoreFromEnv is NewObjectStore over the process environment. When
+// S3 is selected and AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY is unset, the
+// key comes from creds (a systemd credential or a file in the line directory),
+// so a unit need not carry it in an environment file.
+func ObjectStoreFromEnv(fsRoot string, creds secret.Source) (ObjectStore, error) {
+	vars := map[string]string{}
+	if os.Getenv("SWEATSHOP_S3_BUCKET") != "" {
+		for envName, credName := range map[string]string{
+			"AWS_ACCESS_KEY_ID":     secret.S3AccessKeyCred,
+			"AWS_SECRET_ACCESS_KEY": secret.S3SecretKeyCred,
+		} {
+			if os.Getenv(envName) != "" {
+				continue
+			}
+			v, err := creds.Read(credName)
+			if errors.Is(err, secret.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return nil, fmt.Errorf("s3 object store: %s: %w", credName, err)
+			}
+			vars[envName] = v
+		}
+	}
+	return NewObjectStore(fsRoot, func(name string) string {
+		if v, ok := vars[name]; ok && os.Getenv(name) == "" {
+			return v
+		}
+		return os.Getenv(name)
+	})
 }
 
 func (s S3Store) Put(ctx context.Context, key, contentType string, data []byte) error {

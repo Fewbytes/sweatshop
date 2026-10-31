@@ -6,9 +6,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Fewbytes/sweatshop/line/secret"
 )
 
 func TestS3StorePut(t *testing.T) {
@@ -117,5 +121,36 @@ func TestS3StorePresignGetRejectsTTLOutsideSigV4Bounds(t *testing.T) {
 		if _, err := s.PresignGet("k", ttl); err == nil {
 			t.Errorf("ttl %s accepted", ttl)
 		}
+	}
+}
+
+func TestObjectStoreFromEnvTakesS3KeysFromCredentialFiles(t *testing.T) {
+	t.Setenv("SWEATSHOP_S3_BUCKET", "b")
+	t.Setenv("SWEATSHOP_S3_ENDPOINT", "http://m:9000")
+	t.Setenv("AWS_ACCESS_KEY_ID", "")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "")
+	dir := t.TempDir()
+	for name, v := range map[string]string{secret.S3AccessKeyCred: "access\n", secret.S3SecretKeyCred: "secret\n"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(v), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st, err := ObjectStoreFromEnv("", secret.File{Dir: dir})
+	s3, ok := st.(S3Store)
+	if err != nil || !ok || s3.AccessKey != "access" || s3.SecretKey != "secret" {
+		t.Fatalf("store = %#v, %v; want S3Store with the file keys", st, err)
+	}
+}
+
+func TestObjectStoreFromEnvRejectsLooseCredentialFile(t *testing.T) {
+	t.Setenv("SWEATSHOP_S3_BUCKET", "b")
+	t.Setenv("SWEATSHOP_S3_ENDPOINT", "http://m:9000")
+	t.Setenv("AWS_ACCESS_KEY_ID", "")
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, secret.S3AccessKeyCred), []byte("access"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ObjectStoreFromEnv("", secret.File{Dir: dir}); err == nil || !strings.Contains(err.Error(), "0600") {
+		t.Fatalf("err = %v; want a mode error", err)
 	}
 }

@@ -55,6 +55,18 @@ type Line struct {
 	ViceroyImage string
 	Stations     []Station
 	Deploy       Deploy
+	Storage      Storage
+}
+
+// Storage is line.toml's [storage] table: the S3-compatible store `line
+// install` configures serve to keep run reports in. Its credential is not
+// here; it comes from line/secret (S3AccessKeyCred, S3SecretKeyCred). Zero
+// means reports stay in <Dir>/reports.
+type Storage struct {
+	Bucket   string `toml:"bucket"`
+	Endpoint string `toml:"endpoint"`
+	Region   string `toml:"region,omitempty"`
+	Prefix   string `toml:"prefix,omitempty"`
 }
 
 // Deploy is line.toml's [deploy] table: what `line serve` builds for a
@@ -99,6 +111,7 @@ type lineFile struct {
 	ViceroyImage string        `toml:"viceroy_image,omitempty"`
 	Stations     []stationFile `toml:"stations"`
 	Deploy       *Deploy       `toml:"deploy,omitempty"`
+	Storage      *Storage      `toml:"storage,omitempty"`
 }
 
 type stationFile struct {
@@ -137,6 +150,9 @@ func newLine(dir string, lf lineFile) Line {
 	}
 	if lf.Deploy != nil {
 		l.Deploy = *lf.Deploy
+	}
+	if lf.Storage != nil {
+		l.Storage = *lf.Storage
 	}
 	for _, s := range lf.Stations {
 		sd := filepath.Join(dir, "stations", s.Name)
@@ -447,6 +463,9 @@ func Load(dir string) (Line, error) {
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			return Line{}, fmt.Errorf("line.toml: bad url %q (want http://host:port)", l.URL)
 		}
+	}
+	if l.Storage != (Storage{}) && (l.Storage.Bucket == "" || l.Storage.Endpoint == "") {
+		return Line{}, errors.New("line.toml: [storage] needs bucket and endpoint")
 	}
 	for _, s := range l.Stations {
 		if !safeName.MatchString(s.Name) {

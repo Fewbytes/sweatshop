@@ -16,6 +16,9 @@ import (
 const (
 	ModelCred   = "model.cred"
 	DiscordCred = "discord.cred"
+	// S3AccessKeyCred and S3SecretKeyCred are the report store's S3 credential.
+	S3AccessKeyCred = "s3-access-key.cred"
+	S3SecretKeyCred = "s3-secret-key.cred"
 )
 
 // ErrNotFound means a source does not hold the named secret. Any other error
@@ -97,8 +100,10 @@ func ForLine(lineDir string) Source {
 	return Chain{
 		SystemdCredential{},
 		Env{Vars: map[string]string{
-			ModelCred:   "CLAUDE_CODE_OAUTH_TOKEN",
-			DiscordCred: "SWEATSHOP_DISCORD_TOKEN",
+			ModelCred:       "CLAUDE_CODE_OAUTH_TOKEN",
+			DiscordCred:     "SWEATSHOP_DISCORD_TOKEN",
+			S3AccessKeyCred: "AWS_ACCESS_KEY_ID",
+			S3SecretKeyCred: "AWS_SECRET_ACCESS_KEY",
 		}},
 		File{Dir: lineDir},
 	}

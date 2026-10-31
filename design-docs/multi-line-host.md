@@ -80,6 +80,15 @@ and every generation runs that prebuilt image instead; nothing is built.
 Lost: there is no per-commit viceroy build, so a merge never changes the
 viceroy's own code, and succession restarts the same image.
 
+## Report store
+
+A `[storage]` table in `line.toml` (`bucket`, `endpoint`, optional `region` and
+`prefix`) makes `line install` render the `SWEATSHOP_S3_*` settings into the
+serve unit. The credential is two files in the line directory,
+`s3-access-key.cred` and `s3-secret-key.cred` (mode 0600), which the unit loads
+with `LoadCredential=`; serve also accepts `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCESS_KEY` in its environment. No key is written into a unit.
+
 ## Work
 
 | Card | Piece |

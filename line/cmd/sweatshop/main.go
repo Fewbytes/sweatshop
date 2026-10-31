@@ -327,6 +327,7 @@ func lineInstall(args []string, stdout io.Writer, createSecret quadlet.SecretCre
 			spec.Makers = append(spec.Makers, st.Name)
 		}
 	}
+	spec.Storage = l.Storage
 	if l.Network == "" || l.URL == "" {
 		fmt.Fprintln(stdout, "note: line.toml has no network or url; station containers started by the runners cannot reach serve through host.containers.internal when it runs on the line network. Set both in line.toml.")
 	}

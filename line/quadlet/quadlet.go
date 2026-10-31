@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Fewbytes/sweatshop/line/linedir"
 	"github.com/Fewbytes/sweatshop/line/secret"
 )
 
@@ -32,6 +33,9 @@ type Spec struct {
 	// MakerImage with podman secrets for its token and the model credential.
 	Makers     []string
 	MakerImage string // image of the maker loop (station/Dockerfile maker target)
+	// Storage, when set, points serve at an S3 report store. Its credential
+	// reaches serve as systemd credentials loaded from Dir.
+	Storage linedir.Storage
 }
 
 // File is one unit file to write.
@@ -68,6 +72,11 @@ func (s Spec) validate() error {
 	// A newline would add a unit key; % in a path would start a systemd specifier.
 	if s.MirrorCredDir != "" && !filepath.IsAbs(s.MirrorCredDir) {
 		return fmt.Errorf("quadlet: mirror credential dir %q must be absolute", s.MirrorCredDir)
+	}
+	for _, v := range []string{s.Storage.Bucket, s.Storage.Endpoint, s.Storage.Region, s.Storage.Prefix} {
+		if strings.ContainsAny(v, "\n\r%\"\\") {
+			return fmt.Errorf("quadlet: unsafe storage value %q", v)
+		}
 	}
 	for _, v := range []string{s.Dir, s.ProjectPath, s.Image, s.MakerImage, s.MirrorCredDir} {
 		if strings.ContainsAny(v, "\n\r%") {
@@ -122,7 +131,11 @@ func Render(s Spec) ([]File, error) {
 			"[Service]",
 			"Slice="+n+".slice",
 			"Restart=always",
-			"RestartSec=10",
+			"RestartSec=10")
+		if role == "serve" && s.Storage != (linedir.Storage{}) {
+			lines = append(lines, s.storageServiceLines()...)
+		}
+		lines = append(lines,
 			"",
 			"[Install]",
 			"WantedBy=default.target",
@@ -135,6 +148,10 @@ func Render(s Spec) ([]File, error) {
 		"SecurityLabelDisable=true",
 	}
 	project := "Volume=" + s.ProjectPath + ":" + s.ProjectPath
+	serveExtra := append([]string{"PublishPort=127.0.0.1:" + port + ":" + port, project}, engine...)
+	if s.Storage != (linedir.Storage{}) {
+		serveExtra = append(serveExtra, s.storageLines()...)
+	}
 
 	files := []File{
 		{Name: n + ".network", Content: "[Network]\nNetworkName=" + n + "\n"},
@@ -144,7 +161,7 @@ func Render(s Spec) ([]File, error) {
 			"[Slice]\nCPUQuota=" + s.CPUQuota + "\nMemoryMax=" + s.MemoryMax + "\n"},
 		container("serve", "station API",
 			"sweatshop line serve --dir "+s.Dir+" --addr 0.0.0.0:"+port+" --unsafe-listen --beads "+s.ProjectPath, "",
-			append([]string{"PublishPort=127.0.0.1:" + port + ":" + port, project}, engine...)...),
+			serveExtra...),
 		container("heijunka", "levels agents and WIP limit",
 			"sweatshop line heijunka --beads "+s.ProjectPath+" --interval 5m", "heijunka-1", project),
 		container("andon", "attests each new master",
@@ -232,6 +249,35 @@ func CreateMakerSecrets(s Spec, src secret.Source, create SecretCreator) ([]stri
 		}
 	}
 	return created, nil
+}
+
+// storageLines are the serve container's settings for the S3 report store. The
+// credential files stay on the host: systemd loads them (LoadCredential=) and
+// the container sees the credentials directory read-only, which
+// secret.SystemdCredential reads through CREDENTIALS_DIRECTORY.
+func (s Spec) storageLines() []string {
+	lines := []string{
+		`Environment="SWEATSHOP_S3_BUCKET=` + s.Storage.Bucket + `"`,
+		`Environment="SWEATSHOP_S3_ENDPOINT=` + s.Storage.Endpoint + `"`,
+	}
+	if s.Storage.Region != "" {
+		lines = append(lines, `Environment="SWEATSHOP_S3_REGION=`+s.Storage.Region+`"`)
+	}
+	if s.Storage.Prefix != "" {
+		lines = append(lines, `Environment="SWEATSHOP_S3_PREFIX=`+s.Storage.Prefix+`"`)
+	}
+	return append(lines,
+		"Volume=%d:/run/sweatshop-credentials:ro",
+		"Environment=CREDENTIALS_DIRECTORY=/run/sweatshop-credentials")
+}
+
+// storageServiceLines are the serve unit's [Service] lines that load the S3
+// credential files from the line directory.
+func (s Spec) storageServiceLines() []string {
+	return []string{
+		"LoadCredential=" + secret.S3AccessKeyCred + ":" + filepath.Join(s.Dir, secret.S3AccessKeyCred),
+		"LoadCredential=" + secret.S3SecretKeyCred + ":" + filepath.Join(s.Dir, secret.S3SecretKeyCred),
+	}
 }
 
 // Install writes Render's files: Quadlet files into quadletDir and the slice

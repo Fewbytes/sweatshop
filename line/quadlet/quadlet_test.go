@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Fewbytes/sweatshop/line/linedir"
 	"github.com/Fewbytes/sweatshop/line/secret"
 )
 
@@ -75,6 +76,29 @@ func TestRenderStationsReachTheirOwnLinesServeByName(t *testing.T) {
 	requireContains(t, "kaizen", files["sweatshop-alpha-kaizen.container"], "podman.sock")
 }
 
+func TestRenderStorageConfiguresOnlyServeAndNeverHoldsTheKeys(t *testing.T) {
+	s := testSpec("alpha", 7468)
+	s.Storage = linedir.Storage{Bucket: "reports", Endpoint: "http://minio:9000", Region: "eu-1", Prefix: "alpha/"}
+	files := renderByName(t, s)
+	requireContains(t, "serve", files["sweatshop-alpha-serve.container"],
+		`Environment="SWEATSHOP_S3_BUCKET=reports"`,
+		`Environment="SWEATSHOP_S3_ENDPOINT=http://minio:9000"`,
+		`Environment="SWEATSHOP_S3_REGION=eu-1"`,
+		`Environment="SWEATSHOP_S3_PREFIX=alpha/"`,
+		"LoadCredential=s3-access-key.cred:/srv/lines/alpha/s3-access-key.cred",
+		"LoadCredential=s3-secret-key.cred:/srv/lines/alpha/s3-secret-key.cred",
+		"CREDENTIALS_DIRECTORY=/run/sweatshop-credentials")
+	for name, content := range files {
+		if name != "sweatshop-alpha-serve.container" && strings.Contains(content, "S3") {
+			t.Errorf("%s mentions S3:\n%s", name, content)
+		}
+	}
+	plain := renderByName(t, testSpec("alpha", 7468))
+	if strings.Contains(plain["sweatshop-alpha-serve.container"], "S3") {
+		t.Error("a line without [storage] got S3 settings")
+	}
+}
+
 func TestRenderRejectsUnsafeSpecs(t *testing.T) {
 	for name, mutate := range map[string]func(*Spec){
 		"uppercase name":      func(s *Spec) { s.Name = "Alpha" },
@@ -85,6 +109,7 @@ func TestRenderRejectsUnsafeSpecs(t *testing.T) {
 		"newline injects key": func(s *Spec) { s.MemoryMax = "8G\nExecStartPre=/bin/sh" },
 		"specifier in path":   func(s *Spec) { s.ProjectPath = "/srv/%h" },
 		"missing image":       func(s *Spec) { s.Image = "" },
+		"quote in prefix":     func(s *Spec) { s.Storage = linedir.Storage{Bucket: "b", Endpoint: "e", Prefix: `x" Y=1`} },
 	} {
 		s := testSpec("alpha", 7468)
 		mutate(&s)

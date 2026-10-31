@@ -130,6 +130,31 @@ func TestLoadRoundTrips(t *testing.T) {
 	}
 }
 
+func TestLoadReadsStorageTable(t *testing.T) {
+	l, _ := initLine(t)
+	path := filepath.Join(l.Dir, "line.toml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := func(table string) {
+		t.Helper()
+		if err := os.WriteFile(path, append(data, []byte(table)...), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("\n[storage]\nbucket = \"reports\"\nendpoint = \"http://minio:9000\"\nregion = \"eu-1\"\nprefix = \"p/\"\n")
+	got, err := Load(l.Dir)
+	want := Storage{Bucket: "reports", Endpoint: "http://minio:9000", Region: "eu-1", Prefix: "p/"}
+	if err != nil || got.Storage != want {
+		t.Fatalf("Storage = %+v, %v; want %+v", got.Storage, err, want)
+	}
+	write("\n[storage]\nbucket = \"reports\"\n")
+	if _, err := Load(l.Dir); err == nil {
+		t.Fatal("Load accepted [storage] without an endpoint")
+	}
+}
+
 func TestInitRefusesNonEmptyDir(t *testing.T) {
 	src := sourceRepo(t)
 	dir := t.TempDir()

@@ -29,6 +29,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/linedir"
 	"github.com/Fewbytes/sweatshop/line/linestore"
 	"github.com/Fewbytes/sweatshop/line/report"
+	"github.com/Fewbytes/sweatshop/line/secret"
 	"github.com/Fewbytes/sweatshop/line/witness"
 )
 
@@ -207,7 +208,7 @@ func NewFromLine(l linedir.Line) (*Server, error) {
 	// Every run's JUnit/HTML go to the object store (S3 when SWEATSHOP_S3_BUCKET
 	// is set, else <line>/reports); OpenStore adds the line database for its
 	// stats and per-test results.
-	objects, err := report.ObjectStoreFromEnv(filepath.Join(l.Dir, "reports"))
+	objects, err := report.ObjectStoreFromEnv(filepath.Join(l.Dir, "reports"), secret.ForLine(l.Dir))
 	if err != nil {
 		return nil, err
 	}

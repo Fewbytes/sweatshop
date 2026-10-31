@@ -745,14 +745,14 @@
         "PackageVersion"
       ],
       "hidden_coupling_ratio": 0.333,
-      "hotspot_rank": 27,
+      "hotspot_rank": 32,
       "imported_by": [
         "depmaint/internal/cli",
         "depmaint/internal/store"
       ],
       "imports": [],
       "lcom4": 2,
-      "measured_at_commit": "bbcf27d6603ada692f221af64b46106f2cc78497",
+      "measured_at_commit": "9851d6073e2c5be16d8d7e670d9d70aab4edeca8",
       "purpose": "Package enrich fetches published truth (latest versions, licenses,"
     },
     "depmaint/internal/expander": {
@@ -1146,7 +1146,7 @@
         "Podman"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 31,
+      "hotspot_rank": 25,
       "imported_by": [
         "line/cmd/sweatshop"
       ],
@@ -1154,7 +1154,7 @@
         "line/station"
       ],
       "lcom4": 1,
-      "measured_at_commit": "3abbff81bcd710f8774b1be7956957998cf6ee9c",
+      "measured_at_commit": "9851d6073e2c5be16d8d7e670d9d70aab4edeca8",
       "purpose": "Package controller is the line's privileged actuator for workload requests."
     },
     "line/deploy": {
@@ -1452,7 +1452,7 @@
       "purpose": "The per-language adapter interface and the types signals travel in."
     },
     "line/linedir": {
-      "entry_point_count": 11,
+      "entry_point_count": 12,
       "entry_points": [
         "AddStation",
         "CommitConstitution",
@@ -1464,16 +1464,18 @@
         "Line",
         "Load",
         "Station",
-        "StationSpec"
+        "StationSpec",
+        "Storage"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 20,
+      "hotspot_rank": 18,
       "imported_by": [
         "line/cmd/sweatshop",
         "line/gemba",
         "line/harness",
         "line/kaizen",
         "line/maker",
+        "line/quadlet",
         "line/station"
       ],
       "imports": [
@@ -1484,7 +1486,7 @@
         "line/guard"
       ],
       "lcom4": 1,
-      "measured_at_commit": "318c2ed7ed6ccc97285cc63f820a944cc2965377",
+      "measured_at_commit": "9851d6073e2c5be16d8d7e670d9d70aab4edeca8",
       "purpose": "Package linedir creates and loads a line directory: the on-disk home of one"
     },
     "line/linelog": {
@@ -1607,16 +1609,17 @@
         "TokenSecretName",
         "WriteEnvFiles"
       ],
-      "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 36,
+      "hidden_coupling_ratio": 0.333,
+      "hotspot_rank": 31,
       "imported_by": [
         "line/cmd/sweatshop"
       ],
       "imports": [
+        "line/linedir",
         "line/secret"
       ],
       "lcom4": 1,
-      "measured_at_commit": "cbaf391f33ca14d3347910fd8f659d73eea494e6",
+      "measured_at_commit": "9851d6073e2c5be16d8d7e670d9d70aab4edeca8",
       "purpose": "Package quadlet renders the systemd units of one line on a shared host:"
     },
     "line/report": {
@@ -1636,16 +1639,18 @@
         "ObjectReader"
       ],
       "hidden_coupling_ratio": 0.333,
-      "hotspot_rank": 16,
+      "hotspot_rank": 12,
       "imported_by": [
         "line/cistats",
         "line/linestore",
         "line/station",
         "line/witness"
       ],
-      "imports": [],
+      "imports": [
+        "line/secret"
+      ],
       "lcom4": 2,
-      "measured_at_commit": "d586f0e121c5d4e88e046f8d33939f585af123d9",
+      "measured_at_commit": "9851d6073e2c5be16d8d7e670d9d70aab4edeca8",
       "purpose": "Package report turns a witness check run into a JUnit XML report and a"
     },
     "line/runner": {
@@ -1675,7 +1680,7 @@
       "purpose": "Package runner is the one interface the line uses to run station and"
     },
     "line/secret": {
-      "entry_point_count": 9,
+      "entry_point_count": 11,
       "entry_points": [
         "Chain",
         "DiscordCred",
@@ -1684,19 +1689,22 @@
         "File",
         "ForLine",
         "ModelCred",
+        "S3AccessKeyCred",
+        "S3SecretKeyCred",
         "Source",
         "SystemdCredential"
       ],
       "hidden_coupling_ratio": 0.0,
-      "hotspot_rank": 54,
+      "hotspot_rank": 53,
       "imported_by": [
         "line/cmd/sweatshop",
         "line/quadlet",
+        "line/report",
         "line/station"
       ],
       "imports": [],
       "lcom4": 1,
-      "measured_at_commit": "cbaf391f33ca14d3347910fd8f659d73eea494e6",
+      "measured_at_commit": "9851d6073e2c5be16d8d7e670d9d70aab4edeca8",
       "purpose": "Package secret resolves named line secrets (the model token, the Discord"
     },
     "line/station": {
