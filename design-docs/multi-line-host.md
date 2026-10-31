@@ -19,6 +19,11 @@ heijunka, andon, kaizen, makers, gemba, viceroy.
 - **Isolation per line.** Each line gets its own podman network (stations reach
   their own line's serve only, no shared bridge between lines) and its own
   systemd slice with `CPUQuota` and `MemoryMax`.
+  On a host whose firewall drops INPUT (ufw), containers on the line network
+  cannot reach aardvark-dns on the bridge gateway (port 53), so they cannot
+  resolve `sweatshop-NAME-serve`. Allow the bridge once the network exists:
+  `ufw allow in on $(podman network inspect sweatshop-NAME --format
+  '{{.NetworkInterface}}')`. `line install` prints this command.
 - **Constitution is a per-line file.** `line init` seeds it. There is no
   inheritance between lines.
 - **The runner interface stays the seam.** A k8s runner can follow later

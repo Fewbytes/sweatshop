@@ -323,6 +323,9 @@ func lineInstall(args []string, stdout io.Writer) error {
 	for _, path := range written {
 		fmt.Fprintln(stdout, path)
 	}
+	// The bridge name is chosen by podman when the network is created, so it
+	// cannot be written into a rule here.
+	fmt.Fprintf(stdout, "note: on a host firewall that drops INPUT (ufw), containers cannot resolve sweatshop-%[1]s-serve until DNS to the line bridge is allowed. After the network exists, run: ufw allow in on $(podman network inspect sweatshop-%[1]s --format '{{.NetworkInterface}}')\n", spec.Name)
 	return nil
 }
 

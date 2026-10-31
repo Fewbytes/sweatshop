@@ -321,6 +321,9 @@ func TestLineInstallWritesUnitsWithTheLinesPort(t *testing.T) {
 	if !strings.Contains(out.String(), filepath.Join(sdir, "sweatshop-alpha.slice")) {
 		t.Errorf("output does not list the slice: %s", out.String())
 	}
+	if want := "podman network inspect sweatshop-alpha --format '{{.NetworkInterface}}'"; !strings.Contains(out.String(), want) {
+		t.Errorf("output lacks the firewall hint %q: %s", want, out.String())
+	}
 	if strings.Contains(out.String(), "model-secret") {
 		t.Errorf("install printed the model credential: %s", out.String())
 	}
