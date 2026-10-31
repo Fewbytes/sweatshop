@@ -12,6 +12,8 @@ import (
 	"fmt"
 	dockerclient "github.com/docker/docker/client"
 	"io"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"log"
 	"net"
 	"net/http"
@@ -93,7 +95,7 @@ const usage = `usage:
   sweatshop line deployer --dir D [--backend B]
                                         the privileged actuator: apply the king-approved release with backend launchd or k8s (line.toml [deploy])
   sweatshop line controller --dir D [--socket unix:///run/podman/podman.sock] [--once]
-                                        the privileged workload controller: run approved workload requests on the podman socket (controller token <dir>/controller.token)
+                                        the privileged workload controller: run approved workload requests on the podman socket or in a Kubernetes namespace (controller token <dir>/controller.token)
   sweatshop line andon --beads DIR [--interval 30s] [--triage]
                                         watch master; pull/clear the andon cord (andon station token)
   sweatshop line heijunka --beads DIR [--interval 5m] [--min-agents 1] [--max-agents 4]
@@ -1747,7 +1749,9 @@ func viceroyClient(cmd string, args []string, stdout io.Writer) error {
 func lineController(args []string) error {
 	fs := flag.NewFlagSet("line controller", flag.ContinueOnError)
 	dir := fs.String("dir", "", "line directory")
-	socket := fs.String("socket", "unix:///run/podman/podman.sock", "engine API socket")
+	backend := fs.String("backend", "podman", "podman or kubernetes (in-cluster service account)")
+	socket := fs.String("socket", "unix:///run/podman/podman.sock", "podman API socket")
+	namespace := fs.String("namespace", "", "Kubernetes namespace of the line (kubernetes backend)")
 	once := fs.Bool("once", false, "reconcile once, then exit")
 	if err := parseWithoutOperands(fs, args); err != nil {
 		return err
@@ -1763,16 +1767,36 @@ func lineController(args []string) error {
 	if err != nil {
 		return err
 	}
-	engine, err := dockerclient.NewClientWithOpts(dockerclient.WithHost(*socket), dockerclient.WithAPIVersionNegotiation())
-	if err != nil {
-		return err
+	var engine controller.Engine
+	switch *backend {
+	case "podman":
+		client, err := dockerclient.NewClientWithOpts(dockerclient.WithHost(*socket), dockerclient.WithAPIVersionNegotiation())
+		if err != nil {
+			return err
+		}
+		engine = controller.Podman{Client: client, Line: filepath.Base(l.Dir), Network: l.Network}
+	case "kubernetes":
+		if *namespace == "" {
+			return errors.New("line controller: -namespace is required for the kubernetes backend")
+		}
+		cfg, err := rest.InClusterConfig()
+		if err != nil {
+			return err
+		}
+		client, err := kubernetes.NewForConfig(cfg)
+		if err != nil {
+			return err
+		}
+		engine = controller.Kubernetes{Client: client, Line: filepath.Base(l.Dir), Namespace: *namespace}
+	default:
+		return fmt.Errorf("line controller: unknown backend %q (want podman or kubernetes)", *backend)
 	}
 	c := &controller.Controller{
 		API: station.Client{
 			URL:   "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(l.Port)),
 			Token: strings.TrimSpace(string(raw)),
 		},
-		Engine: controller.Podman{Client: engine, Line: filepath.Base(l.Dir), Network: l.Network},
+		Engine: engine,
 		Log:    log.New(os.Stderr, "", log.LstdFlags).Printf,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

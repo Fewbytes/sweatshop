@@ -25,8 +25,11 @@ const (
 	LabelWorkload = "sweatshop.workload"
 )
 
-// nonRootUser is the nobody user and group; a workload never runs as root.
-const nonRootUser = "65534:65534"
+// nonRootID is the nobody user and group id; a workload never runs as root.
+const nonRootID int64 = 65534
+
+// logTailLines is how many trailing log lines an engine returns.
+const logTailLines int64 = 500
 
 // Podman is the Engine backed by podman's Docker-compatible API socket
 // (chosen over the podman bindings: lighter, builds with CGO_ENABLED=0, and
@@ -78,7 +81,7 @@ func (p Podman) Create(ctx context.Context, in Instance) error {
 	}
 	sort.Strings(env)
 	cfg := &container.Config{
-		Image: in.Image, Cmd: in.Args, Env: env, User: nonRootUser,
+		Image: in.Image, Cmd: in.Args, Env: env, User: fmt.Sprintf("%d:%d", nonRootID, nonRootID),
 		Labels: map[string]string{LabelLine: p.Line, LabelWorkload: in.Workload},
 	}
 	if _, err := p.Client.ImageInspect(ctx, in.Image); errdefs.IsNotFound(err) {
@@ -133,7 +136,7 @@ func (p Podman) List(ctx context.Context) ([]Observed, error) {
 // Logs returns stdout then stderr of the workload's container, last lines only.
 func (p Podman) Logs(ctx context.Context, workload string) (string, error) {
 	rc, err := p.Client.ContainerLogs(ctx, p.containerName(workload), container.LogsOptions{
-		ShowStdout: true, ShowStderr: true, Tail: "500",
+		ShowStdout: true, ShowStderr: true, Tail: strconv.FormatInt(logTailLines, 10),
 	})
 	if err != nil {
 		return "", err

@@ -131,6 +131,13 @@ images = ["localhost/*", "registry.example/sweatshop/*"]
   its logs can be read, then it is removed; so is a labelled object serve has no
   live request for. Logs are reported when the state changes. `build`, `secrets`,
   `volumes` and `expose` requests fail with a reason until they are implemented.
+- **Kubernetes backend** (`sweatshop line controller --dir D --backend
+  kubernetes --namespace NS`, in-cluster service account): one Pod per
+  workload, named and labelled as above, restart policy Never, non-root, all
+  capabilities dropped, no service-account token. The account needs get, list,
+  create and delete on `pods` and get on `pods/log` in the namespace, nothing
+  else. The pids limit is not applied (the kubelet's `podPidsLimit` bounds it);
+  the namespace is the network boundary.
 - **Builds** are privileged too and are a request kind, built from a commit on
   the line remote as `EngineReleaseBuilder` does.
 

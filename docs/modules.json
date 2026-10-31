@@ -1132,13 +1132,14 @@
       "purpose": "Package constitution loads the line's rules. v0 holds only what the witness"
     },
     "line/controller": {
-      "entry_point_count": 9,
+      "entry_point_count": 10,
       "entry_points": [
         "API",
         "Controller",
         "DefaultGrace",
         "Engine",
         "Instance",
+        "Kubernetes",
         "LabelLine",
         "LabelWorkload",
         "Observed",
