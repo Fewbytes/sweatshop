@@ -23,6 +23,12 @@ const DefaultInterval = 24 * time.Hour
 // DefaultPoll is how often the loop looks at master between runs.
 const DefaultPoll = time.Minute
 
+// depmaintEvery makes every Nth run a depmaint run instead of a
+// simplification run. Dependency upgrades are slow-moving, so one run in five
+// (about one a week at DefaultInterval) keeps them current without crowding
+// out simplification.
+const depmaintEvery = 5
+
 var unsafeNameChars = regexp.MustCompile(`[^A-Za-z0-9_.-]`)
 
 // RequestAPI is the line's Kaizen request channel: Heijunka files a request
@@ -38,7 +44,9 @@ type RequestAPI interface {
 // sleeps instead of making work. A request from Heijunka stands in for the
 // Interval only; the master and andon guards still apply, and a request they
 // refuse is declined, which the line records. The state lives in memory; a
-// restarted runner runs once at once, which is cheap and safe.
+// restarted runner runs once at once, which is cheap and safe. Every
+// depmaintEvery-th run is a depmaint run, which carries no SWEATSHOP_KAIZEN
+// marker because it has no signal delta for the change report to show.
 type Runner struct {
 	Memory, CPUs string
 	Pids         int
@@ -61,6 +69,7 @@ type Runner struct {
 	Log      *log.Logger
 	Now      func() time.Time // default time.Now
 
+	runs       int // runs started, which sets when the next one is a depmaint run
 	lastRun    time.Time
 	lastMaster string
 }
@@ -174,9 +183,13 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 	env["SWEATSHOP_LINE_URL"] = url
 	env["SWEATSHOP_LINE_TOKEN"] = token
 	env["SWEATSHOP_BEAD"] = runID
-	env["SWEATSHOP_KAIZEN"] = "1"
 	env["SWEATSHOP_AGENT_ID"] = r.Station.AgentID
-	env["SWEATSHOP_PROMPT"] = Prompt(runID)
+	if r.runs%depmaintEvery == depmaintEvery-1 {
+		env["SWEATSHOP_PROMPT"] = depmaintPrompt(runID)
+	} else {
+		env["SWEATSHOP_KAIZEN"] = "1"
+		env["SWEATSHOP_PROMPT"] = Prompt(runID)
+	}
 	timeout := r.Timeout
 	if timeout <= 0 {
 		timeout = maker.DefaultTimeout
@@ -200,6 +213,7 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 		return true, errors.Join(runErr, context.Cause(ctx)) // interrupted: do not count as a run
 	}
 	r.lastRun, r.lastMaster = start, master
+	r.runs++
 
 	landed, err := maker.Landed(context.WithoutCancel(ctx), remote, runID, master)
 	if err != nil {

@@ -288,6 +288,13 @@ below) exists, the prompt switches to filing cards and this section goes.
   report stays in master's history for the delta-verification loop (item 8).
   The report is agent-authored, so it is a claim, not proof (P4) until the
   analyzer re-measures it.
+- **Scheduled depmaint run.** Every fifth run (`depmaintEvery` in
+  `line/kaizen/runner.go`, counted per runner process, so about weekly at the
+  daily interval) is a depmaint run instead of a simplification: the agent
+  advances one campaign by one work order per `skills/depmaint/SKILL.md`. It
+  has no hotspot or signal delta, so its container gets no `SWEATSHOP_KAIZEN`
+  marker and its commit needs no change report; the guard's `just ci` still
+  gates it.
 - **Landing is detected like a Maker's.** The run ID `kaizen-<UTC time>` is
   the container's `SWEATSHOP_BEAD`, so the existing `Bead:` trailer check and
   `maker.Landed` apply unchanged.

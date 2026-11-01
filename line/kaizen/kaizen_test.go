@@ -258,6 +258,39 @@ func TestOnceContainerGetsRunIDPromptAndKaizenMarker(t *testing.T) {
 	}
 }
 
+func TestEveryFifthRunIsADepmaintRunWithoutTheChangeReport(t *testing.T) {
+	ctx := context.Background()
+	bare, work := seededRemote(t)
+	now := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	e := &fakeEngine{}
+	r := newRunner(t, bare, e, &now)
+	r.Interval = time.Hour
+	for i := 0; i < 5; i++ {
+		now = now.Add(2 * time.Hour)
+		moveMaster(t, work, "feature")
+		if ran, err := r.Once(ctx); err != nil || !ran {
+			t.Fatalf("run %d: Once = %v, %v; want it to run", i+1, ran, err)
+		}
+	}
+	var depmaintRuns []int
+	for i, spec := range e.specs {
+		prompt := spec.Env["SWEATSHOP_PROMPT"]
+		isDepmaint := strings.Contains(prompt, "skills/depmaint/SKILL.md")
+		if isDepmaint {
+			depmaintRuns = append(depmaintRuns, i+1)
+		}
+		if isDepmaint == (spec.Env["SWEATSHOP_KAIZEN"] == "1") {
+			t.Errorf("run %d: depmaint prompt = %t, SWEATSHOP_KAIZEN = %q; want the change report required exactly on simplification runs", i+1, isDepmaint, spec.Env["SWEATSHOP_KAIZEN"])
+		}
+		if !strings.Contains(prompt, "Bead: "+spec.Env["SWEATSHOP_BEAD"]) {
+			t.Errorf("run %d: prompt lacks its Bead trailer", i+1)
+		}
+	}
+	if !reflect.DeepEqual(depmaintRuns, []int{5}) {
+		t.Fatalf("depmaint runs = %v, want [5]", depmaintRuns)
+	}
+}
+
 type fakeHeartbeats struct{ beat []station.Heartbeat }
 
 func (f *fakeHeartbeats) Heartbeat(_ context.Context, hb station.Heartbeat) error {

@@ -69,6 +69,37 @@ func CheckCommitReport(ctx context.Context, repo gitx.Repo, rev string) error {
 	return CheckReport(msg)
 }
 
+// depmaintPrompt is the whole instruction of a depmaint run: no hotspot, no
+// signal delta, so the change report of a simplification run does not apply.
+func depmaintPrompt(runID string) string {
+	return fmt.Sprintf(`You are a Kaizen station on an assembly line. Your run: %[1]s
+
+Mandate: this is the scheduled dependency-maintenance run, in place of a
+simplification. Advance one depmaint campaign by one work order, then stop.
+If the repository has no campaign and nothing is stale, change nothing and
+finish with RESULT: gave-up nothing to upgrade.
+
+1. Work in /work, a clone of the line's master (origin is /line/remote.git).
+   Read CLAUDE.md for conventions, but skip its beads/bd instructions.
+2. Follow the depmaint skill (skills/depmaint/SKILL.md): list the campaigns,
+   take `+"`depmaint campaign next <id>`"+`, execute that one work order, and record
+   the verdict. Do not start a second order.
+3. Run `+"`just ci`"+` and make it pass. Commit with this trailer as the last
+   paragraph, with nothing after it (no Co-Authored-By paragraph):
+
+   Bead: %[1]s
+
+4. Submit with `+"`sweatshop line merge`"+`; on base_moved, `+"`git fetch origin && git rebase origin/master`"+`,
+   re-run `+"`just ci`"+` and submit again. Submit at most %[2]d times in total.
+5. Never edit files outside /work. Never reach the line other than through `+"`sweatshop line`"+`.
+6. Stop when the commit merged or after %[2]d failed submissions. End your
+   output with exactly one summary line:
+   RESULT: merged <sha>
+   or
+   RESULT: gave-up <reason>
+`, runID, maxSubmissions)
+}
+
 // Prompt is the whole instruction one Kaizen run gets. runID is the value of
 // the `Bead` trailer the commit must carry, which is how the runner sees that
 // the run landed.
