@@ -43,6 +43,7 @@ import (
 	"github.com/Fewbytes/sweatshop/line/linestore"
 	"github.com/Fewbytes/sweatshop/line/maker"
 	"github.com/Fewbytes/sweatshop/line/mirror"
+	"github.com/Fewbytes/sweatshop/line/purity"
 	"github.com/Fewbytes/sweatshop/line/quadlet"
 	"github.com/Fewbytes/sweatshop/line/secret"
 	"github.com/Fewbytes/sweatshop/line/station"
@@ -115,6 +116,8 @@ const usage = `usage:
   sweatshop line kaizen mutation --commit SHA --source kaizen|card --file mutation.json
                                         kaizen run: record the mutation score (with tool, version, sample size and runtime) kaizen_signals.py mutation measured
   sweatshop line kaizen mutation-trend  kaizen run: print every recorded mutation measurement, oldest first
+  sweatshop line kaizen purity [--root DIR] [--format json|markdown]
+                                        tag every Go function deterministic or non-deterministic with its taint chain, and list packages mixing logic with effects and logic packages importing adapters (markdown output pipes into kaizen report)
   sweatshop line kaizen report (Markdown on stdin)
                                         kaizen run: publish this run's analysis report to the line's object store (SWEATSHOP_BEAD names the run)
   sweatshop viceroy run [--heartbeat 6h]
@@ -204,6 +207,8 @@ func runLine(args []string, stdout io.Writer) error {
 		return lineMaker(args[1:])
 	case args[0] == "gemba":
 		return lineGemba(args[1:])
+	case len(args) >= 2 && args[0] == "kaizen" && args[1] == "purity":
+		return lineKaizenPurity(args[2:], stdout)
 	case len(args) >= 2 && args[0] == "kaizen" && args[1] == "report":
 		return lineKaizenReport(os.Stdin, stdout)
 	case len(args) >= 2 && args[0] == "kaizen" && args[1] == "context":
@@ -846,6 +851,31 @@ func lineKaizenReport(stdin io.Reader, stdout io.Writer) error {
 	}
 	fmt.Fprintln(stdout, "published", key)
 	return nil
+}
+
+// lineKaizenPurity prints the purity analysis of the Go modules under --root,
+// a local read-only command that needs no line connection.
+func lineKaizenPurity(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("line kaizen purity", flag.ContinueOnError)
+	root := fs.String("root", ".", "directory holding the Go modules to analyse")
+	format := fs.String("format", "json", "json or markdown")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *format != "json" && *format != "markdown" {
+		return fmt.Errorf("--format must be json or markdown, got %q", *format)
+	}
+	report, err := purity.Analyze(*root)
+	if err != nil {
+		return err
+	}
+	if *format == "markdown" {
+		_, err = io.WriteString(stdout, report.Markdown())
+		return err
+	}
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(report)
 }
 
 // lineKaizenContext saves what the signal scripts cannot read from the clone:

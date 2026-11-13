@@ -142,6 +142,8 @@ Line protocol:
 
    The report is a per-module table: signals, trend against the previous run,
    hotspot rank.
+   `+"`sweatshop line kaizen purity --format markdown`"+` lists the packages that mix pure logic with
+   effects and the logic packages importing adapters; quote what bears on your target in step 4's report.
 4. Pick the target from the ranked hotspots (rank 1 first) and say why. Pipe
    Markdown to `+"`sweatshop line kaizen report`"+`, once, before you edit: the
    ranked findings you considered (including those you will not fix), the

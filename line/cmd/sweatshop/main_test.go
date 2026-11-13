@@ -941,3 +941,26 @@ func TestLineUsageClaudeOutputPrintsResultAndReports(t *testing.T) {
 		t.Fatalf("output = %q, want the raw claude output kept", out.String())
 	}
 }
+
+func TestKaizenPurityPrintsJSONAndMarkdownReports(t *testing.T) {
+	fixture := filepath.Join("..", "..", "purity", "testdata", "fixture")
+	var out bytes.Buffer
+	if err := run([]string{"line", "kaizen", "purity", "--root", fixture}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"id": "example.com/fixture/core.Describe"`, `"tag": "non-deterministic"`, `"via": "time.Now"`} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("JSON report lacks %s:\n%s", want, out.String())
+		}
+	}
+	out.Reset()
+	if err := run([]string{"line", "kaizen", "purity", "--root", fixture, "--format", "markdown"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if want := "example.com/fixture/core imports example.com/fixture/adapter, calling example.com/fixture/adapter.Now"; !strings.Contains(out.String(), want) {
+		t.Errorf("markdown report lacks violation %q:\n%s", want, out.String())
+	}
+	if err := run([]string{"line", "kaizen", "purity", "--format", "xml"}, &out); err == nil {
+		t.Error("unknown --format accepted")
+	}
+}

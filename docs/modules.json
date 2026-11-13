@@ -1085,6 +1085,7 @@
         "line/linestore",
         "line/maker",
         "line/mirror",
+        "line/purity",
         "line/quadlet",
         "line/secret",
         "line/station",
@@ -1595,6 +1596,32 @@
       "lcom4": 1,
       "measured_at_commit": "54f0a70b49cae942c9a0228703f9ef32ed1fff0f",
       "purpose": "Package mirror publishes a line's refs to the storage mirrors its"
+    },
+    "line/purity": {
+      "entry_point_count": 21,
+      "entry_points": [
+        "Analyze",
+        "FunctionTag",
+        "PackageRole",
+        "PackageSummary",
+        "Report",
+        "RoleAdapter",
+        "RoleLogic",
+        "Source",
+        "SourceArgMutation",
+        "SourceClock",
+        "SourceEnv",
+        "SourceFS"
+      ],
+      "hidden_coupling_ratio": 0.0,
+      "hotspot_rank": 72,
+      "imported_by": [
+        "line/cmd/sweatshop"
+      ],
+      "imports": [],
+      "lcom4": 1,
+      "measured_at_commit": "",
+      "purpose": "Package purity tags the functions of Go modules deterministic or"
     },
     "line/quadlet": {
       "entry_point_count": 9,
