@@ -124,9 +124,6 @@ func (c *Channel) gatewayConnect(ctx context.Context) (ready bool, err error) {
 	acked.Store(true)
 	go c.gatewayHeartbeat(ctx, conn, cancel, time.Duration(hello.HeartbeatInterval)*time.Millisecond, acked)
 
-	// Message events are dropped until READY/RESUMED has been backfilled: a
-	// resume replays events from before the gap, and delivering them ahead of
-	// the REST backfill would advance last past messages not yet fetched.
 	for {
 		f, err := readGatewayFrame(ctx, conn)
 		if err != nil {
@@ -149,43 +146,56 @@ func (c *Channel) gatewayConnect(ctx context.Context) (ready bool, err error) {
 			}
 			return ready, fmt.Errorf("invalid session (resumable=%t)", resumable)
 		case opDispatch:
-			if f.S != nil {
-				ses.seq.Store(*f.S)
-			}
-			switch f.T {
-			case "READY":
-				var d struct {
-					SessionID string `json:"session_id"`
-					ResumeURL string `json:"resume_gateway_url"`
-					App       struct {
-						ID string `json:"id"`
-					} `json:"application"`
-				}
-				if err := json.Unmarshal(f.D, &d); err != nil || d.SessionID == "" {
-					return ready, fmt.Errorf("bad READY: %v", err)
-				}
-				ses.id, ses.resumeURL = d.SessionID, d.ResumeURL
-				if err := c.gatewayBackfill(ctx); err != nil {
-					return ready, err
-				}
-				ready = true
-				c.registerSlashCommands(ctx, d.App.ID)
-			case "RESUMED":
-				if err := c.gatewayBackfill(ctx); err != nil {
-					return ready, err
-				}
-				ready = true
-			case "MESSAGE_CREATE":
-				if ready {
-					c.gatewayMessage(ctx, f.D)
-				}
-			case "MESSAGE_REACTION_ADD":
-				c.gatewayReaction(ctx, f.D)
-			case "INTERACTION_CREATE":
-				c.gatewayInteraction(ctx, f.D)
+			if ready, err = c.gatewayDispatch(ctx, f, ready); err != nil {
+				return ready, err
 			}
 		}
 	}
+}
+
+// gatewayDispatch handles one dispatch frame. Message events are dropped until
+// READY/RESUMED has been backfilled: a resume replays events from before the
+// gap, and delivering them ahead of the REST backfill would advance last past
+// messages not yet fetched. It returns whether the session is ready after the
+// frame.
+func (c *Channel) gatewayDispatch(ctx context.Context, f gatewayFrame, ready bool) (bool, error) {
+	ses := &c.gatewaySes
+	if f.S != nil {
+		ses.seq.Store(*f.S)
+	}
+	switch f.T {
+	case "READY":
+		var d struct {
+			SessionID string `json:"session_id"`
+			ResumeURL string `json:"resume_gateway_url"`
+			App       struct {
+				ID string `json:"id"`
+			} `json:"application"`
+		}
+		if err := json.Unmarshal(f.D, &d); err != nil || d.SessionID == "" {
+			return ready, fmt.Errorf("bad READY: %v", err)
+		}
+		ses.id, ses.resumeURL = d.SessionID, d.ResumeURL
+		if err := c.gatewayBackfill(ctx); err != nil {
+			return ready, err
+		}
+		c.registerSlashCommands(ctx, d.App.ID)
+		return true, nil
+	case "RESUMED":
+		if err := c.gatewayBackfill(ctx); err != nil {
+			return ready, err
+		}
+		return true, nil
+	case "MESSAGE_CREATE":
+		if ready {
+			c.gatewayMessage(ctx, f.D)
+		}
+	case "MESSAGE_REACTION_ADD":
+		c.gatewayReaction(ctx, f.D)
+	case "INTERACTION_CREATE":
+		c.gatewayInteraction(ctx, f.D)
+	}
+	return ready, nil
 }
 
 // gatewayBackfill fetches over REST whatever was missed while disconnected,
