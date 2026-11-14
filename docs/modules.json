@@ -1539,7 +1539,7 @@
       "purpose": "Package linestore is the line's master database: witness runs, per-test"
     },
     "line/maker": {
-      "entry_point_count": 26,
+      "entry_point_count": 27,
       "entry_points": [
         "APICards",
         "AndonEvent",
@@ -1549,10 +1549,10 @@
         "BeadsCLI",
         "BeatEveryPoll",
         "CheckTrailers",
+        "ClaimRefusedBackoff",
         "ContainerSpec",
         "DefaultMaxAttempts",
-        "DefaultSettleRetryWait",
-        "DefaultStopPoll"
+        "DefaultSettleRetryWait"
       ],
       "hidden_coupling_ratio": 0.4,
       "hotspot_rank": 6,
@@ -1735,8 +1735,9 @@
       "purpose": "Package secret resolves named line secrets (the model token, the Discord"
     },
     "line/station": {
-      "entry_point_count": 115,
+      "entry_point_count": 116,
       "entry_points": [
+        "APIError",
         "AcceptanceAccepted",
         "AcceptanceAdd",
         "AcceptanceAnswer",
@@ -1747,8 +1748,7 @@
         "AcceptanceFix",
         "AcceptanceRequest",
         "AcceptanceRequested",
-        "AcceptanceRetire",
-        "BeadsCards"
+        "AcceptanceRetire"
       ],
       "hidden_coupling_ratio": 0.0,
       "hotspot_rank": 1,

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"regexp"
@@ -122,10 +123,16 @@ type Runner struct {
 	SettleRetryWait time.Duration
 
 	attempts map[string]int
+	// refused is when the station last refused this maker's claim of a card.
+	refused map[string]time.Time
 	// lastLanded is whether the card Once last worked landed; Loop retries a
 	// card that did not only after its idle wait.
 	lastLanded bool
 }
+
+// ClaimRefusedBackoff is how long a card whose claim the station refused is
+// skipped before the maker tries it again.
+const ClaimRefusedBackoff = 15 * time.Minute
 
 // DefaultTimeout bounds a Maker run so a stuck agent cannot hold a card (and
 // the station) forever.
@@ -387,6 +394,9 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("read andon state: %w", err)
 	}
+	ready = slices.DeleteFunc(slices.Clone(ready), func(b Bead) bool {
+		return time.Since(r.refused[b.ID]) < ClaimRefusedBackoff && !r.refused[b.ID].IsZero()
+	})
 	b, found := Pick(ready, stopped)
 	r.lastLanded = false
 	if !found {
@@ -406,6 +416,17 @@ func (r *Runner) Once(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("read line master: %w", err)
 	}
 	if err := r.Beads.Claim(ctx, b.ID, r.Station.AgentID); err != nil {
+		var api *station.APIError
+		if errors.As(err, &api) && api.Code == http.StatusConflict {
+			// Refused, not broken: skip this card for a while and take the
+			// next one instead of starving everything behind it.
+			if r.refused == nil {
+				r.refused = map[string]time.Time{}
+			}
+			r.refused[b.ID] = time.Now()
+			r.logf("%s: claim refused, skipping for %s: %v", b.ID, ClaimRefusedBackoff, err)
+			return r.Once(ctx)
+		}
 		return false, fmt.Errorf("claim %s: %w", b.ID, err)
 	}
 	r.logf("claimed %s: %s", b.ID, b.Title)

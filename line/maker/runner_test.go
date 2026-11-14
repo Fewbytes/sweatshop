@@ -236,6 +236,8 @@ type fakeBeads struct {
 	stranded []Bead
 	// failRelease and failClose are how many calls of each fail before one succeeds.
 	failRelease, failClose int
+	// refuse lists cards whose claim the station answers with 409.
+	refuse map[string]bool
 }
 
 // noReportNote is what a release note ends with when the run left no
@@ -264,6 +266,9 @@ func (f *fakeBeads) Ready(_ context.Context, label string) ([]Bead, error) {
 
 func (f *fakeBeads) Claim(_ context.Context, id, agent string) error {
 	f.calls = append(f.calls, "claim "+id+" "+agent)
+	if f.refuse[id] {
+		return &station.APIError{Method: "POST", Path: "/v1/cards/" + id + "/claim", Code: http.StatusConflict, Status: "409 Conflict", Msg: "issue already claimed"}
+	}
 	return nil
 }
 
@@ -344,6 +349,46 @@ func TestOnceClosesLandedBead(t *testing.T) {
 	want := []string{"ready line", "claim b-1 maker-1", "close b-1 landed via line"}
 	if !reflect.DeepEqual(fb.calls, want) {
 		t.Fatalf("calls = %q, want %q", fb.calls, want)
+	}
+}
+
+// A refused claim must not pin the maker to that card: it takes the next one,
+// and does not retry the refused card until the backoff has passed.
+func TestOnceSkipsCardWhoseClaimIsRefused(t *testing.T) {
+	bare, work := remote(t)
+	fb := &fakeBeads{
+		ready:  []Bead{{ID: "b-1", Priority: 1}, {ID: "b-2", Priority: 2}},
+		refuse: map[string]bool{"b-1": true},
+	}
+	fe := &fakeEngine{run: func(spec ContainerSpec) (int, error) {
+		commit(t, work, "work\n\nBead: "+spec.Env["SWEATSHOP_BEAD"])
+		return 0, nil
+	}}
+	r := newRunner(t, bare, fb, fe)
+	worked, err := r.Once(context.Background())
+	if err != nil || !worked {
+		t.Fatalf("Once = %v %v, want the next card worked", worked, err)
+	}
+	if len(fe.specs) != 1 || fe.specs[0].Env["SWEATSHOP_BEAD"] != "b-2" {
+		t.Fatalf("specs = %+v, want one run of b-2", fe.specs)
+	}
+	claims := 0
+	for _, c := range fb.calls {
+		if strings.HasPrefix(c, "claim b-1") {
+			claims++
+		}
+	}
+	if claims != 1 {
+		t.Fatalf("b-1 claimed %d times, calls = %q", claims, fb.calls)
+	}
+	// Within the backoff the refused card is not picked again.
+	fb.calls = nil
+	fb.ready = []Bead{{ID: "b-1", Priority: 1}}
+	if worked, err := r.Once(context.Background()); err != nil || worked {
+		t.Fatalf("Once = %v %v, want idle", worked, err)
+	}
+	if slices.ContainsFunc(fb.calls, func(c string) bool { return strings.HasPrefix(c, "claim") }) {
+		t.Fatalf("refused card retried inside backoff: %q", fb.calls)
 	}
 }
 

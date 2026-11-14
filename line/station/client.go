@@ -80,6 +80,17 @@ func (c Client) do(ctx context.Context, method, path string, query url.Values, b
 // doOnce is one attempt; busy reports a 409 {"error":"busy"} response. It
 // decodes a 2xx JSON body into out (or returns the raw body when out is nil). Non-2xx responses become errors carrying the
 // server's message.
+// APIError is a non-2xx answer from the station that carried an error body.
+// Callers branch on Code with errors.As (a refused claim is 409).
+type APIError struct {
+	Method, Path, Status, Msg string
+	Code                      int
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("station %s %s: %s: %s", e.Method, e.Path, e.Status, e.Msg)
+}
+
 func (c Client) doOnce(ctx context.Context, method, path string, query url.Values, body io.Reader, out any) (_ []byte, busy bool, _ error) {
 	u := strings.TrimRight(c.URL, "/") + path
 	if len(query) > 0 {
@@ -134,7 +145,7 @@ func statusError(method, path string, resp *http.Response, data []byte) (busy bo
 		Error string `json:"error"`
 	}
 	if json.Unmarshal(data, &e) == nil && e.Error != "" {
-		return resp.StatusCode == http.StatusConflict && e.Error == "busy", fmt.Errorf("station %s %s: %s: %s", method, path, resp.Status, e.Error)
+		return resp.StatusCode == http.StatusConflict && e.Error == "busy", &APIError{Method: method, Path: path, Code: resp.StatusCode, Status: resp.Status, Msg: e.Error}
 	}
 	return false, fmt.Errorf("station %s %s: %s", method, path, resp.Status)
 }

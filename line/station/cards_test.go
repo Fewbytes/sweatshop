@@ -319,6 +319,22 @@ func TestBeadsCardsCloseRunsAsStation(t *testing.T) {
 	}
 }
 
+// bd refusing a claim (a stale assignee holds the card) is the caller's
+// conflict, not a station fault: 409 with bd's message.
+func TestBeadsCardsClaimRefusalIsConflict(t *testing.T) {
+	bin := t.TempDir()
+	script := "#!/bin/sh\necho \"issue already claimed: already assigned to 'someone'\" >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(bin, "bd"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	err := (BeadsCards{Dir: t.TempDir()}).Claim(context.Background(), "x-1", "maker-1")
+	var he *httpError
+	if !errors.As(err, &he) || he.code != http.StatusConflict || !strings.Contains(he.msg, "already assigned to 'someone'") {
+		t.Fatalf("Claim err = %v, want 409 carrying bd's message", err)
+	}
+}
+
 func TestCardsGiveUpEscalatesToKingWhenAsked(t *testing.T) {
 	f := &fakeCards{show: `[{"id":"x-1","assignee":"m"}]`}
 	srv, _, _, m := cardsRig(t, f)

@@ -191,6 +191,11 @@ func (b BeadsCards) RemoveLabel(ctx context.Context, id, label string) error {
 
 func (b BeadsCards) Claim(ctx context.Context, id, agent string) error {
 	_, err := b.bdAs(ctx, agent, "update", id, "--claim")
+	if err != nil && strings.Contains(err.Error(), "already claimed") {
+		// bd refused: someone (possibly a stale human assignee) holds the
+		// card. That is a conflict the caller can route around, not a fault.
+		return fail(http.StatusConflict, "%s", err.Error())
+	}
 	return err
 }
 
