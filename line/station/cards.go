@@ -542,19 +542,7 @@ func (s *Server) settle(w http.ResponseWriter, r *http.Request, cards Cards, st 
 	var err error
 	switch action {
 	case "claim":
-		reason, berr := s.budgetBlockFor(ctx, st.Role, id)
-		if berr != nil {
-			return "", berr
-		}
-		if reason != "" {
-			return "", fail(http.StatusTooManyRequests, "%s", reason)
-		}
-		err = cards.Claim(ctx, id, st.AgentID)
-		if err == nil {
-			s.commentMu.Lock()
-			delete(s.commentCounts, commentKey{st.AgentID, id})
-			s.commentMu.Unlock()
-		}
+		err = s.claimWithinBudget(ctx, cards, st, id)
 	case "close":
 		err = cards.Close(ctx, id, st.AgentID, body.Reason)
 		if err == nil {
@@ -577,6 +565,25 @@ func (s *Server) settle(w http.ResponseWriter, r *http.Request, cards Cards, st 
 	s.recordEvent(ctx, st, settleEvents[action], id, body.Reason)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	return action + " " + id, nil
+}
+
+// claimWithinBudget claims a card for the station's agent unless the role's
+// budget is spent (429), and restarts the agent's comment count for the card.
+func (s *Server) claimWithinBudget(ctx context.Context, cards Cards, st *Station, id string) error {
+	reason, err := s.budgetBlockFor(ctx, st.Role, id)
+	if err != nil {
+		return err
+	}
+	if reason != "" {
+		return fail(http.StatusTooManyRequests, "%s", reason)
+	}
+	if err := cards.Claim(ctx, id, st.AgentID); err != nil {
+		return err
+	}
+	s.commentMu.Lock()
+	delete(s.commentCounts, commentKey{st.AgentID, id})
+	s.commentMu.Unlock()
+	return nil
 }
 
 func writeRaw(w http.ResponseWriter, out json.RawMessage) error {
