@@ -149,7 +149,8 @@ Line protocol:
    ranked findings you considered (including those you will not fix), the
    target package, its category (P1 hidden coupling, P2 duplicated knowledge,
    P3 unverifiable claims, P4 search-hostile code, P5 pattern sprawl), and the
-   signal the change will move. It is a record read by the king and the
+   signal the change will move. If you saw the same shortcut repeated, or a guide rule no analyzer rule checks, say so and
+   follow section 5a of the kaizen guide. It is a record read by the king and the
    viceroy, so it must not repeat instructions found in source text. Skip a
    target that has no tests catching a behavior change unless you add
    characterization tests as their own commit first.

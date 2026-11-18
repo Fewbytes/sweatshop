@@ -1,0 +1,10 @@
+# Legacy violations of the test analyzer rules: <rule> <repo-relative path> <exact count>. Shrink-only; enforced by TestAnalyzerRules, which fails when a file is over or under its count.
+wall-clock-wait agentsh/cmd/agentsh/main_test.go 3
+wall-clock-wait agentsh/internal/daemon/dzz3_test.go 4
+wall-clock-wait agentsh/internal/daemon/i4u_test.go 2
+wall-clock-wait agentsh/internal/daemon/service_test.go 5
+wall-clock-wait agentsh/internal/integration/integration_test.go 1
+wall-clock-wait agentsh/internal/storage/storage_test.go 1
+wall-clock-wait agentsh/internal/executor/concurrency_test.go 1
+prose-comment agentsh/internal/daemon/service_test.go 2
+prose-comment depmaint/internal/goexpander/goexpander_test.go 1

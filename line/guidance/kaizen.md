@@ -328,6 +328,24 @@ or deduplicating knowledge, not from clever compression.
 8. **File follow-ups** for anything found but out of scope (bugs, API
    changes, larger restructures).
 
+## 5a. Turn guide rules into analyzer rules
+
+Every rule in the guides that a static check can decide gets an entry in
+`analyzerRules` (`line/testhygiene/rules_test.go`). The entry's `remedy` is
+the failure message: it names the honest alternative and the guide section
+that states the rule. Existing violations are listed in
+`line/testhygiene/analyzer_allowlist.txt` with exact counts per rule and file;
+the list only shrinks, because `TestAnalyzerRules` also fails when a file is
+under its count.
+
+When you see the same shortcut repeated (the same workaround in several files,
+or a rule the guides state that no analyzer rule checks), propose a rule: add
+it as its own change, with the allowlist of what already breaks it, and cite
+the guide section in the `remedy`. Do not add a rule the guides do not state;
+change the guide first. Autobughunt does the same for the shortcuts its scans
+find: it files the proposal as a finding that cites the guide, and Kaizen
+lands the rule.
+
 ## 6. Change report template
 
 ```
