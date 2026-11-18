@@ -18,4 +18,4 @@ Adopted and adapted rules live in `line/guidance/writer.md` and
 | `package-exports` | Rejected | TypeScript package.json concern; Go visibility is by identifier. |
 | `no-explicit-return-types` | Rejected | Opposite of the writer guide, which wants precise explicit types for verifiability, and Go requires them. |
 | Error messages state the honest alternative | Adopted | Added to the writer guide as a rule for code and checks we write. |
-| Per-file shrinking allowlists with exact counts | Adopted | Added to the writer guide as the way to handle legacy violations of a check. No such lint exists here yet; this is policy for when one is added. |
+| Per-file shrinking allowlists with exact counts | Adopted | Added to the writer guide as the way to handle legacy violations of a check. `line/testhygiene/analyzer_allowlist.txt` is the first such list. |
