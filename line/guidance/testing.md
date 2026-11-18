@@ -58,7 +58,11 @@ feature test that uses it.
   `just test` with no setup.
 - **Fakes live at ports, written by hand** and local to the test package
   (see `fakeCards` in `line/station/cards_test.go`). No mocking framework,
-  no reflection.
+  no reflection. A fake has real, if simplified, behavior behind the port. Do
+  not patch a dependency's methods, globals or package variables inside a
+  test to force an outcome; if you cannot reach a state through a port, add
+  the port. Recording what was called is fine as an extra, but the assertion
+  is on the outcome.
 - **Co-located** with the code (`foo_test.go` beside `foo.go`). Cross-package
   end-to-end tests sit in the package that owns the workflow (`line/harness`).
 - **Failures are loud and specific:** the message says what was expected and
@@ -98,8 +102,14 @@ let the harness (or the test's fake) supply the controlled version:
   locale and time zone (set explicitly), and ports (`httptest`, not fixed
   numbers).
 
+Polling is the last resort, not the default. Wait on an event the code
+signals (channel, callback, `sync.WaitGroup`). Use `testwait.Until` only when
+the code under test offers no signal, never on a recorder or fake the test
+itself owns: there the test can release or read it directly.
+
 A test that fails one run in a hundred is a bug in the test or in a missing
-port; fix the cause, never add a retry or a longer wait. Where a test must
+port; fix the cause, never add a retry, a rerun loop or a longer wait. A raised
+timeout or retry that hides a flake is a bug report you deleted. Where a test must
 cope with a loaded machine, widen a deadline in the fake clock, not a real
 sleep.
 

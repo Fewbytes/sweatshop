@@ -44,6 +44,14 @@ Three goals, in priority order:
   not count.
 - **Fail loudly.** No swallowed errors, no silent fallbacks, no default values
   that hide a missing input. An error is a signal the next agent needs.
+- **Errors name the honest alternative.** When code or a check rejects
+  something, the message says what is wrong and what to do instead ("inject a
+  clock; do not sleep"), so the next agent fixes the cause rather than
+  working around the check.
+- **Legacy exceptions only shrink.** A check with known violations lists them
+  per file with an exact count, and fails when a file has fewer violations
+  than listed, so the list cannot grow or go stale. Never add an entry to
+  pass a change; fix the code.
 - **Never log secrets.** Tokens, credentials, keys and other confidential
   values must not reach logs, error messages, card comments or test output,
   whether you write the log line or a component you build does. Log an
