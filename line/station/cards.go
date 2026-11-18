@@ -482,25 +482,28 @@ func (s *Server) viceroyLabels(w http.ResponseWriter, r *http.Request, cards Car
 	}
 	ctx := r.Context()
 	for _, label := range change.Add {
-		if err := cards.AddLabel(ctx, id, label); err != nil {
-			return "", err
-		}
-		s.recordEvent(ctx, st, linestore.EventLabel, id, "add "+label)
-		if err := cards.Comment(ctx, id, auditLabelComment(st, "added", label)); err != nil {
+		if err := s.applyLabel(ctx, cards, st, id, label, cards.AddLabel, "add", "added"); err != nil {
 			return "", err
 		}
 	}
 	for _, label := range change.Remove {
-		if err := cards.RemoveLabel(ctx, id, label); err != nil {
-			return "", err
-		}
-		s.recordEvent(ctx, st, linestore.EventLabel, id, "remove "+label)
-		if err := cards.Comment(ctx, id, auditLabelComment(st, "removed", label)); err != nil {
+		if err := s.applyLabel(ctx, cards, st, id, label, cards.RemoveLabel, "remove", "removed"); err != nil {
 			return "", err
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	return "labels " + id, nil
+}
+
+// applyLabel runs one label change through mutate, then records the event
+// (eventVerb: "add" or "remove") and the audit comment (commentVerb: "added"
+// or "removed").
+func (s *Server) applyLabel(ctx context.Context, cards Cards, st *Station, id, label string, mutate func(context.Context, string, string) error, eventVerb, commentVerb string) error {
+	if err := mutate(ctx, id, label); err != nil {
+		return err
+	}
+	s.recordEvent(ctx, st, linestore.EventLabel, id, eventVerb+" "+label)
+	return cards.Comment(ctx, id, auditLabelComment(st, commentVerb, label))
 }
 
 // settleEvents is the event each settle action records.
