@@ -279,13 +279,8 @@ func (s *Server) routeCards(w http.ResponseWriter, r *http.Request, st *Station)
 		if rest != "" {
 			roles = cardActions[parts[1]]
 		}
-		if !slices.Contains(roles, st.Role) {
-			return "", fail(http.StatusForbidden, "role %q may not write cards", st.Role)
-		}
-		if st.Role == viceroyRole && s.Viceroy != nil {
-			if err := s.Viceroy.Admit(r, false); err != nil {
-				return "", err
-			}
+		if err := s.admitCardWrite(r, st, roles); err != nil {
+			return "", err
 		}
 	}
 	cards, err := s.cards()
@@ -323,6 +318,18 @@ func (s *Server) routeCards(w http.ResponseWriter, r *http.Request, st *Station)
 		return s.viceroyClose(w, r, cards, st, id)
 	}
 	return s.settle(w, r, cards, st, id, parts[1])
+}
+
+// admitCardWrite rejects a card write from a station whose role is not in
+// roles, and runs the viceroy's admission check when the writer is the viceroy.
+func (s *Server) admitCardWrite(r *http.Request, st *Station, roles []string) error {
+	if !slices.Contains(roles, st.Role) {
+		return fail(http.StatusForbidden, "role %q may not write cards", st.Role)
+	}
+	if st.Role == viceroyRole && s.Viceroy != nil {
+		return s.Viceroy.Admit(r, false)
+	}
+	return nil
 }
 
 // serveCardList handles GET /v1/cards.
