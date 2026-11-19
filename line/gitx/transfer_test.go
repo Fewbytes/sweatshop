@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -423,6 +424,36 @@ func TestPushCommitKeepsReusedOldTreeAlivePastPrune(t *testing.T) {
 	}
 	if _, err := dst.ObjectType(ctx, rejected); err == nil {
 		t.Fatal("the old rejected commit survived pruning")
+	}
+	mustGit(t, ctx, dst.Dir, "fsck", "--strict")
+}
+
+func TestPushCommitRestoresMissingChildOfTreeDstHoldsPacked(t *testing.T) {
+	src, ctx := newRepo(t)
+	tip := commitFile(t, src, ctx, "a.txt", "1")
+	blob := strings.TrimSpace(mustGit(t, ctx, src.Dir, "rev-parse", tip+":a.txt"))
+	tree := strings.TrimSpace(mustGit(t, ctx, src.Dir, "rev-parse", tip+"^{tree}"))
+	dst := Repo{Dir: t.TempDir()}
+	if err := dst.Init(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	// dst holds the commit's tree packed, but not the blob the tree names.
+	mktree := exec.CommandContext(ctx, "git", "mktree", "--missing")
+	mktree.Dir = dst.Dir
+	mktree.Stdin = strings.NewReader("100644 blob " + blob + "\ta.txt\n")
+	if out, err := mktree.CombinedOutput(); err != nil || strings.TrimSpace(string(out)) != tree {
+		t.Fatalf("mktree = %q, %v; want %s", out, err, tree)
+	}
+	pack := exec.CommandContext(ctx, "git", "pack-objects", "--quiet", "objects/pack/pack")
+	pack.Dir = dst.Dir
+	pack.Stdin = strings.NewReader(tree + "\n")
+	if out, err := pack.CombinedOutput(); err != nil {
+		t.Fatalf("pack-objects: %s, %v", out, err)
+	}
+	mustGit(t, ctx, dst.Dir, "prune-packed")
+
+	if err := src.PushCommit(ctx, dst, tip, "refs/line/candidates/c"); err != nil {
+		t.Fatal(err)
 	}
 	mustGit(t, ctx, dst.Dir, "fsck", "--strict")
 }

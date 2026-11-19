@@ -50,12 +50,14 @@ func repoSource(repo *git.Repository) (refSource, error) {
 }
 
 // objectCopier copies an object and everything it reaches from src to dst.
-// Children are written before their parents, so any object that dst holds has
-// its whole closure there too. An object that dst already holds loose is
-// rewritten anyway, with its closure, so its file time records the latest push
-// that used it: PruneUnreachable measures its grace from that time, and an old
-// tree reused by a fresh candidate must not look old. Objects dst holds packed
-// are left alone, since pruning ignores them.
+// Children are written before their parents. Presence of an object in dst
+// does not prove its children are there, because PruneUnreachable deletes
+// loose objects one by one, so the copier walks the closure of an object dst
+// already holds and copies whatever is missing. An object that dst already
+// holds loose is rewritten too, so its file time records the latest push that
+// used it: PruneUnreachable measures its grace from that time, and an old tree
+// reused by a fresh candidate must not look old. Objects dst holds packed are
+// not rewritten, since pruning ignores them.
 type objectCopier struct {
 	ctx  context.Context
 	src  storer.EncodedObjectStorer
@@ -76,12 +78,14 @@ func (c objectCopier) copy(h plumbing.Hash) error {
 	}
 	c.seen[h] = true
 	dstHas := c.dst.HasEncodedObject(h) == nil
-	if dstHas && !c.isLoose(h) {
-		return nil
-	}
-	obj, err := c.src.EncodedObject(plumbing.AnyObject, h)
+	write := !dstHas || c.isLoose(h)
+	from := c.src
+	obj, err := from.EncodedObject(plumbing.AnyObject, h)
 	if dstHas && errors.Is(err, plumbing.ErrObjectNotFound) {
-		return nil // a bundle's prerequisite: dst has it, src never sent it
+		// A bundle's prerequisite: dst has it, src never sent it.
+		from = c.dst
+		write = false
+		obj, err = from.EncodedObject(plumbing.AnyObject, h)
 	}
 	if err != nil {
 		return fmt.Errorf("copy %s: %w", h, err)
@@ -89,13 +93,13 @@ func (c objectCopier) copy(h plumbing.Hash) error {
 	var children []plumbing.Hash
 	switch obj.Type() {
 	case plumbing.CommitObject:
-		commit, err := object.DecodeCommit(c.src, obj)
+		commit, err := object.DecodeCommit(from, obj)
 		if err != nil {
 			return err
 		}
 		children = append(append(children, commit.ParentHashes...), commit.TreeHash)
 	case plumbing.TreeObject:
-		tree, err := object.DecodeTree(c.src, obj)
+		tree, err := object.DecodeTree(from, obj)
 		if err != nil {
 			return err
 		}
@@ -105,7 +109,7 @@ func (c objectCopier) copy(h plumbing.Hash) error {
 			}
 		}
 	case plumbing.TagObject:
-		tag, err := object.DecodeTag(c.src, obj)
+		tag, err := object.DecodeTag(from, obj)
 		if err != nil {
 			return err
 		}
@@ -115,6 +119,9 @@ func (c objectCopier) copy(h plumbing.Hash) error {
 		if err := c.copy(child); err != nil {
 			return err
 		}
+	}
+	if !write {
+		return nil
 	}
 	_, err = c.dst.SetEncodedObject(obj)
 	return err
