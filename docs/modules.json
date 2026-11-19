@@ -1270,7 +1270,7 @@
       "purpose": "Package gittest builds repository fixtures for tests by running the git"
     },
     "line/guard": {
-      "entry_point_count": 30,
+      "entry_point_count": 31,
       "entry_points": [
         "AndonEvent",
         "CandidatePrefix",

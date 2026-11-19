@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -409,4 +410,38 @@ func TestRejectsSkippedCheckTheConstitutionDoesNotAllowSkipping(t *testing.T) {
 	commit := f.commit("docs/a.md", "x")
 	f.candidate(commit)
 	f.expectRejected(commit, f.envelope(commit, f.key, skipCheck), ReasonChecksMissing)
+}
+
+// removeLooseObject deletes an object from the remote, as a prune racing a
+// push does.
+func (f *fixture) removeLooseObject(id string) {
+	f.t.Helper()
+	if err := os.Remove(filepath.Join(f.remote.Dir, "objects", id[:2], id[2:])); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+func (f *fixture) objectID(rev string) string {
+	f.t.Helper()
+	out, err := gittest.Git(f.ctx, f.work.Dir, "rev-parse", rev)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return strings.TrimSpace(out)
+}
+
+func TestRejectsCandidateMissingChangedSubtree(t *testing.T) {
+	f := newFixture(t)
+	commit := f.commit("src/a.go", "package a")
+	f.candidate(commit)
+	f.removeLooseObject(f.objectID(commit + ":src"))
+	f.expectRejected(commit, f.envelope(commit, f.key, nil), ReasonIncompleteCandidate)
+}
+
+func TestRejectsCandidateMissingBlob(t *testing.T) {
+	f := newFixture(t)
+	commit := f.commit("src/a.go", "package a")
+	f.candidate(commit)
+	f.removeLooseObject(f.objectID(commit + ":src/a.go"))
+	f.expectRejected(commit, f.envelope(commit, f.key, nil), ReasonIncompleteCandidate)
 }

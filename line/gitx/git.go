@@ -716,6 +716,71 @@ func (r Repo) PruneUnreachable(ctx context.Context, grace time.Duration) error {
 	})
 }
 
+// VerifyClosure checks that every object commit reaches is readable: its
+// parents back to stop (which is assumed complete and not walked), their trees
+// and every blob in them. git receive-pack does this before a ref moves; go-git
+// does not, and ChangedPaths silently reports no changes under a new directory
+// whose tree object is missing, so a caller moving a ref must ask. The walk
+// opens the repository afresh and reads each object once, so it sees what is on
+// disk now.
+func (r Repo) VerifyClosure(ctx context.Context, commit, stop string) error {
+	repo, err := r.open(ctx)
+	if err != nil {
+		return err
+	}
+	c, err := parseHash(commit)
+	if err != nil {
+		return err
+	}
+	s, err := parseHash(stop)
+	if err != nil {
+		return err
+	}
+	seen := map[plumbing.Hash]bool{s: true}
+	return verifyClosure(repo.Storer, c, seen)
+}
+
+func verifyClosure(s storer.EncodedObjectStorer, h plumbing.Hash, seen map[plumbing.Hash]bool) error {
+	if seen[h] {
+		return nil
+	}
+	seen[h] = true
+	obj, err := object.GetObject(s, h)
+	if err != nil {
+		return fmt.Errorf("read object %s: %w", h, err)
+	}
+	switch o := obj.(type) {
+	case *object.Commit:
+		if err := verifyClosure(s, o.TreeHash, seen); err != nil {
+			return err
+		}
+		for _, parent := range o.ParentHashes {
+			if err := verifyClosure(s, parent, seen); err != nil {
+				return err
+			}
+		}
+	case *object.Tree:
+		for _, e := range o.Entries {
+			switch e.Mode {
+			case filemode.Submodule:
+			case filemode.Dir:
+				if err := verifyClosure(s, e.Hash, seen); err != nil {
+					return err
+				}
+			default:
+				if seen[e.Hash] {
+					continue
+				}
+				seen[e.Hash] = true
+				if err := s.HasEncodedObject(e.Hash); err != nil {
+					return fmt.Errorf("read blob %s (%s): %w", e.Hash, e.Name, err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func markReachable(s storer.EncodedObjectStorer, h plumbing.Hash, reachable map[plumbing.Hash]bool) error {
 	if reachable[h] {
 		return nil

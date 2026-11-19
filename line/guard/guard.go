@@ -44,8 +44,9 @@ const (
 	ReasonBadCandidate   Reason = "bad_candidate"
 	ReasonBlobForbidden  Reason = "blob_forbidden"
 
-	ReasonRoleNotPermitted Reason = "role_not_permitted"
-	ReasonNoBase           Reason = "no_base"
+	ReasonRoleNotPermitted    Reason = "role_not_permitted"
+	ReasonNoBase              Reason = "no_base"
+	ReasonIncompleteCandidate Reason = "incomplete_candidate"
 )
 
 type Result struct {
@@ -166,6 +167,12 @@ func (g Guard) Merge(ctx context.Context, commit string, env attest.Envelope) (r
 		result, _ := reject(ReasonBaseMoved, "the candidate's first parent is not the current "+g.Ref+"; rebase and retry")
 		result.Base = base
 		return result, nil
+	}
+
+	// Before any diff: go-git's diff reports nothing under a missing tree, which
+	// would also skip the role and blob checks below.
+	if err := g.Repo.VerifyClosure(ctx, commit, base); err != nil {
+		return reject(ReasonIncompleteCandidate, fmt.Sprintf("the candidate's objects are not all present: %v", err))
 	}
 
 	paths, err := g.Repo.ChangedPaths(ctx, base, commit)
