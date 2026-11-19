@@ -3,6 +3,7 @@ package gitx
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -373,4 +374,55 @@ func TestPruneUnreachableDeletesOnlyUnreferencedObjectsPastTheGrace(t *testing.T
 	if _, err := r.ObjectType(ctx, kept); err != nil {
 		t.Fatalf("reachable commit was pruned: %v", err)
 	}
+}
+
+func TestPushCommitKeepsReusedOldTreeAlivePastPrune(t *testing.T) {
+	src, ctx := newRepo(t)
+	rejected := commitFile(t, src, ctx, "a.txt", "1")
+	dst := Repo{Dir: t.TempDir()}
+	if err := dst.Init(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.PushCommit(ctx, dst, rejected, "refs/line/candidates/rejected"); err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.DeleteRef(ctx, "refs/line/candidates/rejected"); err != nil {
+		t.Fatal(err)
+	}
+	longAgo := time.Now().Add(-24 * time.Hour)
+	if err := filepath.WalkDir(filepath.Join(dst.Dir, "objects"), func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		return os.Chtimes(path, longAgo, longAgo)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	mustGit(t, ctx, src.Dir, "commit", "--quiet", "--amend", "-m", "same tree, new commit")
+	fresh, err := src.Commit(ctx, "HEAD")
+	if err != nil || fresh == rejected {
+		t.Fatalf("amend produced commit %s (rejected %s), %v", fresh, rejected, err)
+	}
+	if err := src.PushCommit(ctx, dst, fresh, "refs/line/candidates/fresh"); err != nil {
+		t.Fatal(err)
+	}
+	// The fresh candidate is rejected too; its ref is gone when the prune runs.
+	if err := dst.DeleteRef(ctx, "refs/line/candidates/fresh"); err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.PruneUnreachable(ctx, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dst.ObjectType(ctx, fresh); err != nil {
+		t.Fatalf("fresh commit inside the grace period was pruned: %v", err)
+	}
+	tree := strings.TrimSpace(mustGit(t, ctx, src.Dir, "rev-parse", fresh+"^{tree}"))
+	if _, err := dst.ObjectType(ctx, tree); err != nil {
+		t.Fatalf("tree of the fresh commit, reused from an old candidate, was pruned: %v", err)
+	}
+	if _, err := dst.ObjectType(ctx, rejected); err == nil {
+		t.Fatal("the old rejected commit survived pruning")
+	}
+	mustGit(t, ctx, dst.Dir, "fsck", "--strict")
 }

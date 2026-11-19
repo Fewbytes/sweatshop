@@ -51,21 +51,38 @@ func repoSource(repo *git.Repository) (refSource, error) {
 
 // objectCopier copies an object and everything it reaches from src to dst.
 // Children are written before their parents, so any object that dst holds has
-// its whole closure there too; that lets the copy stop at what dst has.
+// its whole closure there too. An object that dst already holds loose is
+// rewritten anyway, with its closure, so its file time records the latest push
+// that used it: PruneUnreachable measures its grace from that time, and an old
+// tree reused by a fresh candidate must not look old. Objects dst holds packed
+// are left alone, since pruning ignores them.
 type objectCopier struct {
-	ctx context.Context
-	src storer.EncodedObjectStorer
-	dst storer.EncodedObjectStorer
+	ctx  context.Context
+	src  storer.EncodedObjectStorer
+	dst  storer.EncodedObjectStorer
+	seen map[plumbing.Hash]bool
+}
+
+func newObjectCopier(ctx context.Context, src, dst storer.EncodedObjectStorer) objectCopier {
+	return objectCopier{ctx: ctx, src: src, dst: dst, seen: map[plumbing.Hash]bool{}}
 }
 
 func (c objectCopier) copy(h plumbing.Hash) error {
 	if err := c.ctx.Err(); err != nil {
 		return err
 	}
-	if c.dst.HasEncodedObject(h) == nil {
+	if c.seen[h] {
+		return nil
+	}
+	c.seen[h] = true
+	dstHas := c.dst.HasEncodedObject(h) == nil
+	if dstHas && !c.isLoose(h) {
 		return nil
 	}
 	obj, err := c.src.EncodedObject(plumbing.AnyObject, h)
+	if dstHas && errors.Is(err, plumbing.ErrObjectNotFound) {
+		return nil // a bundle's prerequisite: dst has it, src never sent it
+	}
 	if err != nil {
 		return fmt.Errorf("copy %s: %w", h, err)
 	}
@@ -101,6 +118,15 @@ func (c objectCopier) copy(h plumbing.Hash) error {
 	}
 	_, err = c.dst.SetEncodedObject(obj)
 	return err
+}
+
+func (c objectCopier) isLoose(h plumbing.Hash) bool {
+	loose, ok := c.dst.(storer.LooseObjectStorer)
+	if !ok {
+		return false
+	}
+	_, err := loose.LooseObjectTime(h)
+	return err == nil
 }
 
 // Fetch copies the refs of src that the refspecs select, with the objects
@@ -150,7 +176,7 @@ func (r Repo) fetchFrom(ctx context.Context, src refSource, prune bool, refspecs
 		names = append(names, name)
 	}
 	sort.Slice(names, func(i, j int) bool { return names[i] < names[j] })
-	copier := objectCopier{ctx: ctx, src: src.objects, dst: dst.Storer}
+	copier := newObjectCopier(ctx, src.objects, dst.Storer)
 	for _, name := range names {
 		if err := copier.copy(wanted[name]); err != nil {
 			return err
@@ -207,7 +233,7 @@ func (r Repo) PushCommit(ctx context.Context, dst Repo, commit, ref string) erro
 	if err != nil {
 		return err
 	}
-	if err := (objectCopier{ctx: ctx, src: srcRepo.Storer, dst: dstRepo.Storer}).copy(h); err != nil {
+	if err := newObjectCopier(ctx, srcRepo.Storer, dstRepo.Storer).copy(h); err != nil {
 		return err
 	}
 	err = dst.UpdateRef(ctx, ref, commit, "")
@@ -254,7 +280,7 @@ func (r Repo) CheckoutDetached(ctx context.Context, src Repo, commit string) err
 	if err != nil {
 		return err
 	}
-	if err := (objectCopier{ctx: ctx, src: srcRepo.Storer, dst: repo.Storer}).copy(h); err != nil {
+	if err := newObjectCopier(ctx, srcRepo.Storer, repo.Storer).copy(h); err != nil {
 		return err
 	}
 	wt, err := repo.Worktree()
