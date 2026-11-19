@@ -68,9 +68,9 @@ channel = "223456789012345678"   # Discord channel ID (digits only)
 [viceroy]
 succession = true   # a successor viceroy may take over from its predecessor
 
-# Labels the viceroy may add and remove on cards, beyond line-gave-up and
-# needs:*, which it may always touch. A trailing * matches a prefix.
-labels = ["obsolete", "triage:*"]
+# The only labels the viceroy may add and remove on cards. A trailing *
+# matches a prefix.
+labels = ["line-gave-up", "needs:*", "superseded", "obsolete", "triage:*"]
 
 # Longest lifetime of a presigned link to a kaizen report; default 1h.
 presign_max_ttl = "2h"

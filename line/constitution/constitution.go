@@ -103,9 +103,9 @@ const EpicType = "epic"
 type Viceroy struct {
 	Succession  bool         `toml:"succession"`
 	Delegations []Delegation `toml:"delegations"`
-	// Labels lists labels the viceroy may add to and remove from cards,
-	// beyond the ones the station always allows. An entry ending in "*"
-	// matches every label with that prefix.
+	// Labels is the complete list of labels the viceroy may add to and
+	// remove from cards; the station allows no other. An entry ending in
+	// "*" matches every label with that prefix.
 	Labels []string `toml:"labels,omitempty"`
 	// PresignMaxTTL (Go duration) caps how long a presigned report link the
 	// viceroy requests may live; empty means DefaultPresignMaxTTL.

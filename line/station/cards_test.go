@@ -209,6 +209,7 @@ func TestCardsViceroyLabels(t *testing.T) {
 	}{
 		{"unpark", LabelChange{Remove: []string{"line-gave-up"}}, "", []string{"unlabel x-1 line-gave-up", "comment x-1 label line-gave-up removed by v (viceroy)"}},
 		{"needs and constitution label", LabelChange{Add: []string{"needs:king", "triage:a"}, Remove: []string{"line-gave-up"}}, "", []string{"label x-1 needs:king", "comment x-1 label needs:king added by v (viceroy)", "label x-1 triage:a", "comment x-1 label triage:a added by v (viceroy)", "unlabel x-1 line-gave-up", "comment x-1 label line-gave-up removed by v (viceroy)"}},
+		{"superseded", LabelChange{Add: []string{"superseded"}}, "", []string{"label x-1 superseded", "comment x-1 label superseded added by v (viceroy)"}},
 		{"line label is not the viceroy's", LabelChange{Add: []string{"line"}}, "403", nil},
 		{"one forbidden label blocks all", LabelChange{Add: []string{"needs:maker"}, Remove: []string{"line"}}, "403", nil},
 		{"same label both ways", LabelChange{Add: []string{"needs:maker"}, Remove: []string{"needs:maker"}}, "400", nil},
@@ -218,7 +219,7 @@ func TestCardsViceroyLabels(t *testing.T) {
 	for _, tc := range cases {
 		f := &fakeCards{show: `{}`}
 		srv, _, v, m := cardsRig(t, f)
-		srv.Guard.Constitution.Viceroy.Labels = []string{"triage:*"}
+		srv.Guard.Constitution.Viceroy.Labels = []string{"line-gave-up", "needs:*", "superseded", "triage:*"}
 		srv.Store = openTestStore(t)
 		err := v.CardLabels(context.Background(), "x-1", tc.change)
 		if tc.want == "" && err != nil || tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {

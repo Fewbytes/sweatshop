@@ -447,12 +447,6 @@ type LabelChange struct {
 	Remove []string `json:"remove,omitempty"`
 }
 
-// viceroyMayLabel reports whether the viceroy may add or remove label:
-// always line-gave-up and needs:*, otherwise what the constitution lists.
-func (s *Server) viceroyMayLabel(label string) bool {
-	return label == LabelGaveUp || strings.HasPrefix(label, LabelNeedsPrefix) || s.Guard.Constitution.Viceroy.MayLabel(label)
-}
-
 // auditLabelComment is the card comment that records who changed a label.
 func auditLabelComment(st *Station, verb, label string) string {
 	return fmt.Sprintf("label %s %s by %s (%s)", label, verb, st.Name, st.Role)
@@ -473,7 +467,7 @@ func (s *Server) viceroyLabels(w http.ResponseWriter, r *http.Request, cards Car
 		if !wordRe.MatchString(label) {
 			return "", fail(http.StatusBadRequest, "invalid label %q", label)
 		}
-		if !s.viceroyMayLabel(label) {
+		if !s.Guard.Constitution.Viceroy.MayLabel(label) {
 			return "", fail(http.StatusForbidden, "the constitution does not let the viceroy touch label %q", label)
 		}
 		if slices.Contains(change.Add, label) && slices.Contains(change.Remove, label) {
